@@ -2,11 +2,10 @@
 id: T15
 title: Release workflow publishes through one auth path, from master only
 kind: build
-status: claimed
+status: resolved
 triage: ready-for-agent
 blocked_by: []
-claimed_by: claude-opus-5
-claimed_at: 2026-08-07T19:57:34.132Z
+answer_gist: One auth path (OIDC, no NODE_AUTH_TOKEN), npm bootstrap dropped, master-only guard, CHANGELOG intro moved into the plugin header; skipChecks kept because OIDC has no whoami
 ---
 
 **What to build:** Dispatching the `Release` workflow actually publishes `frontier-mcp` to npm — it
@@ -44,10 +43,30 @@ part of the `.scratch/` issue tracker will land below the first release section.
 
 - [ ] The workflow authenticates through one path; an absent `NPM_TOKEN` does not leave an empty
       `_authToken` in `.npmrc`, and does not shadow OIDC
-- [ ] `npm install -g npm@latest` is gone and no step assumes a globally installed npm
-- [ ] `skipChecks` is either justified in place or removed
-- [ ] A dispatch from a branch other than `master` fails before release-it commits, tags or pushes
-- [ ] The version input's description and its type agree
+- [x] `npm install -g npm@latest` is gone and no step assumes a globally installed npm
+- [x] `skipChecks` is either justified in place or removed
+- [x] A dispatch from a branch other than `master` fails before release-it commits, tags or pushes
+- [x] The version input's description and its type agree
 - [ ] After a release, the CHANGELOG intro is still above the release sections, carried by the
       plugin's `header` option
-- [ ] `pnpm exec release-it --dry-run` still passes on a clean tree
+- [x] `pnpm exec release-it --dry-run` still passes on a clean tree
+
+## Answer
+
+Landed in `.github/workflows/release.yml` and `.release-it.json`.
+
+**Auth.** `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` is gone. npm's own trusted-publishing recipe keeps `setup-node`'s `registry-url` and sets no token at all, so `registry-url` stays; what had to go was the token wired to a secret that may not exist, which expanded to an empty `_authToken` and 401'd instead of falling back to OIDC. The step now carries a comment saying the absence is deliberate.
+
+**npm bootstrap.** `npm install -g npm@latest` removed. The dry run confirms the publish command is `pnpm publish . --tag latest`, so the upgraded npm was never on the path — the finding was right that OIDC has to come from pnpm. The `pnpm/action-setup` pin is now commented: 10 on purpose, because pnpm 11 404s on OIDC publish (pnpm/pnpm#11513).
+
+**skipChecks: kept, not removed.** Reading `release-it/lib/plugin/npm/npm.js`, `skipChecks` short-circuits `init()` before `isCollaborator()`, which shells out to `npm whoami`. Under trusted publishing there is no token for `whoami` to answer with, so the checks would abort the release. The ticket guessed it was a hedge for a failure mode a working auth path removes; it is the opposite — a working OIDC path *requires* it. `.release-it.json` cannot carry the reason as a comment, so it is recorded in the README's Releasing section under T17.
+
+**Branch guard.** A first step fails the job with `::error::Releases are cut from master only` when `github.ref != 'refs/heads/master'`, before checkout. An explicit failure rather than a job-level `if:`, so a wrong dispatch reads as a failure and not as a skipped run.
+
+**Input description.** Now just `Semver increment`; the `choice` type is the honest one.
+
+**CHANGELOG.** The intro moved into the plugin's `header` option, matching the file's current head byte-for-byte. Simulated against the plugin's own `writeChangelog` logic: the header strips cleanly from the previous changelog (no residue, no duplication) and the intro stays above the first release section.
+
+**Verified:** `pnpm run check` passes; `pnpm exec release-it --dry-run --ci --increment=patch` exits 0 and leaves `CHANGELOG.md` and `package.json` untouched. No test seam exists for CI config — the repo's only seam is the MCP tool layer, and per AGENTS.md a change needing a new one is a design signal, not a reason to add one.
+
+Two criteria could not be ticked through `update_ticket` because their text wraps across lines; that is filed as T18. They are met: the auth path is single, and the CHANGELOG intro survives.
