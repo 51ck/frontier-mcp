@@ -46,7 +46,11 @@ export const updateTicketInputSchema = {
   tick: z
     .array(z.string().min(1))
     .optional()
-    .describe('Acceptance criteria to check off, matched on their text.'),
+    .describe(
+      'Acceptance criteria to check off, matched on their text. Wrapped criteria match both ' +
+        'as get_tickets returns them and re-joined onto one line. All references resolve before ' +
+        'anything is written — one unmatched name fails the whole call and leaves the file untouched.',
+    ),
   root: z.string().optional().describe('Workspace directory. Defaults to the session workspace.'),
 };
 

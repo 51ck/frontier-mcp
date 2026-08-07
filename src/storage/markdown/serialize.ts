@@ -122,7 +122,9 @@ function endOfSection(body: string, from: number): number {
  * Tick acceptance criteria by their text. Only the checkbox marker changes —
  * the line keeps its own indentation and wording, and every other line of the
  * body is untouched, so progress is visible without rewriting the body around
- * it.
+ * it. Wrapped criteria match both as `get_tickets` returns them and re-joined
+ * onto one line; comparison collapses whitespace so neither form needs special
+ * casing.
  */
 function withTicks(body: string, tick: readonly string[] | undefined): string {
   if (tick === undefined || tick.length === 0) return body;
@@ -148,8 +150,32 @@ const CHECKBOX = /^(\s*[-*]\s*\[)( |x|X)(\]\s*)(.*)$/;
 const FENCE_LINE = /^\s*(?:```|~~~)/;
 
 interface Criterion {
+  /** Index of the checkbox line — the only line a tick may rewrite. */
   readonly line: number;
+  /** Whitespace-collapsed, lowercased prose, including wrapped continuations. */
   readonly text: string;
+}
+
+/**
+ * Collapse runs of whitespace (including newlines and continuation indent) so
+ * a wrapped criterion matches both the `get_tickets` form and a single-line
+ * rejoin of the same words.
+ */
+function collapseCriterionText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/**
+ * A continuation of the criterion above: indented prose that is not itself a
+ * checkbox, heading, or fence. Blank lines end the wrap — house style never
+ * leaves a hole inside a criterion.
+ */
+function isCriterionContinuation(line: string): boolean {
+  if (line.trim() === '') return false;
+  if (CHECKBOX.test(line)) return false;
+  if (FENCE_LINE.test(line)) return false;
+  if (/^#{1,6}\s/.test(line)) return false;
+  return /^\s+\S/.test(line);
 }
 
 /** Checkbox lines outside any code fence — the ones that are really criteria. */
@@ -157,16 +183,25 @@ function findCriteria(lines: readonly string[]): Criterion[] {
   const criteria: Criterion[] = [];
   let fenced = false;
 
-  lines.forEach((line, index) => {
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? '';
     if (FENCE_LINE.test(line)) {
       fenced = !fenced;
-      return;
+      continue;
     }
-    if (fenced) return;
+    if (fenced) continue;
 
     const box = CHECKBOX.exec(line);
-    if (box !== null) criteria.push({ line: index, text: (box[4] ?? '').trim().toLowerCase() });
-  });
+    if (box === null) continue;
+
+    const checkboxLine = index;
+    const parts = [box[4] ?? ''];
+    while (index + 1 < lines.length && isCriterionContinuation(lines[index + 1] ?? '')) {
+      index += 1;
+      parts.push(lines[index] ?? '');
+    }
+    criteria.push({ line: checkboxLine, text: collapseCriterionText(parts.join('\n')) });
+  }
 
   return criteria;
 }
@@ -178,7 +213,7 @@ function findCriteria(lines: readonly string[]): Criterion[] {
  * behalf.
  */
 function resolveCriterion(asked: string, criteria: readonly Criterion[]): number {
-  const target = asked.trim().toLowerCase();
+  const target = collapseCriterionText(asked);
 
   const exact = criteria.filter(criterion => criterion.text === target);
   if (exact.length === 1) return exact[0]?.line ?? -1;

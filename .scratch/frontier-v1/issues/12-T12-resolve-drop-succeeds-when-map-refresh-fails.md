@@ -21,11 +21,11 @@ The Map catches up on a later successful refresh or Map mutation.
 
 **Status:** ready-for-agent
 
-- [ ] Resolving or dropping a Ticket succeeds when Map derived regeneration fails after the Ticket
+- [x] Resolving or dropping a Ticket succeeds when Map derived regeneration fails after the Ticket
       write
-- [ ] The tool result carries a warning that Decisions-so-far / dropped Out-of-scope may be stale
-- [ ] A later successful Map refresh or Map mutation brings the derived blocks up to date
-- [ ] A concurrent Map edit that briefly contends for the Map no longer makes a completed resolve
+- [x] The tool result carries a warning that Decisions-so-far / dropped Out-of-scope may be stale
+- [x] A later successful Map refresh or Map mutation brings the derived blocks up to date
+- [x] A concurrent Map edit that briefly contends for the Map no longer makes a completed resolve
       or drop look like a failure to the caller
 
 ## Answer

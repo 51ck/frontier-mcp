@@ -25,12 +25,12 @@ valid.
 
 **Status:** ready-for-agent
 
-- [ ] `edit_map` with `create: true` and no section fields returns the existing Map when one is
+- [x] `edit_map` with `create: true` and no section fields returns the existing Map when one is
       already present, without requiring `expected_revision`
-- [ ] The same call still creates a missing Effort and Map when neither exists
-- [ ] Section edits on an existing Map still require `expected_revision` and still reject a stale
+- [x] The same call still creates a missing Effort and Map when neither exists
+- [x] Section edits on an existing Map still require `expected_revision` and still reject a stale
       or absent revision
-- [ ] The `create` argument description states it is for starting a missing Effort/Map only, and
+- [x] The `create` argument description states it is for starting a missing Effort/Map only, and
       that it does not change the revision rules for mutations
 
 ## Answer

@@ -138,6 +138,78 @@ describe('ticking an acceptance criterion', () => {
     expect(error).toContain('A criterion that does not exist');
     expect(await read()).toBe(before);
   });
+
+  it('ticks a criterion whose text wraps across lines', async () => {
+    // House style: criterion prose continues on an indented line under the checkbox.
+    const wrapped = [
+      '---',
+      'id: T1',
+      'title: Work',
+      'kind: build',
+      'status: open',
+      'blocked_by: []',
+      '---',
+      '',
+      '# T1 — Work',
+      '',
+      '- [ ] The workflow authenticates through one path; an absent `NPM_TOKEN` does not leave an empty',
+      '      `_authToken` in `.npmrc`, and does not shadow OIDC',
+      '- [ ] A single-line neighbour',
+      '',
+    ].join('\n');
+    const { frontier, read } = await withBody(wrapped);
+    const before = await read();
+
+    // As get_tickets returns it — newline and continuation indent intact.
+    const asReturned =
+      'The workflow authenticates through one path; an absent `NPM_TOKEN` does not leave an empty\n' +
+      '      `_authToken` in `.npmrc`, and does not shadow OIDC';
+    await frontier.call('update_ticket', { id: 'T1', tick: [asReturned] });
+
+    const after = await read();
+    const changed = after
+      .split('\n')
+      .map((line, index) => ({ line, was: before.split('\n')[index] }))
+      .filter(entry => entry.line !== entry.was);
+
+    expect(changed).toEqual([
+      {
+        line: '- [x] The workflow authenticates through one path; an absent `NPM_TOKEN` does not leave an empty',
+        was: '- [ ] The workflow authenticates through one path; an absent `NPM_TOKEN` does not leave an empty',
+      },
+    ]);
+    expect(after).toContain('      `_authToken` in `.npmrc`, and does not shadow OIDC');
+    expect(after).toContain('- [ ] A single-line neighbour');
+  });
+
+  it('also matches a wrapped criterion re-joined onto one line', async () => {
+    const wrapped = [
+      '---',
+      'id: T1',
+      'title: Work',
+      'kind: build',
+      'status: open',
+      'blocked_by: []',
+      '---',
+      '',
+      '- [ ] The workflow authenticates through one path; an absent `NPM_TOKEN` does not leave an empty',
+      '      `_authToken` in `.npmrc`, and does not shadow OIDC',
+      '',
+    ].join('\n');
+    const { frontier, read } = await withBody(wrapped);
+
+    await frontier.call('update_ticket', {
+      id: 'T1',
+      tick: [
+        'The workflow authenticates through one path; an absent `NPM_TOKEN` does not leave an empty ' +
+          '`_authToken` in `.npmrc`, and does not shadow OIDC',
+      ],
+    });
+
+    expect(await read()).toContain(
+      '- [x] The workflow authenticates through one path; an absent `NPM_TOKEN` does not leave an empty',
+    );
+  });
 });
 
 describe('sections a write does not own', () => {
