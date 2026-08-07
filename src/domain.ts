@@ -115,6 +115,8 @@ export interface TicketEdit {
   readonly answerGist?: string | null;
   readonly droppedReason?: string | null;
   readonly answer?: string;
+  /** Replaces the Edge list outright. An empty list clears it. */
+  readonly blockedBy?: readonly string[];
   /** Appended to the comment log, verbatim. Nothing is added around it. */
   readonly comment?: string;
   /** Acceptance criteria to tick, addressed by their text. */

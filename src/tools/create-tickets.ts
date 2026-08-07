@@ -68,22 +68,55 @@ export interface DraftRequest {
   readonly body?: string | undefined;
 }
 
+export interface PlannedBatch {
+  readonly drafts: readonly TicketDraft[];
+  /**
+   * The cycle check, re-run against the ids the batch is actually given. A
+   * Ticket already on disk can declare an Edge on an id nobody has minted yet,
+   * and minting exactly that id is the moment that dangling Edge becomes a loop
+   * — which is invisible until the ids are real.
+   */
+  readonly validate: (ids: readonly string[]) => void;
+}
+
 /**
  * Turn the request into drafts, refusing anything the schema or the graph does
  * not allow. Everything resolvable without an id is settled here, so by the time
- * the driver mints one the only remaining failure is the filesystem.
+ * the driver mints one the only rule left to check is the one that needed it.
  */
-export function draftsFrom(
+export function planBatch(
   requests: readonly DraftRequest[],
   existing: readonly Ticket[],
-): readonly TicketDraft[] {
+): PlannedBatch {
   const drafts = requests.map(request => toDraft(request));
   const keys = declaredKeys(drafts);
+  const provisional = drafts.map((draft, index) => draft.key ?? placeholderFor(index, keys));
 
   checkEdges(drafts, keys, existing);
-  checkCycles(drafts, keys, existing);
+  // Named by their keys, so a loop between two drafts reads in the caller's own
+  // vocabulary rather than in ids they have not seen yet.
+  checkCycles(drafts, provisional, existing);
 
-  return drafts;
+  return {
+    drafts,
+    validate: ids => {
+      checkCycles(drafts, ids, existing, resolvedBy(drafts, keys, ids));
+    },
+  };
+}
+
+/** Once the ids are real, an Edge naming a key means the id that key was given. */
+function resolvedBy(
+  drafts: readonly TicketDraft[],
+  keys: ReadonlySet<string>,
+  ids: readonly string[],
+): (edge: string) => string {
+  const byKey = new Map<string, string>();
+  drafts.forEach((draft, index) => {
+    if (draft.key !== undefined) byKey.set(draft.key, ids[index] ?? '');
+  });
+
+  return edge => (keys.has(edge) ? (byKey.get(edge) ?? edge) : edge);
 }
 
 function toDraft(request: DraftRequest): TicketDraft {
@@ -150,21 +183,30 @@ function checkEdges(
 }
 
 /**
- * The graph the batch would produce: existing Tickets by id, plus the drafts by
- * whichever name their siblings can reach them under. A draft with no key is
- * unreachable by definition, but still needs checking — its own Edges can lead
- * back to it through the Tickets already on disk.
+ * The graph the batch would produce: existing Tickets by id, plus the drafts
+ * under `names` — their temporary keys before allocation, their real ids after.
+ *
+ * A draft with no key is unreachable by any sibling, but still needs checking:
+ * once it has an id, its own Edges can lead back to it through the Tickets
+ * already on disk.
  */
 function checkCycles(
   drafts: readonly TicketDraft[],
-  keys: ReadonlySet<string>,
+  names: readonly string[],
   existing: readonly Ticket[],
+  resolve: (edge: string) => string = edge => edge,
 ): void {
   const ids = indexById(existing);
   const nodes = new Map<string, TicketDraft>();
-  drafts.forEach((draft, index) => nodes.set(draft.key ?? placeholderFor(index, keys), draft));
+  const edges = new Map<string, readonly string[]>();
 
-  const edgesOf: EdgesOf = id => nodes.get(id)?.blockedBy ?? ids.get(id)?.blockedBy ?? [];
+  drafts.forEach((draft, index) => {
+    const name = names[index] ?? '';
+    nodes.set(name, draft);
+    edges.set(name, draft.blockedBy.map(resolve));
+  });
+
+  const edgesOf: EdgesOf = id => edges.get(id) ?? ids.get(id)?.blockedBy ?? [];
 
   for (const [node, draft] of nodes) {
     const cycle = cycleThrough(node, edgesOf);

@@ -1,4 +1,4 @@
-import { Document, parseDocument } from 'yaml';
+import { Document, isSeq, parseDocument } from 'yaml';
 
 import type { TicketEdit } from '../../domain.ts';
 import { splitFrontmatter } from './frontmatter.ts';
@@ -54,6 +54,7 @@ export function applyEdit(contents: string, edit: TicketEdit, defaults: Defaults
     if (value === null) document.delete(field);
     else document.set(field, value);
   }
+  if (edit.blockedBy !== undefined) setEdges(document, edit.blockedBy);
 
   const frontmatter = render(document);
 
@@ -67,6 +68,21 @@ export function applyEdit(contents: string, edit: TicketEdit, defaults: Defaults
   body = withComment(body, edit.comment);
 
   return `---\n${frontmatter}\n---\n\n${body}\n`;
+}
+
+/**
+ * The Edge list, replaced whole rather than merged — a caller changing Edges
+ * knows which ones it wants, and a merge would leave no way to remove one.
+ *
+ * The existing collection style survives: a Ticket written `blocked_by: [T3]`
+ * must not come back as a block list just because its Edges changed. That is the
+ * same rule as the rest of ADR 0003, applied to the one field being named.
+ */
+function setEdges(document: Document, blockedBy: readonly string[]): void {
+  const existing: unknown = document.get('blocked_by', true);
+  const flow = isSeq(existing) ? existing.flow === true : true;
+
+  document.set('blocked_by', document.createNode([...blockedBy], { flow }));
 }
 
 /** Where a `##` section ends: the next `##` heading, or the end of the body. */

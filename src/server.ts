@@ -9,7 +9,7 @@ import { RevisionMismatch } from './storage/driver.ts';
 import {
   createTicketsDescription,
   createTicketsInputSchema,
-  draftsFrom,
+  planBatch,
   renderCreated,
 } from './tools/create-tickets.ts';
 import {
@@ -163,9 +163,14 @@ export function createFrontier(options: CreateServerOptions = {}): Frontier {
       const index = registry.forWorkspace(workspace);
 
       // Every reference resolves before anything is written, so a refusal —
-      // an unknown key, a cycle — leaves the workspace exactly as it was.
-      const drafts = draftsFrom(tickets, await index.tickets());
-      const created = await index.create(effort, drafts, { createEffort: create === true });
+      // an unknown key, a cycle — leaves the workspace exactly as it was. The
+      // one rule that needs real ids runs under the driver's reservations,
+      // still before any file lands.
+      const { drafts, validate } = planBatch(tickets, await index.tickets());
+      const created = await index.create(effort, drafts, {
+        createEffort: create === true,
+        validate,
+      });
 
       return { content: [{ type: 'text', text: renderCreated(effort, created) }] };
     },
@@ -179,12 +184,12 @@ export function createFrontier(options: CreateServerOptions = {}): Frontier {
       inputSchema: updateTicketInputSchema,
       annotations: { readOnlyHint: false, idempotentHint: false },
     },
-    async ({ id, claim, resolve, drop, status, triage, comment, tick, root }) => {
+    async ({ id, claim, resolve, drop, status, triage, blocked_by, comment, tick, root }) => {
       const workspace = resolveWorkspace(root, context);
       const index = registry.forWorkspace(workspace);
       const tickets = await index.tickets();
 
-      const request = { claim, resolve, drop, status, triage, comment, tick };
+      const request = { claim, resolve, drop, status, triage, blocked_by, comment, tick };
       const find = (from: readonly Ticket[]): Ticket => {
         const ticket = from.find(entry => entry.id === id || entry.handle === id);
         if (ticket === undefined) throw new Error(`No Ticket '${id}' in ${workspace}.`);
@@ -197,7 +202,7 @@ export function createFrontier(options: CreateServerOptions = {}): Frontier {
       try {
         written = await index.update(
           ticket.handle,
-          editFor(ticket, request, now()),
+          editFor(ticket, tickets, request, now()),
           ticket.revision,
         );
       } catch (error) {
@@ -208,7 +213,8 @@ export function createFrontier(options: CreateServerOptions = {}): Frontier {
         // claimed by agent-3" is the useful message. The write is never
         // retried — a mismatch may equally be somebody's hand edit, and
         // overwriting that is exactly what the check exists to prevent.
-        editFor(find(await index.tickets()), request, now());
+        const fresh = await index.tickets();
+        editFor(find(fresh), fresh, request, now());
         throw error;
       }
 

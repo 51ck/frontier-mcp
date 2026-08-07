@@ -52,11 +52,16 @@ export async function createTicketFiles(
   effort: string,
   drafts: readonly TicketDraft[],
   rescan: Rescan,
+  validate: (ids: readonly string[]) => void = () => {},
 ): Promise<readonly string[]> {
   const { reservations, tickets } = await reserve(scratch, drafts.length, rescan);
 
   try {
     const ids = reservations.map(entry => entry.id);
+    // The last rule that can only be checked now: the ids are real but nothing
+    // is written, so a refusal still creates nothing.
+    validate(ids);
+
     const files = plan(effort, drafts, ids, tickets);
     await writeAll(join(scratch, effort, 'issues'), files);
     return files.map(file => file.filename);

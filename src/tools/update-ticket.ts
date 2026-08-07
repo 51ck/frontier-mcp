@@ -3,6 +3,8 @@ import { z } from 'zod';
 import type { Ticket, TicketEdit } from '../domain.ts';
 import { STATUSES, TRIAGE_ROLES } from '../domain.ts';
 import type { TriageRole } from '../domain.ts';
+import { cycleThrough, renderCycle, type EdgesOf } from '../edges.ts';
+import { indexById } from '../frontier.ts';
 
 export const updateTicketInputSchema = {
   id: z.string().describe('Ticket id, or the <effort>#<order> handle of a Legacy Ticket.'),
@@ -29,6 +31,13 @@ export const updateTicketInputSchema = {
     .enum(TRIAGE_ROLES)
     .optional()
     .describe('Set the triage role. A separate field from status; neither touches the other.'),
+  blocked_by: z
+    .array(z.string().min(1))
+    .optional()
+    .describe(
+      'Replace the Edges outright, each a plain Ticket id resolved repo-wide. An empty list ' +
+        'clears them. A cycle is refused.',
+    ),
   comment: z
     .string()
     .min(1)
@@ -43,8 +52,9 @@ export const updateTicketInputSchema = {
 
 export const updateTicketDescription =
   'Change one Ticket. Lifecycle: claim, resolve with a one-line gist, or drop with a reason — at ' +
-  'most one of those per call. Annotations: triage role, a comment, ticking acceptance criteria; ' +
-  'these touch no part of the graph and may accompany a lifecycle change or stand alone.';
+  'most one of those per call. Graph: replace the Edges, refused if they close a cycle. ' +
+  'Annotations: triage role, a comment, ticking acceptance criteria; these touch no part of the ' +
+  'graph. Any of the three groups may accompany the others or stand alone.';
 
 export interface UpdateRequest {
   readonly claim?: { by: string } | undefined;
@@ -52,22 +62,33 @@ export interface UpdateRequest {
   readonly drop?: { reason: string } | undefined;
   readonly triage?: TriageRole | undefined;
   readonly status?: string | undefined;
+  readonly blocked_by?: readonly string[] | undefined;
   readonly comment?: string | undefined;
   readonly tick?: readonly string[] | undefined;
 }
 
 /**
  * Turn a request into the edit the driver applies, refusing anything the Status
- * model does not allow. Validation lives here rather than in the driver because
- * it is a rule about the domain, not about storage.
+ * model or the Edge graph does not allow. Validation lives here rather than in
+ * the driver because it is a rule about the domain, not about storage.
+ *
+ * `all` is every Ticket in the workspace, because Edges resolve repo-wide and a
+ * cycle can run through an Effort this call never names.
  */
-export function editFor(ticket: Ticket, request: UpdateRequest, now: string): TicketEdit {
+export function editFor(
+  ticket: Ticket,
+  all: readonly Ticket[],
+  request: UpdateRequest,
+  now: string,
+): TicketEdit {
   // Annotations are not graph operations. They carry no lifecycle meaning, so
-  // they ride along with a transition or stand on their own.
+  // they ride along with a transition or stand on their own. An Edge change is a
+  // graph operation and rides along the same way, having been validated first.
   const annotations: TicketEdit = {
     ...(request.triage === undefined ? {} : { triage: request.triage }),
     ...(request.comment === undefined ? {} : { comment: request.comment }),
     ...(request.tick === undefined ? {} : { tick: request.tick }),
+    ...(request.blocked_by === undefined ? {} : { blockedBy: edgesFor(ticket, all, request) }),
   };
 
   // Status is derived from the transition, never assigned. Saying so beats
@@ -87,7 +108,9 @@ export function editFor(ticket: Ticket, request: UpdateRequest, now: string): Ti
 
   if (actions.length === 0) {
     if (Object.keys(annotations).length === 0) {
-      throw new Error('Nothing to do: pass a lifecycle change, or triage, comment, or tick.');
+      throw new Error(
+        'Nothing to do: pass a lifecycle change, or blocked_by, triage, comment, or tick.',
+      );
     }
     return annotations;
   }
@@ -120,6 +143,38 @@ export function editFor(ticket: Ticket, request: UpdateRequest, now: string): Ti
   }
 
   throw new Error('Unreachable: an action was counted but none matched.');
+}
+
+/**
+ * The new Edge list, refused if it closes a cycle. This is the same check
+ * `create_tickets` runs and the easier of the two ways to close a loop — a
+ * breakdown published in one call is at least written down in one place, where
+ * an Edge added later is not.
+ *
+ * A dangling Edge is not refused: it is a Board warning, and pointing at a
+ * Ticket that has not been written yet is how a breakdown gets built up.
+ */
+function edgesFor(
+  ticket: Ticket,
+  all: readonly Ticket[],
+  request: UpdateRequest,
+): readonly string[] {
+  const blockedBy = request.blocked_by ?? [];
+  // Nothing can name an id-less Legacy Ticket, so no path leads back to it.
+  if (ticket.id === undefined) return blockedBy;
+
+  const byId = indexById(all);
+  const edgesOf: EdgesOf = id => (id === ticket.id ? blockedBy : (byId.get(id)?.blockedBy ?? []));
+
+  const cycle = cycleThrough(ticket.id, edgesOf);
+  if (cycle !== undefined) {
+    throw new Error(
+      `Those Edges would close a cycle: ${renderCycle(cycle)}. Nothing in a cycle is ever ` +
+        'takeable, so nothing was written.',
+    );
+  }
+
+  return blockedBy;
 }
 
 /**

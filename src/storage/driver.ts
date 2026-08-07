@@ -2,13 +2,26 @@ import type { Effort, Ticket, TicketDraft, TicketEdit } from '../domain.ts';
 
 export type { TicketDraft, TicketEdit };
 
-/** How a batch creation treats an Effort the workspace does not hold. */
 export interface CreateOptions {
   /**
-   * Create the Effort rather than failing. Off by default, so starting work is
-   * one deliberate call while a mistyped slug never silently forks an Effort.
+   * Create the Effort rather than failing when the workspace does not hold it.
+   * Off by default, so starting work is one deliberate call while a mistyped
+   * slug never silently forks an Effort.
    */
   readonly createEffort: boolean;
+  /**
+   * Called with the ids about to be written, in draft order, once they are
+   * reserved and before anything lands. Throwing abandons the batch, so nothing
+   * is created.
+   *
+   * It exists for the rules that cannot be checked until the ids are real. A
+   * cycle is the one that matters: a Ticket already on disk may declare an Edge
+   * on an id nobody has minted yet, which the Board reports as dangling — and
+   * minting exactly that id is the moment it becomes a loop. Nothing above the
+   * seam can see that coming, because nothing above the seam knows what the
+   * next id will be.
+   */
+  readonly validate?: (ids: readonly string[]) => void;
 }
 
 /**

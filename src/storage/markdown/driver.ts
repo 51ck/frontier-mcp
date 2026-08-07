@@ -117,8 +117,12 @@ async function create(
   // nowhere to put a Ticket yet.
   await mkdir(join(dir, ISSUES_DIR), { recursive: true });
 
-  const filenames = await createTicketFiles(scratch, effort, drafts, async () =>
-    (await walk()).flatMap(entry => entry.tickets),
+  const filenames = await createTicketFiles(
+    scratch,
+    effort,
+    drafts,
+    async () => (await walk()).flatMap(entry => entry.tickets),
+    options.validate,
   );
 
   const written = await readTicketFiles(dir, effort);
