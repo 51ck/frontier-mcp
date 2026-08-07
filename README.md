@@ -6,7 +6,7 @@ stop re-parsing prose to learn what is open, blocked, or takeable.
 ## Requirements
 
 - Node 24 or later
-- pnpm, npm, or npx for installation
+- npx (or pnpm for development of this package)
 
 ## Install once (user scope)
 
@@ -52,7 +52,7 @@ Use the same command and pinned package argument in your client's user-scope MCP
 ## First use in a repository
 
 1. Open the repository in your editor. Frontier resolves the workspace from the session working
-   directory — walking upward to the nearest `.git/` or `.scratch/` — so opening the project is the
+   directory — walking upward to the nearest `.scratch/` or `.git/` — so opening the project is the
    only setup step.
 2. Read the tracker configuration document once. In Cursor, fetch MCP resource `frontier://tracker-doc`,
    or read [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md) in a repo that vendors it.
