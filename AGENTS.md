@@ -210,12 +210,12 @@ Source layout:
 | `src/edges.ts` | Cycle detection over the Edge graph. Above the seam, because a cycle is a rule about the domain rather than about storage — the same reason the Status model is checked in the tool layer. |
 | `src/storage/driver.ts` | The ADR 0001 seam, its edit vocabulary, and its typed failures. |
 | `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout — `frontmatter.ts` splits the fence, `ticket.ts` parses a Ticket, `legacy.ts` infers one from prose, `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` allocates ids and writes a new batch, `migrate.ts` normalizes an Effort at once, `write.ts` renames it into place. |
-| `src/workspace.ts` | Workspace resolution — the one place above the driver that reads the filesystem, and only to locate a repository root. |
+| `src/workspace.ts` | Workspace resolution — the only module above the driver that reads a *served* repository, and only to locate its root. |
 | `src/workspace-index.ts` | The in-memory index, one per resolved workspace. |
 | `src/workspace-watcher.ts` | Filesystem watcher — debounced index invalidation for `.scratch/` changes. |
 | `src/tools/` | One module per tool: its input schema, its description, and how its result renders. |
 | `src/server.ts` | Wires the above into an `McpServer`. |
-| `src/tracker-doc.ts` | Loads the shipped tracker configuration document for the `tracker-doc` MCP resource. |
+| `src/tracker-doc.ts` | Loads the shipped tracker configuration document for the `tracker-doc` MCP resource. Reads the filesystem, but only inside the installed package — never a served repository, which is why it does not go through the driver. |
 | `src/index.ts` | The package's library surface. Deliberately narrow — below-seam modules are not exported. |
 | `src/bin.ts` | The stdio entry point. |
 
