@@ -247,10 +247,7 @@ function replaceGenerated(contents: string, heading: string, inner: string): str
       : `${GENERATED_OPEN}\n${inner}\n${GENERATED_CLOSE}\n`;
 
   const { hasFence, raw: fence, body } = splitFrontmatter(contents);
-  const located = locateSection(body, heading);
-  if (located === undefined) return contents;
-
-  const { start, end } = located;
+  const { start, end } = locateSection(body, heading)!;
   const section = body.slice(start, end);
 
   let replacement: string;
