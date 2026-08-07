@@ -1,9 +1,11 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
+import type { Ticket } from './domain.ts';
 import { frontierOf } from './frontier.ts';
 import { createIndexRegistry } from './workspace-index.ts';
 import { createMarkdownDriver } from './storage/markdown/driver.ts';
 import type { StorageDriver } from './storage/driver.ts';
+import { RevisionMismatch } from './storage/driver.ts';
 import {
   boardFor,
   getBoardDescription,
@@ -155,11 +157,33 @@ export function createFrontier(options: CreateServerOptions = {}): Frontier {
       const index = registry.forWorkspace(workspace);
       const tickets = await index.tickets();
 
-      const ticket = tickets.find(entry => entry.id === id || entry.handle === id);
-      if (ticket === undefined) throw new Error(`No Ticket '${id}' in ${workspace}.`);
+      const request = { claim, resolve, drop };
+      const find = (from: readonly Ticket[]): Ticket => {
+        const ticket = from.find(entry => entry.id === id || entry.handle === id);
+        if (ticket === undefined) throw new Error(`No Ticket '${id}' in ${workspace}.`);
+        return ticket;
+      };
 
-      const edit = editFor(ticket, { claim, resolve, drop }, now());
-      const written = await index.update(ticket.handle, edit, ticket.revision);
+      const ticket = find(tickets);
+
+      let written: Ticket;
+      try {
+        written = await index.update(
+          ticket.handle,
+          editFor(ticket, request, now()),
+          ticket.revision,
+        );
+      } catch (error) {
+        if (!(error instanceof RevisionMismatch)) throw error;
+
+        // The Ticket moved under us. Re-read and re-validate, but only to
+        // explain why: most often a parallel session claimed it, and "already
+        // claimed by agent-3" is the useful message. The write is never
+        // retried — a mismatch may equally be somebody's hand edit, and
+        // overwriting that is exactly what the check exists to prevent.
+        editFor(find(await index.tickets()), request, now());
+        throw error;
+      }
 
       return { content: [{ type: 'text', text: renderUpdate(written) }] };
     },
