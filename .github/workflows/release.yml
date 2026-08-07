@@ -1,0 +1,69 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      increment:
+        description: Semver increment
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+# Human starts the workflow; CI bumps, tags, publishes, and opens the GitHub Release.
+# Approving a version choice here is also approval to publish.
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # release-it bumps, commits, tags and pushes before it ever publishes, so a dispatch
+      # from a feature branch would rewrite that branch. Refuse loudly, first thing.
+      - name: Refuse to release off master
+        if: github.ref != 'refs/heads/master'
+        run: |
+          echo "::error::Releases are cut from master only; got ${{ github.ref }}"
+          exit 1
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Pinned to 10 on purpose: pnpm 11 404s on OIDC publish (pnpm/pnpm#11513).
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      # No registry-url on purpose. It writes an .npmrc whose ${NODE_AUTH_TOKEN} placeholder pnpm
+      # cannot expand, and pnpm discards the whole file when that happens — so it buys nothing here
+      # and hides a warning. The default registry is the one we publish to anyway.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # npm auth comes from Trusted Publishing (OIDC), via the id-token permission above and
+      # pnpm's own OIDC support — there is deliberately no NODE_AUTH_TOKEN. Setting one from a
+      # secret that may not exist writes an empty _authToken into .npmrc, which 401s instead of
+      # falling back to OIDC.
+      - name: Release
+        run: pnpm exec release-it --ci --increment=${{ inputs.increment }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
