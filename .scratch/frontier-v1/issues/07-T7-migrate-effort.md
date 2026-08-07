@@ -10,7 +10,7 @@ answer_gist: "migrate_effort is the eighth tool: normalize Legacy Tickets, prese
 
 # T7 — `migrate_effort`: normalize, mint ids, preview, opt-in rename
 
-**What to build:** Pointing Frontier at a repo with 159 legacy Ticket files and converting an Effort
+**What to build:** Pointing FrontierMCP at a repo with 159 legacy Ticket files and converting an Effort
 deliberately, rather than waiting for writes to normalize files one at a time. Ids a Ticket already
 carries are preserved, so every `T31` reference in sobrina's prose and commit messages keeps resolving.
 Tickets identified only by a filename number get a fresh id, because a per-Effort `01` is not unique
