@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -198,6 +198,31 @@ describe('create_tickets', () => {
     // left one would have invented an Effort nobody asked for.
     expect(await frontier.call('list_efforts')).not.toContain('brandnew');
     expect(existsSync(join(root, '.scratch/brandnew'))).toBe(false);
+  });
+
+  it('leaves no Effort behind when the write itself fails', async () => {
+    const root = await makeFixtureTree(WORKSPACE);
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    // A file where the Effort's issues/ directory has to go. mkdir fails with
+    // ENOTDIR, which is the closest a test at this seam can get to a disk that
+    // refuses the write.
+    await writeFile(join(root, '.scratch/blocked'), 'not a directory\n', 'utf8');
+
+    await frontier.callExpectingError('create_tickets', {
+      effort: 'blocked',
+      create: true,
+      tickets: [{ title: 'Nowhere to land' }],
+    });
+
+    expect(await frontier.call('list_efforts')).not.toContain('blocked');
+    // The next id is untouched: a batch that created nothing consumed nothing
+    // but the numbers it reserved and gave back.
+    await frontier.call('create_tickets', {
+      effort: 'alpha',
+      tickets: [{ title: 'After the failure' }],
+    });
+    expect(await issuesIn(root, 'alpha')).toContain('03-T8-after-the-failure.md');
   });
 
   it('refuses an unknown Effort unless the call asks for it to be created', async () => {

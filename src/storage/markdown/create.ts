@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, rename, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { Ticket, TicketDraft } from '../../domain.ts';
@@ -30,8 +30,12 @@ interface Reservation {
 export type Rescan = () => Promise<readonly Ticket[]>;
 
 export interface CreateRequest {
+  /** Where the id guards live: one namespace for the whole workspace. */
   readonly scratch: string;
   readonly effort: string;
+  /** The Effort's directory, and the directory its Tickets go in. Both owned by the driver. */
+  readonly dir: string;
+  readonly issues: string;
   readonly drafts: readonly TicketDraft[];
   /** Re-read the workspace. Called under the guards, so it must not be cached. */
   readonly rescan: Rescan;
@@ -62,7 +66,7 @@ export interface CreateRequest {
  * write X. See ADR 0005.
  */
 export async function createTicketFiles(request: CreateRequest): Promise<readonly string[]> {
-  const { scratch, effort, drafts, rescan, validate, createEffort } = request;
+  const { scratch, effort, dir, issues, drafts, rescan, validate, createEffort } = request;
   const { reservations, tickets } = await reserve(scratch, drafts.length, rescan);
 
   try {
@@ -72,15 +76,14 @@ export async function createTicketFiles(request: CreateRequest): Promise<readonl
     validate(ids, tickets);
 
     const files = filesFor(effort, drafts, ids, tickets);
-    const issues = join(scratch, effort, 'issues');
 
     // After validation, so a refused batch never leaves an empty Effort behind —
-    // a bare `issues/` directory is enough to make one show up in list_efforts.
+    // a bare issues/ directory is enough to make one show up in list_efforts.
     await mkdir(issues, { recursive: true });
     try {
       await writeAll(issues, files);
     } catch (error) {
-      if (createEffort) await discardEffort(join(scratch, effort));
+      if (createEffort) await discardEffort(dir, issues);
       throw error;
     }
 
@@ -93,13 +96,15 @@ export async function createTicketFiles(request: CreateRequest): Promise<readonl
 }
 
 /**
- * Remove an Effort this call made and then failed to fill. `rm` is not recursive
- * on purpose: it refuses a directory holding anything, which is exactly the
- * wanted behaviour if a concurrent session has already put something there.
+ * Remove an Effort this call made and then failed to fill. `rmdir` rather than a
+ * recursive delete: it fails with ENOTEMPTY on a directory holding anything,
+ * which is exactly right if a concurrent session has already put something
+ * there. Never a recursive `rm` — this runs on a failure path, where being wrong
+ * about which directory it is would destroy somebody's work.
  */
-async function discardEffort(dir: string): Promise<void> {
-  await rm(join(dir, 'issues'), { recursive: false }).catch(() => {});
-  await rm(dir, { recursive: false }).catch(() => {});
+async function discardEffort(dir: string, issues: string): Promise<void> {
+  await rmdir(issues).catch(() => {});
+  await rmdir(dir).catch(() => {});
 }
 
 interface NewFile {
@@ -267,53 +272,30 @@ async function claim(
   return claim(scratch, used, count, candidate + 1, [...taken, { id, guard }]);
 }
 
+/**
+ * Take a guard, or report that somebody else has it.
+ *
+ * A guard is **never** broken, only bumped past, and that is the whole of the
+ * concurrency story here. Every scheme for reclaiming one — an age threshold, a
+ * liveness check on the pid inside it — has the same shape: read the guard,
+ * decide it is abandoned, then remove it. The decision goes stale between those
+ * two steps, and a session that removes a guard another session has just taken
+ * hands both of them the same id. That is the exact defect this file exists to
+ * prevent, so it is not reintroduced to tidy up after crashes.
+ *
+ * The cost is a guard left by a crashed session, which makes one id number
+ * unusable. Ids are promised never to be *reused*, never to run without gaps, so
+ * a skipped number costs nothing; the file is hidden, one line, and names the
+ * process that left it. {@link CANDIDATE_HEADROOM} bounds how many can pile up
+ * before allocation says so and points at them.
+ */
 async function hold(guard: string): Promise<boolean> {
   try {
     await writeFile(guard, `${String(process.pid)}\n`, { flag: 'wx' });
     return true;
   } catch (error) {
     if ((error as NodeJS.ErrnoException | null)?.code !== 'EEXIST') throw error;
-    return (await breakIfAbandoned(guard)) ? hold(guard) : false;
-  }
-}
-
-/**
- * Break a guard whose process is gone, so a crashed allocation cannot burn an id
- * permanently.
- *
- * Liveness, deliberately, rather than the age threshold the claim guard uses. A
- * claim guard has the revision check behind it, so breaking one early only costs
- * a retry; an id guard is the whole guarantee, and breaking one held by a session
- * that is merely slow — suspended, paging, mid-GC — would let two sessions write
- * the same id. There is no age at which that becomes safe, and there is no window
- * at all if the holder is asked whether it still exists.
- *
- * A recycled pid reads as alive and only costs a skipped id, which is the
- * direction this is allowed to be wrong in.
- */
-async function breakIfAbandoned(guard: string): Promise<boolean> {
-  let holder: number;
-  try {
-    holder = Number((await readFile(guard, 'utf8')).trim());
-  } catch {
-    // It vanished under us, which means the holder finished. Retrying is right.
-    return true;
-  }
-
-  if (!Number.isInteger(holder) || holder <= 0 || isAlive(holder)) return false;
-
-  await unlink(guard).catch(() => {});
-  return true;
-}
-
-/** Signal 0 tests for a process without signalling it. */
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    // EPERM means it exists and belongs to somebody else — alive either way.
-    return (error as NodeJS.ErrnoException | null)?.code === 'EPERM';
+    return false;
   }
 }
 

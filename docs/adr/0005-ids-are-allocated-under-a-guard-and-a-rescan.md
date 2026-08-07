@@ -29,13 +29,21 @@ so the worst a crashed session can do is make one id number get skipped — and 
 be *reused*, never that they run without gaps. Guards are hidden, are not `.md`, and are not
 directories, so no scan sees them and `.scratch/` yields them no Effort.
 
-A guard is broken only when **its holder's process is gone**, tested by pid rather than by age. The
-claim guard of ADR 0004 uses a 30-second staleness sweep, and that is safe there because the revision
-check sits behind it — breaking one early costs a retry and nothing else. An id guard has nothing
-behind it: it *is* the guarantee. Breaking one held by a session that is merely slow — suspended,
-paging, mid-GC — would let two sessions write the same id, and there is no age at which that stops
-being true. Asking whether the holder still exists has no window at all. A recycled pid reads as alive
-and costs a skipped id, which is the direction this is allowed to be wrong in.
+An id guard is **never broken**, only bumped past. The claim guard of ADR 0004 is swept after 30
+seconds, and that is safe there because the revision check sits behind it — breaking one early costs a
+retry and nothing else. An id guard has nothing behind it: it *is* the guarantee.
+
+Every scheme for reclaiming one has the same shape — read the guard, decide it is abandoned, remove it
+— and the decision goes stale between the second step and the third. Two sessions that both read an
+abandoned guard both remove it, and the second removes the *fresh* guard the first has just taken;
+both then rescan, neither sees the id on disk, and both write it. Testing the holder's pid for liveness
+narrows that window without closing it, which is the same mistake as the optimistic mtime check ADR
+0004 was written about. So nothing reclaims a guard.
+
+The cost is that a session crashing mid-allocation makes one id number unusable. Ids are promised never
+to be *reused*, never to run without gaps, so a skipped number costs nothing; the guard is a hidden
+one-line file naming the process that left it, and the headroom error points at them by name when
+enough have piled up to matter.
 
 Allocation costs two full workspace scans per batch, plus one more per contended retry. At the volumes
 this serves that is single-digit milliseconds, and creation is the rarest call on the surface.
@@ -55,5 +63,7 @@ Cycle rejection had to move with it. A Ticket on disk may declare an Edge on an 
 yet — a dangling Edge, which the Board reports and does not refuse — and minting exactly that id is the
 moment it becomes a loop. Nothing above the seam can see that coming, because nothing above the seam
 knows what the next id will be. `CreateOptions` therefore carries a `validate` hook the driver calls
-with the reserved ids, before any file lands. It takes ids and nothing else, so no markdown concept
-crosses the seam to reach it.
+before any file lands, with the reserved ids and the workspace as it looks under those reservations —
+not the scan the tool layer took earlier, which came before the guards and may have missed the very
+Ticket whose dangling Edge is about to close. It takes ids and Tickets, both of which already cross the
+seam, so no markdown concept crosses it to reach them.

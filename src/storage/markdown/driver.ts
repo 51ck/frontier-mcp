@@ -117,6 +117,8 @@ async function create(
   const filenames = await createTicketFiles({
     scratch,
     effort,
+    dir,
+    issues: join(dir, ISSUES_DIR),
     drafts,
     rescan: async () => (await walk()).flatMap(entry => entry.tickets),
     validate: options.validate ?? (() => {}),
