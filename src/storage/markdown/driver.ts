@@ -19,11 +19,11 @@ import { currentRevision, GuardHeld, withGuard, writeAtomically } from './write.
 import {
   applyMapEdit,
   type DerivedPointer,
-  ensureTrailingNewline,
-  readDestination,
   readMapDocument,
+  readSection,
   readSpecOpening,
   scaffoldMap,
+  SECTION_HEADINGS,
 } from './header-doc.ts';
 import { parseTicket } from './ticket.ts';
 
@@ -275,10 +275,30 @@ async function saveMap(
 }
 
 /**
+ * How many times a resolve/drop may re-read and rewrite the Map's derived
+ * blocks when a parallel edit_map holds the guard. This path is server-owned
+ * regeneration, not a caller CAS — swallowing GuardHeld left Decisions stale
+ * when the winner had scanned Tickets before the resolve landed.
+ */
+const DERIVED_REFRESH_ATTEMPTS = 16;
+
+/**
  * Rewrite the Map's generated blocks from the Effort's Tickets. No-op when the
  * Effort has no Map — a Spec-only Effort has nowhere to put them.
+ *
+ * Retries on GuardHeld / lost revision: re-read Map + Tickets and regenerate.
+ * Invents the GENERATED-bearing headings when absent so a slim Map still gets
+ * a truthful Decisions / Out-of-scope cache after resolve or drop.
  */
 async function refreshMapDerived(scratch: string, effort: string): Promise<void> {
+  return refreshMapDerivedOnce(scratch, effort, DERIVED_REFRESH_ATTEMPTS);
+}
+
+async function refreshMapDerivedOnce(
+  scratch: string,
+  effort: string,
+  remaining: number,
+): Promise<void> {
   const path = join(scratch, effort, MAP_FILE);
   const revision = await currentRevision(path);
   if (revision === undefined) return;
@@ -290,19 +310,35 @@ async function refreshMapDerived(scratch: string, effort: string): Promise<void>
     {},
     ticketPointers(entries, 'resolved'),
     ticketPointers(entries, 'dropped'),
+    { ensureDerivedSections: true },
   );
   if (updated === contents) return;
 
   try {
     await withGuard(path, revision, async () => {
-      if ((await currentRevision(path)) !== revision) return;
+      if ((await currentRevision(path)) !== revision) {
+        throw new DerivedRefreshLost();
+      }
       await writeAtomically(path, updated);
     });
   } catch (error) {
-    // A parallel Map edit won the race — its write will regenerate from the
-    // Tickets it sees, including the one we just landed. Losing here is fine.
-    if (error instanceof GuardHeld) return;
-    throw error;
+    if (!(error instanceof GuardHeld || error instanceof DerivedRefreshLost)) throw error;
+    if (remaining <= 1) {
+      throw new Error(
+        `Could not refresh Map derived blocks for ${effort} after concurrent edits.`,
+        { cause: error },
+      );
+    }
+    await new Promise(wait => setTimeout(wait, 10));
+    return refreshMapDerivedOnce(scratch, effort, remaining - 1);
+  }
+}
+
+/** Internal signal: another writer changed the Map while we held its guard. */
+class DerivedRefreshLost extends Error {
+  constructor() {
+    super('Map revision changed during derived refresh');
+    this.name = 'DerivedRefreshLost';
   }
 }
 
@@ -324,8 +360,8 @@ async function saveSpec(
   const path = join(dir, SPEC_FILE);
   const current = await currentRevision(path);
   const handle = `spec:${effort}`;
-  // Opaque bytes — the seam does not reshape Spec framing (ADR 0001 / 0003).
-  const written = ensureTrailingNewline(body.replace(/^\uFEFF/, ''));
+  // Opaque bytes — store what the caller sent. No BOM strip, no trailing
+  // newline inject, no frontmatter reshape (ADR 0001; Spec has no typed body).
 
   if (current === undefined) {
     // Same rule as Maps: createEffort starts an Effort; putting a Spec onto an
@@ -335,16 +371,16 @@ async function saveSpec(
     }
 
     await mkdir(join(dir, ISSUES_DIR), { recursive: true });
-    await writeAtomically(path, written);
-    return { body: written, revision: await requireRevision(path) };
+    await writeAtomically(path, body);
+    return { body, revision: await requireRevision(path) };
   }
 
   if (expectedRevision === undefined || current !== expectedRevision) {
     throw new RevisionMismatch(handle);
   }
 
-  await guardedWrite(path, current, written, handle);
-  return { body: written, revision: await requireRevision(path) };
+  await guardedWrite(path, current, body, handle);
+  return { body, revision: await requireRevision(path) };
 }
 
 async function guardedWrite(
@@ -520,7 +556,11 @@ async function readEffort(scratch: string, slug: string): Promise<ScannedEffort 
 
   const [tickets, destination, specOpening] = await Promise.all([
     readTickets(dir, slug),
-    headerDocs.includes('map') ? readText(join(dir, 'map.md')).then(readDestination) : undefined,
+    headerDocs.includes('map')
+      ? readText(join(dir, 'map.md')).then(contents =>
+          readSection(contents, SECTION_HEADINGS.destination),
+        )
+      : undefined,
     headerDocs.includes('spec') ? readText(join(dir, 'spec.md')).then(readSpecOpening) : undefined,
   ]);
 

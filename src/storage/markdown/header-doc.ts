@@ -9,7 +9,7 @@ import type { MapDocument, MapEdit } from '../../domain.ts';
  */
 const NEXT_HEADING = /^##[ \t]/m;
 
-const SECTION_HEADINGS = {
+export const SECTION_HEADINGS = {
   destination: 'Destination',
   notes: 'Notes',
   decisions: 'Decisions so far',
@@ -36,14 +36,6 @@ export interface DerivedPointer {
   readonly title: string;
   readonly link: string;
   readonly gist: string;
-}
-
-/**
- * The Effort's Destination: where this line of enquiry is going. Absent when
- * the Effort has no Map, or a Map that has not been given one yet.
- */
-export function readDestination(contents: string): string | undefined {
-  return readSection(contents, SECTION_HEADINGS.destination);
 }
 
 /**
@@ -74,16 +66,28 @@ export function readMapDocument(contents: string, revision: string): MapDocument
   };
 }
 
+export interface ApplyMapEditOptions {
+  /**
+   * When true, invent the Decisions / Out-of-scope headings (with empty
+   * GENERATED blocks) if absent. Used by resolve/drop refresh so a slim Map
+   * still gets a truthful derived cache. Ordinary edit_map section edits leave
+   * the Map shape alone — they never invent unrelated headings.
+   */
+  readonly ensureDerivedSections?: boolean;
+}
+
 /**
  * Apply a section edit and rewrite the derived blocks. Content outside the
  * GENERATED markers is left alone; the blocks themselves are replaced whole.
- * Missing Decisions / Out-of-scope headings are not invented.
+ * Missing Decisions / Out-of-scope headings are not invented unless
+ * {@link ApplyMapEditOptions.ensureDerivedSections} is set.
  */
 export function applyMapEdit(
   contents: string,
   edit: MapEdit,
   decisions: readonly DerivedPointer[],
   dropped: readonly DerivedPointer[],
+  options: ApplyMapEditOptions = {},
 ): string {
   let next = contents;
 
@@ -101,6 +105,11 @@ export function applyMapEdit(
   }
   if (edit.ruleOut !== undefined) {
     next = appendBullet(next, SECTION_HEADINGS.outOfScope, edit.ruleOut.trim());
+  }
+
+  if (options.ensureDerivedSections) {
+    next = ensureDerivedHeading(next, SECTION_HEADINGS.decisions);
+    next = ensureDerivedHeading(next, SECTION_HEADINGS.outOfScope);
   }
 
   next = replaceGenerated(next, SECTION_HEADINGS.decisions, renderPointers(decisions));
@@ -168,7 +177,7 @@ function renderPointers(pointers: readonly DerivedPointer[]): string {
     .join('\n');
 }
 
-function readSection(contents: string, heading: string): string | undefined {
+export function readSection(contents: string, heading: string): string | undefined {
   const raw = readSectionRaw(contents, heading);
   if (raw === undefined) return undefined;
   const trimmed = stripGenerated(raw).trim();
@@ -233,6 +242,19 @@ function removeBullet(contents: string, heading: string, text: string): string {
     .replace(/^\n+/, '')
     .replace(/\n+$/, '');
   return setSection(contents, heading, next);
+}
+
+/**
+ * Append a server-owned heading with an empty GENERATED block when the Map
+ * never grew one. Only the resolve/drop refresh path asks for this — typed
+ * section edits must not reshape an unrelated Map.
+ */
+function ensureDerivedHeading(contents: string, heading: string): string {
+  if (readSectionRaw(contents, heading) !== undefined) return contents;
+  const block = `${GENERATED_OPEN}\n${GENERATED_CLOSE}\n`;
+  const { hasFence, raw, body } = splitFrontmatter(contents);
+  const addition = `\n## ${heading}\n\n${block}`;
+  return reassemble(hasFence, raw, ensureTrailingNewline(body) + addition);
 }
 
 function replaceGenerated(contents: string, heading: string, inner: string): string {

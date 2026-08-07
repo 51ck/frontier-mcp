@@ -1,19 +1,24 @@
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readFile, unlink, writeFile } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { cleanupFixtures, connectFrontier, makeFixtureTree } from './support/harness.ts';
 import { map, ticket } from './support/fixtures.ts';
+import { GENERATED_OPEN } from '../src/storage/markdown/header-doc.ts';
 
 afterEach(cleanupFixtures);
-
-const GENERATED_OPEN =
-  '<!-- GENERATED: overwritten on every mutation through the server. Do not hand-edit. -->';
 
 function revisionOf(text: string, kind: 'map' | 'spec'): string {
   const match = text.match(new RegExp(`${kind} revision: (.+)`));
   if (match?.[1] === undefined) throw new Error(`no ${kind} revision in:\n${text}`);
   return match[1]!.trim();
+}
+
+async function waitUntilContains(path: string, needle: string): Promise<void> {
+  const contents = await readFile(path, 'utf8');
+  if (contents.includes(needle)) return;
+  await new Promise(wait => setTimeout(wait, 10));
+  return waitUntilContains(path, needle);
 }
 
 function fullMap(): string {
@@ -296,6 +301,81 @@ Keep slim.
     );
   });
 
+  it('retries Map derived refresh when another session holds the Map guard', async () => {
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.scratch/alpha/map.md': fullMap(),
+      '.scratch/alpha/issues/01-T1-first.md': ticket('T1', 'First', {
+        status: 'claimed',
+        claimed_by: 'a',
+        claimed_at: '2026-01-01T00:00:00.000Z',
+      }),
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+    const mapPath = join(root, '.scratch/alpha/map.md');
+    const rev = revisionOf(await frontier.call('edit_map', { effort: 'alpha' }), 'map');
+    const guard = join(
+      dirname(mapPath),
+      `.${basename(mapPath)}.${rev.replace(/[^\w.-]/g, '_')}.guard`,
+    );
+
+    // Hold the Map's revision-keyed guard the way a racing edit_map would, then
+    // release it after the Ticket write so a retrying refresh still lands.
+    await writeFile(guard, `${String(process.pid)}\n`, { flag: 'wx' });
+    const ticketPath = join(root, '.scratch/alpha/issues/01-T1-first.md');
+    const resolve = frontier.call('update_ticket', {
+      id: 'T1',
+      resolve: { answer_gist: 'Won the refresh race' },
+    });
+    await waitUntilContains(ticketPath, 'status: resolved');
+    await unlink(guard);
+    await resolve;
+
+    const onDisk = await readFile(mapPath, 'utf8');
+    expect(onDisk).toContain('- [T1 — First](issues/01-T1-first.md) — Won the refresh race');
+  });
+
+  it('invents Decisions / Out-of-scope GENERATED headings on resolve when absent', async () => {
+    const slim = `---
+header: map
+---
+
+# Map
+
+## Destination
+
+Ship slim.
+
+## Notes
+
+Keep slim.
+`;
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.scratch/alpha/map.md': slim,
+      '.scratch/alpha/issues/01-T1-first.md': ticket('T1', 'First', {
+        status: 'claimed',
+        claimed_by: 'a',
+        claimed_at: '2026-01-01T00:00:00.000Z',
+      }),
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    await frontier.call('update_ticket', {
+      id: 'T1',
+      resolve: { answer_gist: 'Invented the Decisions block' },
+    });
+
+    const onDisk = await readFile(join(root, '.scratch/alpha/map.md'), 'utf8');
+    expect(onDisk).toContain('## Decisions so far');
+    expect(onDisk).toContain(GENERATED_OPEN);
+    expect(onDisk).toContain(
+      '- [T1 — First](issues/01-T1-first.md) — Invented the Decisions block',
+    );
+    expect(onDisk).toContain('## Destination\n\nShip slim.\n');
+    expect(onDisk).toContain('## Notes\n\nKeep slim.\n');
+  });
+
   it('leaves content outside the GENERATED markers untouched', async () => {
     const root = await makeFixtureTree({
       '.git/HEAD': 'ref: refs/heads/main\n',
@@ -353,6 +433,31 @@ Rewritten Spec body.
 
     const onDisk = await readFile(join(root, '.scratch/alpha/spec.md'), 'utf8');
     expect(onDisk).toBe(replacement);
+  });
+
+  it('stores Spec put bytes untouched — no BOM strip or trailing newline inject', async () => {
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.scratch/alpha/spec.md': `---
+header: spec
+---
+
+# Alpha
+`,
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+    const rev = revisionOf(await frontier.call('spec', { effort: 'alpha' }), 'spec');
+
+    // Opaque: caller bytes land as-is, including a leading BOM and no final \n.
+    const opaque = '\uFEFF---\nheader: spec\n---\n\n# No trailing newline';
+    await frontier.call('spec', {
+      effort: 'alpha',
+      content: opaque,
+      expected_revision: rev,
+    });
+
+    const onDisk = await readFile(join(root, '.scratch/alpha/spec.md'), 'utf8');
+    expect(onDisk).toBe(opaque);
   });
 
   it('preserves a Spec body that mentions header: spec without rewriting frontmatter', async () => {
