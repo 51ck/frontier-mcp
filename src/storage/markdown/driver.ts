@@ -31,9 +31,7 @@ const HEADER_DOCS: ReadonlyArray<readonly [HeaderDoc, string]> = [
 export function createMarkdownDriver(root: string): StorageDriver {
   const scratch = join(root, SCRATCH_DIR);
 
-  // One scan answers both methods. They are always called together, and
-  // scanning twice meant reading every issues/ directory twice per index build.
-  const scan = async () => {
+  const walk = async (): Promise<ScannedEffort[]> => {
     // A repo that has never used the tracker is a supported starting state,
     // not an error: it simply holds no Efforts.
     const slugs = await readDirectories(scratch);
@@ -42,6 +40,23 @@ export function createMarkdownDriver(root: string): StorageDriver {
     return scanned
       .filter((entry): entry is ScannedEffort => entry !== undefined)
       .toSorted((a, b) => a.effort.slug.localeCompare(b.effort.slug));
+  };
+
+  /**
+   * Both methods are always called together to build one index, and each walk
+   * reads every `issues/` directory. Sharing the in-flight walk makes that one
+   * pass instead of two.
+   *
+   * The share lasts only as long as the walk itself — the driver holds no
+   * results, because deciding when a scan is stale belongs to the index above
+   * it and to the watcher T8 attaches there.
+   */
+  let inFlight: Promise<ScannedEffort[]> | undefined;
+  const scan = () => {
+    inFlight ??= walk().finally(() => {
+      inFlight = undefined;
+    });
+    return inFlight;
   };
 
   return {
@@ -78,7 +93,30 @@ async function readTickets(dir: string, effort: string): Promise<Ticket[]> {
     }),
   );
 
-  return tickets.toSorted((a, b) => a.order - b.order);
+  return withUniqueHandles(tickets.toSorted((a, b) => a.order - b.order));
+}
+
+/**
+ * Two files can share an `NN-` prefix, which would give two id-less Tickets the
+ * same `<effort>#<order>` handle and make one of them unfetchable. Later
+ * collisions get a suffix, so every Ticket stays individually addressable.
+ */
+function withUniqueHandles(tickets: readonly Ticket[]): Ticket[] {
+  const seen = new Set<string>();
+
+  return tickets.map(ticket => {
+    if (!seen.has(ticket.handle)) {
+      seen.add(ticket.handle);
+      return ticket;
+    }
+
+    let suffix = 2;
+    while (seen.has(`${ticket.handle}.${String(suffix)}`)) suffix += 1;
+    const handle = `${ticket.handle}.${String(suffix)}`;
+    seen.add(handle);
+
+    return { ...ticket, handle };
+  });
 }
 
 /**

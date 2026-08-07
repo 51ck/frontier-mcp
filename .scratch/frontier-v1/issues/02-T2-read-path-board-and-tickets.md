@@ -5,7 +5,7 @@ kind: build
 status: resolved
 triage: ready-for-agent
 blocked_by: [T1]
-answer_gist: get_board renders a 358-token Board where reading the Effort costs 8185; Legacy Tickets parse best-effort from the real sobrina and tag-customizer files and are flagged
+answer_gist: get_board renders a 466-token Board where reading the same Effort costs 8185 — 18x on telegram, 33x on ship-0-5-0; Legacy Tickets parse best-effort from the real files and are flagged
 ---
 
 # T2 — Read path: Ticket schema, legacy parsing, `get_board` and `get_tickets`

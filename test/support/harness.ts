@@ -11,10 +11,16 @@ export type FixtureTree = Record<string, string>;
 
 const cleanups: Array<() => Promise<void>> = [];
 
-/** Build a fixture tree in a fresh temporary directory. Returns its real path. */
-export async function makeFixtureTree(tree: FixtureTree): Promise<string> {
+/** A fresh temporary directory, registered for teardown. Returns its real path. */
+async function makeTempRoot(): Promise<string> {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'frontier-')));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
+  return root;
+}
+
+/** Build a fixture tree in a fresh temporary directory. Returns its real path. */
+export async function makeFixtureTree(tree: FixtureTree): Promise<string> {
+  const root = await makeTempRoot();
 
   // Recursive mkdir tolerates the races between entries sharing a parent.
   await Promise.all(
@@ -35,8 +41,7 @@ export async function makeFixtureTree(tree: FixtureTree): Promise<string> {
  * polite than the real thing.
  */
 export async function makeLegacyWorkspace(efforts: Record<string, string>): Promise<string> {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'frontier-')));
-  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  const root = await makeTempRoot();
 
   await mkdir(join(root, '.git'), { recursive: true });
   await Promise.all(

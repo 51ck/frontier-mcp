@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import type { Effort, TicketSummary } from '../domain.ts';
+import { frontierOf, indexById } from '../frontier.ts';
 
 export const getBoardInputSchema = {
   effort: z.string().describe('Effort slug, as reported by list_efforts.'),
@@ -18,6 +19,21 @@ export interface Board {
   readonly frontier: ReadonlySet<TicketSummary>;
   /** Every Ticket in the workspace, because Edges resolve repo-wide. */
   readonly byId: ReadonlyMap<string, TicketSummary>;
+}
+
+/**
+ * A Board is three views of one array — the Effort's slice of it, the Frontier
+ * over all of it, and an id lookup across all of it. Building them here keeps
+ * the identity relationship they depend on in one place: `frontier.has(ticket)`
+ * only works because every view derives from the same objects.
+ */
+export function boardFor(effort: Effort, all: readonly TicketSummary[]): Board {
+  return {
+    effort,
+    tickets: all.filter(ticket => ticket.effort === effort.slug),
+    frontier: frontierOf(all),
+    byId: indexById(all),
+  };
 }
 
 /**
@@ -63,18 +79,27 @@ function labelled(label: string, prose: string): string {
   return `${label}: ${prose.split('\n').join('\n  ')}`;
 }
 
+/**
+ * Fields are separated by two spaces, so any author-written value has its own
+ * whitespace collapsed first — a title containing a double space would
+ * otherwise forge a field boundary that is not there.
+ */
+function flat(prose: string): string {
+  return prose.replace(/\s+/g, ' ').trim();
+}
+
 function renderLine(ticket: TicketSummary, board: Board): string {
   const parts = [
     ticket.handle,
-    ticket.title,
+    flat(ticket.title),
     `${ticket.kind}/${ticket.status}`,
     ticket.triage === undefined ? undefined : `triage=${ticket.triage}`,
     ticket.blockedBy.length > 0
       ? `blocked_by=${ticket.blockedBy.map(id => renderEdge(id, ticket, board)).join(',')}`
       : undefined,
-    ticket.answerGist === undefined ? undefined : `gist=${ticket.answerGist}`,
-    ticket.droppedReason === undefined ? undefined : `dropped=${ticket.droppedReason}`,
-    ticket.claimedBy === undefined ? undefined : `claimed_by=${ticket.claimedBy}`,
+    ticket.answerGist === undefined ? undefined : `gist=${flat(ticket.answerGist)}`,
+    ticket.droppedReason === undefined ? undefined : `dropped=${flat(ticket.droppedReason)}`,
+    ticket.claimedBy === undefined ? undefined : `claimed_by=${flat(ticket.claimedBy)}`,
   ].filter(part => part !== undefined);
 
   return parts.join('  ');
@@ -107,6 +132,7 @@ function collectWarnings(board: Board): string[] {
   const orphaned = new Set<string>();
   const unrecognized = new Set<string>();
   const collapsed = new Set<string>();
+  const declined = new Set<string>();
 
   for (const ticket of board.tickets) {
     for (const edge of ticket.blockedBy) {
@@ -116,7 +142,12 @@ function collectWarnings(board: Board): string[] {
       else if (blocker.status === 'dropped') orphaned.add(ticket.handle);
     }
 
-    if (ticket.unrecognizedStatus !== undefined) unrecognized.add(ticket.handle);
+    if (ticket.unrecognizedStatus !== undefined) {
+      unrecognized.add(`${ticket.handle} "${ticket.unrecognizedStatus}"`);
+    }
+    // Held off the Frontier by a Triage role rather than by its Status, which
+    // is invisible on the line itself and so has to be said out loud.
+    if (ticket.status === 'open' && ticket.triage === 'wontfix') declined.add(ticket.handle);
     for (const ref of ticket.collapsedRefs) collapsed.add(ref);
   }
 
@@ -142,6 +173,12 @@ function collectWarnings(board: Board): string[] {
     warnings.push(
       `sub-slice Edges coarsened to their parent Ticket (${String(collapsed.size)}): ` +
         [...collapsed].toSorted().join(' '),
+    );
+  }
+  if (declined.size > 0) {
+    warnings.push(
+      `open but triaged wontfix, so held off the Frontier (${String(declined.size)}): ` +
+        [...declined].toSorted().join(' '),
     );
   }
 

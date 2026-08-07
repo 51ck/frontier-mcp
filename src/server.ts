@@ -1,10 +1,15 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-import { frontierOf, indexById } from './frontier.ts';
+import { frontierOf } from './frontier.ts';
 import { createIndexRegistry } from './workspace-index.ts';
 import { createMarkdownDriver } from './storage/markdown/driver.ts';
 import type { StorageDriver } from './storage/driver.ts';
-import { getBoardDescription, getBoardInputSchema, renderBoard } from './tools/get-board.ts';
+import {
+  boardFor,
+  getBoardDescription,
+  getBoardInputSchema,
+  renderBoard,
+} from './tools/get-board.ts';
 import {
   getTicketsDescription,
   getTicketsInputSchema,
@@ -92,14 +97,7 @@ export function createFrontier(options: CreateServerOptions = {}): Frontier {
         );
       }
 
-      const board = {
-        effort,
-        tickets: tickets.filter(ticket => ticket.effort === slug),
-        frontier: frontierOf(tickets),
-        byId: indexById(tickets),
-      };
-
-      return { content: [{ type: 'text', text: renderBoard(board) }] };
+      return { content: [{ type: 'text', text: renderBoard(boardFor(effort, tickets)) }] };
     },
   );
 

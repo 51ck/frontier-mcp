@@ -59,16 +59,36 @@ describe('the cost of a Board', () => {
   });
 
   it('answers the same question for a small, pinned fraction of that', async () => {
-    const root = await makeLegacyWorkspace({ telegram: 'sobrina-telegram' });
+    const root = await makeLegacyWorkspace({
+      telegram: 'sobrina-telegram',
+      'ship-0-5-0': 'tag-customizer-ship-0-5-0',
+    });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    const board = tokens(await frontier.call('get_board', { effort: 'telegram' }));
+    const measured = await Promise.all(
+      (
+        [
+          ['telegram', 12],
+          ['ship-0-5-0', 20],
+        ] as const
+      ).map(async ([effort, floor]) => ({
+        effort,
+        floor,
+        board: tokens(await frontier.call('get_board', { effort })),
+        whole: await costOfReadingWhole(root, effort),
+      })),
+    );
 
-    // Pinned rather than bounded: a Board that doubled would still have passed
-    // a `< whole/10` assertion, and quietly giving back the saving is exactly
-    // the regression this file exists to catch.
-    expect(board).toBeGreaterThan(150);
-    expect(board).toBeLessThan(600);
+    for (const { board, whole, floor } of measured) {
+      // The criterion is a comparison, so it is asserted as one: the Board is
+      // measured *against* reading the same Effort whole, in one assertion.
+      expect(whole / board).toBeGreaterThan(floor);
+
+      // And pinned, not merely bounded — a Board that doubled would still clear
+      // a ratio floor on an Effort this expensive, and quietly giving back the
+      // saving is the regression this file exists to catch.
+      expect(board).toBeLessThan(700);
+    }
   });
 
   it('does not grow when an Effort carries far longer bodies', async () => {

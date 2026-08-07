@@ -219,7 +219,13 @@ off the Frontier is a missed opportunity, one wrongly put on it is wasted work:
 - `superseded` and `deferred` read as closed.
 - `wontfix` is a **Triage role**, never a Status. It leaves the Ticket `open` (mapping it to
   `dropped` would make it contagious and orphan every dependent) but excludes it from the Frontier,
-  because open is not the same as takeable.
+  because open is not the same as takeable. The exclusion is never silent — it is named in the
+  warnings block, since nothing on the Ticket's own line would otherwise explain the absence.
+
+`superseded` and `deferred` **do** map to `dropped`, and so do orphan their dependents. That is the
+intended difference: `wontfix` is documented as a Triage role, so treating it as a Status would be
+wrong, whereas these two describe genuinely terminal work and the resulting "blocked by a dropped
+Ticket" warning is real signal rather than noise.
 
 ## Verification
 
