@@ -12,6 +12,7 @@ import {
   planBatch,
   renderCreated,
 } from './tools/create-tickets.ts';
+import { editMapDescription, editMapInputSchema, mapEditFor, renderMap } from './tools/edit-map.ts';
 import {
   boardFor,
   getBoardDescription,
@@ -28,6 +29,7 @@ import {
   listEffortsInputSchema,
   renderEfforts,
 } from './tools/list-efforts.ts';
+import { renderSpec, specDescription, specInputSchema } from './tools/spec.ts';
 import {
   editFor,
   renderUpdate,
@@ -219,6 +221,64 @@ export function createFrontier(options: CreateServerOptions = {}): Frontier {
       }
 
       return { content: [{ type: 'text', text: renderUpdate(written) }] };
+    },
+  );
+
+  server.registerTool(
+    'edit_map',
+    {
+      title: 'Edit Map',
+      description: editMapDescription,
+      inputSchema: editMapInputSchema,
+      annotations: { readOnlyHint: false, idempotentHint: false },
+    },
+    async ({
+      effort,
+      create,
+      destination,
+      notes,
+      add_fog,
+      graduate_fog,
+      rule_out,
+      expected_revision,
+      root,
+    }) => {
+      const workspace = resolveWorkspace(root, context);
+      const index = registry.forWorkspace(workspace);
+      const edit = mapEditFor({ destination, notes, add_fog, graduate_fog, rule_out });
+      const mutating = Object.keys(edit).length > 0;
+
+      const document =
+        !mutating && create !== true
+          ? await index.readMap(effort)
+          : await index.editMap(effort, edit, expected_revision, {
+              createEffort: create === true,
+            });
+
+      return { content: [{ type: 'text', text: renderMap(effort, document) }] };
+    },
+  );
+
+  server.registerTool(
+    'spec',
+    {
+      title: 'Spec',
+      description: specDescription,
+      inputSchema: specInputSchema,
+      annotations: { readOnlyHint: false, idempotentHint: false },
+    },
+    async ({ effort, create, content, expected_revision, root }) => {
+      const workspace = resolveWorkspace(root, context);
+      const index = registry.forWorkspace(workspace);
+
+      const document =
+        content === undefined
+          ? await index.readSpec(effort)
+          : await index.putSpec(effort, content, expected_revision, {
+              createEffort: create === true,
+            });
+
+      return { content: [{ type: 'text', text: renderSpec(effort, document) }] };
     },
   );
 
