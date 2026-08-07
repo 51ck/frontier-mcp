@@ -29,6 +29,8 @@ describe('the shipped surface', () => {
 
     const { tools } = await client.listTools();
 
+    // The cap is a design constraint, not an outcome — every tool schema is
+    // context in every session. See AGENTS.md, Local Contracts.
     expect(tools.map(tool => tool.name).toSorted()).toEqual([
       'create_tickets',
       'edit_map',
