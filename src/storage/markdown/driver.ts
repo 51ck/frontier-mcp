@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 import type { Effort, HeaderDoc, Ticket } from '../../domain.ts';
 import type { StorageDriver } from '../driver.ts';
+import { readDestination } from './header-doc.ts';
 import { parseTicket } from './ticket.ts';
 
 /**
@@ -89,7 +90,21 @@ async function readEffort(scratch: string, slug: string): Promise<Effort | undef
   const hasIssues = entries.some(entry => entry.isDirectory() && entry.name === ISSUES_DIR);
   if (headerDocs.length === 0 && !hasIssues) return undefined;
 
-  return { slug, headerDocs, ticketCount };
+  const destination = headerDocs.includes('map')
+    ? readDestination(await readText(join(dir, 'map.md')))
+    : undefined;
+
+  return { slug, headerDocs, ticketCount, destination };
+}
+
+/** A file that vanished between the scan and the read is read as empty, not as a failure. */
+async function readText(path: string): Promise<string> {
+  try {
+    return await readFile(path, 'utf8');
+  } catch (error) {
+    if (isMissing(error)) return '';
+    throw error;
+  }
 }
 
 /** Tickets are the `.md` files directly under `issues/`. Nothing else counts. */

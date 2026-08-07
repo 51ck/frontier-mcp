@@ -38,8 +38,8 @@ describe('the storage driver seam', () => {
   it('serves list_efforts from a driver that knows nothing about files', async () => {
     const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
     const driver = fixedDriver([
-      { slug: 'from-nowhere', headerDocs: ['map', 'spec'], ticketCount: 7 },
-      { slug: 'also-nowhere', headerDocs: [], ticketCount: 0 },
+      { slug: 'from-nowhere', headerDocs: ['map', 'spec'], ticketCount: 7, destination: undefined },
+      { slug: 'also-nowhere', headerDocs: [], ticketCount: 0, destination: undefined },
     ]);
     const frontier = await connectFrontier({
       cwd: root,
@@ -64,7 +64,7 @@ describe('the storage driver seam', () => {
         attempts += 1;
         // Startup takes the first attempt, the first tool call the second.
         if (attempts <= 2) throw new Error('scan blew up');
-        return [{ slug: 'recovered', headerDocs: [], ticketCount: 0 }];
+        return [{ slug: 'recovered', headerDocs: [], ticketCount: 0, destination: undefined }];
       },
       async listTickets() {
         return [];
@@ -86,7 +86,9 @@ describe('the in-memory index', () => {
    */
   it('is built by a full scan at startup, before any tool call', async () => {
     const root = await makeFixtureTree({ '.scratch/only/spec.md': spec('Only') });
-    const driver = fixedDriver([{ slug: 'only', headerDocs: ['spec'], ticketCount: 0 }]);
+    const driver = fixedDriver([
+      { slug: 'only', headerDocs: ['spec'], ticketCount: 0, destination: undefined },
+    ]);
 
     await connectFrontier({ cwd: root, env: {}, createDriver: driver.createDriver });
 

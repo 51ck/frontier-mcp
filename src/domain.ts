@@ -61,4 +61,9 @@ export interface Effort {
   readonly headerDocs: readonly HeaderDoc[];
   /** How many Tickets the Effort holds. */
   readonly ticketCount: number;
+  /**
+   * Where this line of enquiry is going, from the Map. Absent when the Effort
+   * has no Map, or a Map that has not been given one.
+   */
+  readonly destination: string | undefined;
 }

@@ -3,6 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { createIndexRegistry } from './workspace-index.ts';
 import { createMarkdownDriver } from './storage/markdown/driver.ts';
 import type { StorageDriver } from './storage/driver.ts';
+import { getBoardDescription, getBoardInputSchema, renderBoard } from './tools/get-board.ts';
 import {
   getTicketsDescription,
   getTicketsInputSchema,
@@ -64,6 +65,32 @@ export function createFrontier(options: CreateServerOptions = {}): Frontier {
       const efforts = await registry.forWorkspace(workspace).efforts();
 
       return { content: [{ type: 'text', text: renderEfforts(workspace, efforts) }] };
+    },
+  );
+
+  server.registerTool(
+    'get_board',
+    {
+      title: 'Get Board',
+      description: getBoardDescription,
+      inputSchema: getBoardInputSchema,
+      annotations: { readOnlyHint: true },
+    },
+    async ({ effort: slug, root }) => {
+      const workspace = resolveWorkspace(root, context);
+      const index = registry.forWorkspace(workspace);
+      const [efforts, tickets] = await Promise.all([index.efforts(), index.tickets()]);
+
+      const effort = efforts.find(candidate => candidate.slug === slug);
+      if (effort === undefined) {
+        throw new Error(
+          `No Effort '${slug}' in ${workspace}. Known: ${efforts.map(e => e.slug).join(', ') || '(none)'}`,
+        );
+      }
+
+      const board = { effort, tickets: tickets.filter(ticket => ticket.effort === slug) };
+
+      return { content: [{ type: 'text', text: renderBoard(board) }] };
     },
   );
 
