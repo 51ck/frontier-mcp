@@ -1,3 +1,9 @@
 node_modules/
 dist/
 *.tsbuildinfo
+
+# Agent-session scratch, not project config: worktrees are whole nested
+# checkouts, and settings.local.json is per-machine. Anything shared under
+# .claude/ stays trackable.
+.claude/worktrees/
+.claude/settings.local.json
