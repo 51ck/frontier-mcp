@@ -50,8 +50,8 @@ describe('the storage driver seam', () => {
     expect(await frontier.call('list_efforts')).toBe(
       [
         `root: ${root}`,
-        'from-nowhere  tickets=7  docs=map,spec',
-        'also-nowhere  tickets=0  docs=none',
+        'from-nowhere  tickets=7  docs=map,spec  frontier=0',
+        'also-nowhere  tickets=0  docs=none  frontier=0',
       ].join('\n'),
     );
   });

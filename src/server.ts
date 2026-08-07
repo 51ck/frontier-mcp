@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
+import { frontierOf } from './frontier.ts';
 import { createIndexRegistry } from './workspace-index.ts';
 import { createMarkdownDriver } from './storage/markdown/driver.ts';
 import type { StorageDriver } from './storage/driver.ts';
@@ -62,9 +63,12 @@ export function createFrontier(options: CreateServerOptions = {}): Frontier {
     },
     async ({ root }) => {
       const workspace = resolveWorkspace(root, context);
-      const efforts = await registry.forWorkspace(workspace).efforts();
+      const index = registry.forWorkspace(workspace);
+      const [efforts, tickets] = await Promise.all([index.efforts(), index.tickets()]);
 
-      return { content: [{ type: 'text', text: renderEfforts(workspace, efforts) }] };
+      return {
+        content: [{ type: 'text', text: renderEfforts(workspace, efforts, frontierOf(tickets)) }],
+      };
     },
   );
 
@@ -88,7 +92,11 @@ export function createFrontier(options: CreateServerOptions = {}): Frontier {
         );
       }
 
-      const board = { effort, tickets: tickets.filter(ticket => ticket.effort === slug) };
+      const board = {
+        effort,
+        tickets: tickets.filter(ticket => ticket.effort === slug),
+        frontier: frontierOf(tickets),
+      };
 
       return { content: [{ type: 'text', text: renderBoard(board) }] };
     },

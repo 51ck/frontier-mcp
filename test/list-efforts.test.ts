@@ -40,9 +40,9 @@ describe('list_efforts', () => {
     expect(text).toBe(
       [
         `root: ${root}`,
-        'alpha  tickets=2  docs=spec',
-        'beta  tickets=1  docs=map',
-        'gamma  tickets=0  docs=map,spec',
+        'alpha  tickets=2  docs=spec  frontier=2',
+        'beta  tickets=1  docs=map  frontier=1',
+        'gamma  tickets=0  docs=map,spec  frontier=0',
       ].join('\n'),
     );
   });
@@ -53,7 +53,9 @@ describe('list_efforts', () => {
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    expect(await frontier.call('list_efforts')).toContain('orphaned  tickets=1  docs=none');
+    expect(await frontier.call('list_efforts')).toContain(
+      'orphaned  tickets=1  docs=none  frontier=1',
+    );
   });
 
   it('returns an empty list, not an error, for a repo with no .scratch/', async () => {
@@ -97,7 +99,9 @@ describe('list_efforts', () => {
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    expect(await frontier.call('list_efforts')).toContain('effort  tickets=1  docs=map');
+    expect(await frontier.call('list_efforts')).toContain(
+      'effort  tickets=1  docs=map  frontier=1',
+    );
   });
 
   it('orders Efforts by slug', async () => {

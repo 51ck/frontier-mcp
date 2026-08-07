@@ -14,6 +14,8 @@ export const getBoardDescription =
 export interface Board {
   readonly effort: Effort;
   readonly tickets: readonly TicketSummary[];
+  /** The Tickets takeable right now. Computed repo-wide; never read from a file. */
+  readonly frontier: ReadonlySet<TicketSummary>;
 }
 
 /**
@@ -22,18 +24,27 @@ export interface Board {
  * character here is spent deliberately.
  */
 export function renderBoard(board: Board): string {
-  const { effort, tickets } = board;
+  const { effort, tickets, frontier } = board;
   const lines = [`effort: ${effort.slug}`];
 
   if (effort.destination !== undefined) lines.push(`destination: ${effort.destination}`);
-  lines.push('');
 
   if (tickets.length === 0) {
-    lines.push('(no tickets)');
+    lines.push('', '(no tickets)');
     return lines.join('\n');
   }
 
-  for (const ticket of tickets) lines.push(renderLine(ticket));
+  const takeable = tickets.filter(ticket => frontier.has(ticket));
+  lines.push(
+    takeable.length === 0
+      ? 'frontier: none takeable in this Effort'
+      : `frontier: ${takeable.length} marked >`,
+    '',
+  );
+
+  for (const ticket of tickets) {
+    lines.push(frontier.has(ticket) ? `> ${renderLine(ticket)}` : renderLine(ticket));
+  }
 
   return lines.join('\n');
 }
