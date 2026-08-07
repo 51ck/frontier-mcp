@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       increment:
-        description: Semver increment (or exact version like 0.2.0)
+        description: Semver increment
         required: true
         type: choice
         options:
@@ -27,10 +27,19 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      # release-it bumps, commits, tags and pushes before it ever publishes, so a dispatch
+      # from a feature branch would rewrite that branch. Refuse loudly, first thing.
+      - name: Refuse to release off master
+        if: github.ref != 'refs/heads/master'
+        run: |
+          echo "::error::Releases are cut from master only; got ${{ github.ref }}"
+          exit 1
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
+      # Pinned to 10 on purpose: pnpm 11 404s on OIDC publish (pnpm/pnpm#11513).
       - uses: pnpm/action-setup@v4
         with:
           version: 10
@@ -41,9 +50,6 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: pnpm
 
-      # Trusted Publishing (OIDC) needs npm ≥ 11.5.1
-      - run: npm install -g npm@latest
-
       - run: pnpm install --frozen-lockfile
 
       - name: Configure git identity
@@ -51,9 +57,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+      # npm auth comes from Trusted Publishing (OIDC), via the id-token permission above and
+      # pnpm's own OIDC support — there is deliberately no NODE_AUTH_TOKEN. Setting one from a
+      # secret that may not exist writes an empty _authToken into .npmrc, which 401s instead of
+      # falling back to OIDC.
       - name: Release
         run: pnpm exec release-it --ci --increment=${{ inputs.increment }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Optional fallback if Trusted Publishing is not configured on npm yet:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
