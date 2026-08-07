@@ -24,7 +24,7 @@ describe('the server', () => {
 
     // The cap is a design constraint, not an outcome — every tool schema is
     // context in every session. See AGENTS.md, Local Contracts.
-    expect(names.length).toBeLessThanOrEqual(8);
+    expect(names).toHaveLength(8);
     expect(names).toContain('list_efforts');
     expect(names).toContain('get_tickets');
   });
