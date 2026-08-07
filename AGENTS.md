@@ -244,11 +244,11 @@ in the graph:
   `/triage` and the graph never compete for one field. A `wontfix` Ticket stays takeable and is named
   in the warnings block instead, leaving the judgement to the reader.
 
-`superseded` and `deferred` are a different matter: they read as `dropped`, and so do orphan their
-dependents. `wontfix` is documented as a Triage role, so treating it as a Status would be wrong,
-whereas those two describe genuinely terminal work and the resulting "blocked by a dropped Ticket"
-warning is real signal. Both readings lean the same way — a Ticket wrongly kept off the Frontier is a
-missed opportunity, one wrongly put on it is wasted work.
+`superseded` and `deferred` are a different matter: read from a Legacy `Status:` line they map to
+`dropped`, and so do orphan their dependents. That is not inconsistent with the rule above — they are
+Statuses being inferred, where `wontfix` is a Triage role being respected as one. Inference gets to
+lean conservative because it is guessing; a role the caller set explicitly does not, because it was
+never a guess.
 
 ## Verification
 

@@ -140,6 +140,154 @@ describe('ticking an acceptance criterion', () => {
   });
 });
 
+describe('sections a write does not own', () => {
+  const WITH_SECTIONS = [
+    '---',
+    'id: T1',
+    'title: Work',
+    'kind: build',
+    'status: open',
+    'blocked_by: []',
+    '---',
+    '',
+    '- [ ] The first criterion',
+    '',
+    '## Comments',
+    '',
+    'An older note.',
+    '',
+    '## Notes',
+    '',
+    'Prose that is not the comment log.',
+    '',
+  ].join('\n');
+
+  it('appends a comment under the comment log, not under whatever comes last', async () => {
+    const { frontier, read } = await withBody(WITH_SECTIONS);
+
+    await frontier.call('update_ticket', { id: 'T1', comment: 'A newer note.' });
+
+    const onDisk = await read();
+    const log = onDisk.indexOf('## Comments');
+    const notes = onDisk.indexOf('## Notes');
+
+    expect(onDisk.indexOf('A newer note.')).toBeGreaterThan(log);
+    expect(onDisk.indexOf('A newer note.')).toBeLessThan(notes);
+    expect(onDisk).toContain('Prose that is not the comment log.');
+  });
+
+  it('puts a new answer above the comment log, so the log stays at the bottom', async () => {
+    const { frontier, read } = await withBody(WITH_SECTIONS);
+
+    await frontier.call('update_ticket', {
+      id: 'T1',
+      resolve: { answer_gist: 'Settled.', answer: 'The answer.' },
+    });
+
+    const onDisk = await read();
+    expect(onDisk.indexOf('## Answer')).toBeLessThan(onDisk.indexOf('## Comments'));
+    expect(onDisk).toContain('An older note.');
+  });
+
+  it('keeps a comment out of the answer when both land in one call', async () => {
+    const { frontier, read } = await withBody(WITH_SECTIONS);
+
+    await frontier.call('update_ticket', {
+      id: 'T1',
+      resolve: { answer_gist: 'Settled.', answer: 'The answer.' },
+      comment: 'A closing note.',
+    });
+    // A second answer replaces its own section and must not take the comment.
+    await frontier.call('update_ticket', { id: 'T1', comment: 'Another note.' });
+
+    const onDisk = await read();
+    expect(onDisk).toContain('A closing note.');
+    expect(onDisk).toContain('Another note.');
+    expect(onDisk.indexOf('A closing note.')).toBeGreaterThan(onDisk.indexOf('## Comments'));
+  });
+
+  it('does not tick a checkbox inside a fenced code block', async () => {
+    const fenced = [
+      '---',
+      'id: T1',
+      'title: Work',
+      'kind: build',
+      'status: open',
+      'blocked_by: []',
+      '---',
+      '',
+      '```markdown',
+      '- [ ] an example, not a criterion',
+      '```',
+      '',
+      '- [ ] a real criterion',
+      '',
+    ].join('\n');
+    const { frontier, read } = await withBody(fenced);
+
+    const error = await frontier.callExpectingError('update_ticket', {
+      id: 'T1',
+      tick: ['an example, not a criterion'],
+    });
+
+    expect(error).toContain('No acceptance criterion matches');
+    expect(await read()).toContain('- [ ] an example, not a criterion');
+  });
+});
+
+describe('an ambiguous criterion reference', () => {
+  it('is refused rather than ticking everything it could mean', async () => {
+    const { frontier, read } = await withBody();
+
+    const before = await read();
+    // "criterion" fits both "The first criterion" and "The second criterion".
+    // Ticking both would be answering the caller's question for them.
+    const error = await frontier.callExpectingError('update_ticket', {
+      id: 'T1',
+      tick: ['criterion'],
+    });
+
+    expect(error).toContain('matches 2 criteria');
+    expect(await read()).toBe(before);
+  });
+
+  it('still accepts an exact match that is a prefix of another', async () => {
+    const overlapping = [
+      '---',
+      'id: T1',
+      'title: Work',
+      'kind: build',
+      'status: open',
+      'blocked_by: []',
+      '---',
+      '',
+      '- [ ] Add tests',
+      '- [ ] Add tests for the parser',
+      '',
+    ].join('\n');
+    const { frontier, read } = await withBody(overlapping);
+
+    await frontier.call('update_ticket', { id: 'T1', tick: ['Add tests'] });
+
+    const onDisk = await read();
+    expect(onDisk).toContain('- [x] Add tests\n');
+    expect(onDisk).toContain('- [ ] Add tests for the parser');
+  });
+});
+
+describe('status', () => {
+  it('is refused as a direct assignment, naming the transitions instead', async () => {
+    const { frontier } = await withBody();
+
+    const error = await frontier.callExpectingError('update_ticket', {
+      id: 'T1',
+      status: 'resolved',
+    });
+
+    expect(error).toContain('claim, resolve, or drop');
+  });
+});
+
 /** The Ticket lines a Board marks as takeable. */
 function takeable(board: string): string[] {
   return board.split('\n').filter(line => line.startsWith('> '));

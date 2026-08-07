@@ -109,7 +109,7 @@ export interface Effort {
  */
 export interface TicketEdit {
   readonly status?: Status;
-  readonly triage?: string | null;
+  readonly triage?: TriageRole;
   readonly claimedBy?: string | null;
   readonly claimedAt?: string | null;
   readonly answerGist?: string | null;
@@ -129,3 +129,5 @@ export const TRIAGE_ROLES = [
   'ready-for-human',
   'wontfix',
 ] as const;
+
+export type TriageRole = (typeof TRIAGE_ROLES)[number];

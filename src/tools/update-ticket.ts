@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
 import type { Ticket, TicketEdit } from '../domain.ts';
-import { TRIAGE_ROLES } from '../domain.ts';
+import { STATUSES, TRIAGE_ROLES } from '../domain.ts';
+import type { TriageRole } from '../domain.ts';
 
 export const updateTicketInputSchema = {
   id: z.string().describe('Ticket id, or the <effort>#<order> handle of a Legacy Ticket.'),
@@ -20,6 +21,10 @@ export const updateTicketInputSchema = {
     .object({ reason: z.string().min(1).describe('Why it is beyond the destination.') })
     .optional()
     .describe('Close the Ticket as work ruled out of scope.'),
+  status: z
+    .enum(STATUSES)
+    .optional()
+    .describe('Not settable directly — use claim, resolve, or drop. Named here to say so.'),
   triage: z
     .enum(TRIAGE_ROLES)
     .optional()
@@ -45,7 +50,8 @@ export interface UpdateRequest {
   readonly claim?: { by: string } | undefined;
   readonly resolve?: { answer_gist: string; answer?: string | undefined } | undefined;
   readonly drop?: { reason: string } | undefined;
-  readonly triage?: string | undefined;
+  readonly triage?: TriageRole | undefined;
+  readonly status?: string | undefined;
   readonly comment?: string | undefined;
   readonly tick?: readonly string[] | undefined;
 }
@@ -63,6 +69,16 @@ export function editFor(ticket: Ticket, request: UpdateRequest, now: string): Ti
     ...(request.comment === undefined ? {} : { comment: request.comment }),
     ...(request.tick === undefined ? {} : { tick: request.tick }),
   };
+
+  // Status is derived from the transition, never assigned. Saying so beats
+  // silently dropping the field — and `wontfix` is a Triage role, so it is not
+  // a Status this would have accepted either way.
+  if (request.status !== undefined) {
+    throw new Error(
+      `status is not set directly. Use claim, resolve, or drop; '${request.status}' ` +
+        'is a lifecycle position the server derives.',
+    );
+  }
 
   const actions = [request.claim, request.resolve, request.drop].filter(
     action => action !== undefined,
@@ -93,13 +109,17 @@ export function editFor(ticket: Ticket, request: UpdateRequest, now: string): Ti
     };
   }
 
-  return {
-    ...annotations,
-    status: 'dropped',
-    droppedReason: request.drop?.reason ?? '',
-    claimedBy: null,
-    claimedAt: null,
-  };
+  if (request.drop !== undefined) {
+    return {
+      ...annotations,
+      status: 'dropped',
+      droppedReason: request.drop.reason,
+      claimedBy: null,
+      claimedAt: null,
+    };
+  }
+
+  throw new Error('Unreachable: an action was counted but none matched.');
 }
 
 /**

@@ -152,12 +152,12 @@ export function createFrontier(options: CreateServerOptions = {}): Frontier {
       inputSchema: updateTicketInputSchema,
       annotations: { readOnlyHint: false, idempotentHint: false },
     },
-    async ({ id, claim, resolve, drop, triage, comment, tick, root }) => {
+    async ({ id, claim, resolve, drop, status, triage, comment, tick, root }) => {
       const workspace = resolveWorkspace(root, context);
       const index = registry.forWorkspace(workspace);
       const tickets = await index.tickets();
 
-      const request = { claim, resolve, drop, triage, comment, tick };
+      const request = { claim, resolve, drop, status, triage, comment, tick };
       const find = (from: readonly Ticket[]): Ticket => {
         const ticket = from.find(entry => entry.id === id || entry.handle === id);
         if (ticket === undefined) throw new Error(`No Ticket '${id}' in ${workspace}.`);
