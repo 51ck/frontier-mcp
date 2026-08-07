@@ -3,6 +3,10 @@ import { join } from 'node:path';
 
 import type { Effort, HeaderDoc, Ticket } from '../../domain.ts';
 import type { StorageDriver } from '../driver.ts';
+import type { TicketEdit } from '../../domain.ts';
+import { NoSuchTicket, RevisionMismatch } from '../driver.ts';
+import { applyEdit, type Defaults } from './serialize.ts';
+import { currentRevision, GuardHeld, withGuard, writeAtomically } from './write.ts';
 import { readDestination, readSpecOpening } from './header-doc.ts';
 import { parseTicket } from './ticket.ts';
 
@@ -30,6 +34,7 @@ const HEADER_DOCS: ReadonlyArray<readonly [HeaderDoc, string]> = [
  */
 export function createMarkdownDriver(root: string): StorageDriver {
   const scratch = join(root, SCRATCH_DIR);
+  let writes: Promise<unknown> = Promise.resolve();
 
   const walk = async (): Promise<ScannedEffort[]> => {
     // A repo that has never used the tracker is a supported starting state,
@@ -67,6 +72,104 @@ export function createMarkdownDriver(root: string): StorageDriver {
     async listTickets(): Promise<readonly Ticket[]> {
       return (await scan()).flatMap(entry => entry.tickets);
     },
+
+    /**
+     * Writes are serialized per workspace. Two calls racing on one Ticket would
+     * otherwise both pass the revision check before either renamed, and the
+     * loser's edit would be lost rather than refused. The queue is in-memory
+     * and dies with the process — no lock file can outlive a crash.
+     */
+    updateTicket(handle, edit, expectedRevision) {
+      // Queue behind whatever is in flight, and keep queueing after a failure —
+      // one refused write must not stop the next.
+      const next = writes.then(
+        () => write(scratch, handle, edit, expectedRevision),
+        () => write(scratch, handle, edit, expectedRevision),
+      );
+      writes = next.catch(() => undefined);
+      return next;
+    },
+  };
+}
+
+async function write(
+  scratch: string,
+  handle: string,
+  edit: TicketEdit,
+  expectedRevision: string,
+): Promise<Ticket> {
+  const located = await locate(scratch, handle);
+  if (located === undefined) throw new NoSuchTicket(handle);
+
+  const { dir, effort, filename, ticket } = located;
+  const path = join(dir, ISSUES_DIR, filename);
+
+  // The index that produced expectedRevision may be stale, so the check is
+  // against the file as it is right now, immediately before the write.
+  if ((await currentRevision(path)) !== expectedRevision) throw new RevisionMismatch(handle);
+
+  const contents = await readFile(path, 'utf8');
+  const updated = applyEdit(contents, edit, defaultsFor(ticket));
+
+  try {
+    await withGuard(path, expectedRevision, async () => {
+      // Re-check inside the guard: holding it means nobody else can be writing
+      // this revision, so a mismatch now is a genuinely earlier write.
+      if ((await currentRevision(path)) !== expectedRevision) throw new RevisionMismatch(handle);
+      await writeAtomically(path, updated);
+    });
+  } catch (error) {
+    // Losing the guard and losing the revision race mean the same thing to a
+    // caller: somebody else got there first, and nothing of theirs was touched.
+    if (error instanceof GuardHeld) throw new RevisionMismatch(handle);
+    throw error;
+  }
+
+  const written = (await readTicketFiles(dir, effort)).find(
+    entry => entry.filename === filename,
+  )?.ticket;
+  if (written === undefined) throw new NoSuchTicket(handle);
+
+  return written;
+}
+
+/** Find the file backing a Ticket, by id or by its `<effort>#<order>` handle. */
+async function locate(
+  scratch: string,
+  handle: string,
+): Promise<{ dir: string; effort: string; filename: string; ticket: Ticket } | undefined> {
+  const slugs = await readDirectories(scratch);
+  const perEffort = await Promise.all(
+    slugs.map(async slug => ({ slug, entries: await readTicketFiles(join(scratch, slug), slug) })),
+  );
+
+  for (const { slug, entries } of perEffort) {
+    const found = entries.find(
+      entry => entry.ticket.id === handle || entry.ticket.handle === handle,
+    );
+
+    if (found !== undefined) {
+      return {
+        dir: join(scratch, slug),
+        effort: slug,
+        filename: found.filename,
+        ticket: found.ticket,
+      };
+    }
+  }
+
+  return undefined;
+}
+
+function defaultsFor(ticket: Ticket): Defaults {
+  return {
+    id: ticket.id,
+    title: ticket.title,
+    kind: ticket.kind,
+    type: ticket.type,
+    status: ticket.status,
+    triage: ticket.triage,
+    blockedBy: ticket.blockedBy,
   };
 }
 
@@ -75,8 +178,17 @@ interface ScannedEffort {
   readonly tickets: readonly Ticket[];
 }
 
-/** Every Ticket in one Effort, in sort order. A missing `issues/` yields none. */
-async function readTickets(dir: string, effort: string): Promise<Ticket[]> {
+interface TicketFileEntry {
+  readonly filename: string;
+  readonly ticket: Ticket;
+}
+
+/**
+ * Every Ticket in one Effort with the file behind it, in sort order. Paths never
+ * cross the driver interface, so this pairing stays inside the driver — it is
+ * how a write finds the file a Ticket came from.
+ */
+async function readTicketFiles(dir: string, effort: string): Promise<TicketFileEntry[]> {
   const issues = join(dir, ISSUES_DIR);
   const entries = await readDir(issues);
   const filenames = entries
@@ -84,16 +196,28 @@ async function readTickets(dir: string, effort: string): Promise<Ticket[]> {
     .map(entry => entry.name)
     .toSorted();
 
-  const tickets = await Promise.all(
+  const parsed = await Promise.all(
     filenames.map(async (filename, position) => {
-      const contents = await readFile(join(issues, filename), 'utf8');
+      const path = join(issues, filename);
+      const [contents, revision] = await Promise.all([
+        readFile(path, 'utf8'),
+        currentRevision(path),
+      ]);
       // A file with no `NN-` prefix still needs a position; its place in the
       // sorted listing is the only order it has.
-      return parseTicket(effort, { filename, contents }, position + 1);
+      return {
+        filename,
+        ticket: parseTicket(effort, { filename, contents }, position + 1, revision ?? ''),
+      };
     }),
   );
 
-  return withUniqueHandles(tickets.toSorted((a, b) => a.order - b.order));
+  return withUniqueHandles(parsed.toSorted((a, b) => a.ticket.order - b.ticket.order));
+}
+
+/** Every Ticket in one Effort, in sort order. A missing `issues/` yields none. */
+async function readTickets(dir: string, effort: string): Promise<Ticket[]> {
+  return (await readTicketFiles(dir, effort)).map(entry => entry.ticket);
 }
 
 /**
@@ -101,13 +225,14 @@ async function readTickets(dir: string, effort: string): Promise<Ticket[]> {
  * same `<effort>#<order>` handle and make one of them unfetchable. Later
  * collisions get a suffix, so every Ticket stays individually addressable.
  */
-function withUniqueHandles(tickets: readonly Ticket[]): Ticket[] {
+function withUniqueHandles(entries: readonly TicketFileEntry[]): TicketFileEntry[] {
   const seen = new Set<string>();
 
-  return tickets.map(ticket => {
+  return entries.map(entry => {
+    const { ticket } = entry;
     if (!seen.has(ticket.handle)) {
       seen.add(ticket.handle);
-      return ticket;
+      return entry;
     }
 
     let suffix = 2;
@@ -115,7 +240,7 @@ function withUniqueHandles(tickets: readonly Ticket[]): Ticket[] {
     const handle = `${ticket.handle}.${String(suffix)}`;
     seen.add(handle);
 
-    return { ...ticket, handle };
+    return { filename: entry.filename, ticket: { ...ticket, handle } };
   });
 }
 

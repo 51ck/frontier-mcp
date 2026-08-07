@@ -75,6 +75,27 @@ export function renderBoard(board: Board): string {
   return lines.join('\n');
 }
 
+/**
+ * How long a claim may sit before it looks abandoned. Long enough that an agent
+ * working steadily is never flagged, short enough that a session which died
+ * overnight is visible the next morning.
+ */
+const STALE_AFTER_HOURS = 24;
+
+/**
+ * A claim held past the threshold is reported and nothing more. Auto-expiry is
+ * explicitly out of scope: a long-running agent must never be silently robbed
+ * of its Ticket, so releasing one stays a human decision.
+ */
+function isStaleClaim(ticket: TicketSummary): boolean {
+  if (ticket.status !== 'claimed' || ticket.claimedAt === undefined) return false;
+
+  const taken = Date.parse(ticket.claimedAt);
+  if (Number.isNaN(taken)) return false;
+
+  return Date.now() - taken > STALE_AFTER_HOURS * 60 * 60 * 1000;
+}
+
 function labelled(label: string, prose: string): string {
   return `${label}: ${prose.split('\n').join('\n  ')}`;
 }
@@ -133,6 +154,7 @@ function collectWarnings(board: Board): string[] {
   const unrecognized = new Set<string>();
   const collapsed = new Set<string>();
   const declined = new Set<string>();
+  const stale = new Set<string>();
 
   for (const ticket of board.tickets) {
     for (const edge of ticket.blockedBy) {
@@ -149,6 +171,7 @@ function collectWarnings(board: Board): string[] {
     // is invisible on the line itself and so has to be said out loud.
     if (ticket.status === 'open' && ticket.triage === 'wontfix') declined.add(ticket.handle);
     for (const ref of ticket.collapsedRefs) collapsed.add(ref);
+    if (isStaleClaim(ticket)) stale.add(`${ticket.handle} (${ticket.claimedBy ?? '?'})`);
   }
 
   if (dangling.size > 0) {
@@ -181,19 +204,31 @@ function collectWarnings(board: Board): string[] {
         [...declined].toSorted().join(' '),
     );
   }
+  if (stale.size > 0) {
+    warnings.push(
+      `stale claim, held longer than ${String(STALE_AFTER_HOURS)}h (${String(stale.size)}): ` +
+        `${[...stale].toSorted().join(' ')} — flagged only, never released; ask the holder`,
+    );
+  }
 
   const legacy = board.tickets.filter(ticket => ticket.legacy);
   if (legacy.length > 0) {
-    const unidentified = legacy.filter(ticket => ticket.id === undefined).length;
-    const idNote =
-      unidentified === 0
-        ? ''
-        : ` ${String(unidentified)} carry no id — fetch those by the <effort>#<order> handle shown, ` +
-          'and note nothing can declare an Edge on them until migration mints one.';
-
     warnings.push(
       `${String(legacy.length)}/${String(board.tickets.length)} Tickets are Legacy — title, ` +
-        `status and Edges are inferred from prose.${idNote} Run migrate_effort to normalize.`,
+        'status and Edges are inferred from prose. Run migrate_effort to normalize.',
+    );
+  }
+
+  // Tracked separately from Legacy, because normalizing a Legacy file gives it
+  // frontmatter without giving it an id. It would otherwise leave the Legacy
+  // count and take its need for migration silently with it, while still being
+  // unaddressable by anything but its handle.
+  const unidentified = board.tickets.filter(ticket => ticket.id === undefined);
+  if (unidentified.length > 0) {
+    warnings.push(
+      `no id (${String(unidentified.length)}): ` +
+        `${unidentified.map(ticket => ticket.handle).join(' ')} — fetch by the handle shown; ` +
+        'nothing can declare an Edge on them until migrate_effort mints one.',
     );
   }
 

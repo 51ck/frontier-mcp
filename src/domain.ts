@@ -62,6 +62,13 @@ export interface TicketSummary {
   readonly unrecognizedStatus: string | undefined;
   /** Sub-slice references (`T38.1`) coarsened to the Ticket that exists. */
   readonly collapsedRefs: readonly string[];
+  /**
+   * An opaque token for what was read. A write passes back the one it read and
+   * is refused if the stored Ticket has moved on. The markdown driver builds it
+   * from the file's modification time and size; another driver would use
+   * whatever its store offers, so nothing above the seam may parse it.
+   */
+  readonly revision: string;
 }
 
 /** A Ticket with its prose. */
@@ -91,4 +98,20 @@ export interface Effort {
    * Board that opens with nothing leaves every Ticket line below uninterpretable.
    */
   readonly specOpening: string | undefined;
+}
+
+/**
+ * The mutation points on a Ticket, in the vocabulary rather than the storage
+ * format. A field left out is left alone; `null` clears one that was set.
+ *
+ * `answer` is a body mutation point rather than a field — a Ticket body is
+ * opaque apart from the three places the schema says are edited.
+ */
+export interface TicketEdit {
+  readonly status?: Status;
+  readonly claimedBy?: string | null;
+  readonly claimedAt?: string | null;
+  readonly answerGist?: string | null;
+  readonly droppedReason?: string | null;
+  readonly answer?: string;
 }

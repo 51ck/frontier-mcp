@@ -8,7 +8,16 @@ import { parse } from 'yaml';
 const FENCE = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 
 export interface Split {
-  /** The parsed frontmatter, or undefined when the file carries no fence. */
+  /**
+   * Whether the file opened with a `---` fence at all. Distinct from
+   * {@link Split.fields} being undefined, which also happens when a fence is
+   * present but its YAML will not parse — a write must normalize that file
+   * rather than treat the fence as body prose and duplicate it.
+   */
+  readonly hasFence: boolean;
+  /** The fence's raw YAML, unparsed. Undefined when there was no fence. */
+  readonly raw: string | undefined;
+  /** The parsed frontmatter, or undefined when there is none or it is malformed. */
   readonly fields: Record<string, unknown> | undefined;
   /** Everything after the fence, verbatim. The whole file when there is none. */
   readonly body: string;
@@ -16,9 +25,16 @@ export interface Split {
 
 export function splitFrontmatter(contents: string): Split {
   const match = FENCE.exec(contents);
-  if (match?.[1] === undefined) return { fields: undefined, body: contents };
+  if (match?.[1] === undefined) {
+    return { hasFence: false, raw: undefined, fields: undefined, body: contents };
+  }
 
-  return { fields: parseFields(match[1]), body: contents.slice(match[0].length) };
+  return {
+    hasFence: true,
+    raw: match[1],
+    fields: parseFields(match[1]),
+    body: contents.slice(match[0].length),
+  };
 }
 
 /**

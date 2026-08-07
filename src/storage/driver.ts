@@ -1,4 +1,6 @@
-import type { Effort, Ticket } from '../domain.ts';
+import type { Effort, Ticket, TicketEdit } from '../domain.ts';
+
+export type { TicketEdit };
 
 /**
  * The seam from ADR 0001. Every read and write reaches storage through this
@@ -23,4 +25,32 @@ export interface StorageDriver {
    * asking for a subset — at these volumes the whole set is the cheap answer.
    */
   listTickets(): Promise<readonly Ticket[]>;
+
+  /**
+   * Apply an edit to one Ticket and return it as written.
+   *
+   * `expectedRevision` is the {@link TicketSummary.revision} the caller last
+   * read. The driver refuses the write if the stored Ticket has moved on since,
+   * so a concurrent edit fails loudly instead of being clobbered. The write is
+   * atomic: it either lands whole or not at all.
+   */
+  updateTicket(handle: string, edit: TicketEdit, expectedRevision: string): Promise<Ticket>;
+}
+
+/** Thrown when the stored Ticket moved on since the caller read it. */
+export class RevisionMismatch extends Error {
+  constructor(handle: string) {
+    super(
+      `${handle} changed on disk since it was read. Nothing was written — re-read it and retry.`,
+    );
+    this.name = 'RevisionMismatch';
+  }
+}
+
+/** Thrown when the edit names a Ticket the workspace does not hold. */
+export class NoSuchTicket extends Error {
+  constructor(handle: string) {
+    super(`No Ticket '${handle}' in this workspace.`);
+    this.name = 'NoSuchTicket';
+  }
 }

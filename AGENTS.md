@@ -183,8 +183,8 @@ Source layout:
 | --- | --- |
 | `src/domain.ts` | The CONTEXT.md vocabulary as types. Naming here is bound by the glossary, including its `_Avoid_` lines. |
 | `src/frontier.ts` | The Frontier computation. Takes every Ticket in the workspace, because Edges resolve repo-wide. |
-| `src/storage/driver.ts` | The ADR 0001 seam. |
-| `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout — `frontmatter.ts` splits the fence, `ticket.ts` parses a Ticket, `legacy.ts` infers one from prose, `header-doc.ts` reads the Map's sections. |
+| `src/storage/driver.ts` | The ADR 0001 seam, its edit vocabulary, and its typed failures. |
+| `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout — `frontmatter.ts` splits the fence, `ticket.ts` parses a Ticket, `legacy.ts` infers one from prose, `header-doc.ts` reads the Map's sections, `serialize.ts` applies an edit, `write.ts` renames it into place. |
 | `src/workspace.ts` | Workspace resolution — the one place above the driver that reads the filesystem, and only to locate a repository root. |
 | `src/workspace-index.ts` | The in-memory index, one per resolved workspace. |
 | `src/tools/` | One module per tool: its input schema, its description, and how its result renders. |
@@ -212,6 +212,25 @@ Rendering rules that are load-bearing, not cosmetic:
   `destination:`. Destination is a Map section; calling a Spec's opening one would be a lie in the
   vocabulary. Multi-line header prose has its continuation lines indented so it can never be read as
   further Ticket lines.
+
+Write rules, equally load-bearing:
+
+- **Atomic or not at all.** Write a temporary file in the same directory, rename over the target.
+  No lock files, ever — a crashed session must never be able to wedge the tracker.
+- **Claims are guarded by a revision-keyed exclusive create**, per [ADR 0004](./docs/adr/0004-claims-are-guarded-by-a-revision-keyed-exclusive-create.md). An optimistic check alone is not compare-and-set across processes — measured, four sessions claiming one Ticket produced three false winners.
+- **Every write carries the revision it read.** `TicketSummary.revision` is opaque above the seam;
+  the markdown driver builds it from modification time and size, a SQLite driver would use a
+  rowversion. The check runs against the file immediately before the write, not against the index,
+  because the index may be stale.
+- **A write never reorders frontmatter.** New fields are appended; only a block this driver creates is in schema order. `flowCollectionPadding: false` matters — without it an untouched `[a, b]` comes back `[ a, b ]`.
+- **A write never touches a body section it does not own.** The answer replaces up to the next `##`, so the comment log survives.
+- **A mismatch is never retried.** It is re-read only to produce a better message — usually
+  "already claimed by X" — and then the original failure is raised. A mismatch may equally be
+  somebody's hand edit, and overwriting that is what the check exists to prevent.
+- **Writes are serialized per workspace.** Otherwise two calls racing on one Ticket both pass the
+  revision check before either renames, and the loser's edit is lost rather than refused.
+- **A write normalizes the Legacy file it touches**, and keeps the prose it inferred from verbatim.
+- **Claims are flagged when stale, never released.** 24h; auto-expiry is out of scope.
 
 Two inferences that are deliberately conservative, both for the same reason — a Ticket wrongly kept
 off the Frontier is a missed opportunity, one wrongly put on it is wasted work:

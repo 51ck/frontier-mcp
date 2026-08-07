@@ -1,5 +1,5 @@
 import type { Effort, Ticket } from './domain.ts';
-import type { StorageDriver } from './storage/driver.ts';
+import type { StorageDriver, TicketEdit } from './storage/driver.ts';
 
 /**
  * The in-memory index: a derived, rebuildable view of one workspace, built by a
@@ -13,12 +13,27 @@ import type { StorageDriver } from './storage/driver.ts';
 export interface WorkspaceIndex {
   efforts(): Promise<readonly Effort[]>;
   tickets(): Promise<readonly Ticket[]>;
+  /** Apply an edit and discard the scan, since the workspace has moved on. */
+  update(handle: string, edit: TicketEdit, expectedRevision: string): Promise<Ticket>;
 }
 
 export function createWorkspaceIndex(driver: StorageDriver): WorkspaceIndex {
+  const efforts = cache(() => driver.listEfforts());
+  const tickets = cache(() => driver.listTickets());
+
   return {
-    efforts: cache(() => driver.listEfforts()),
-    tickets: cache(() => driver.listTickets()),
+    efforts: efforts.get,
+    tickets: tickets.get,
+    async update(handle, edit, expectedRevision) {
+      try {
+        return await driver.updateTicket(handle, edit, expectedRevision);
+      } finally {
+        // A write moves the workspace on whether or not it succeeded partway,
+        // so the next read rebuilds rather than trusting a scan taken before it.
+        efforts.invalidate();
+        tickets.invalidate();
+      }
+    },
   };
 }
 
@@ -26,15 +41,20 @@ export function createWorkspaceIndex(driver: StorageDriver): WorkspaceIndex {
  * Hold the in-flight scan, not just its result, so concurrent callers share one
  * scan instead of racing several. A failed scan is never cached as the answer.
  */
-function cache<T>(scan: () => Promise<T>): () => Promise<T> {
+function cache<T>(scan: () => Promise<T>): { get: () => Promise<T>; invalidate: () => void } {
   let pending: Promise<T> | undefined;
 
-  return () => {
-    pending ??= scan().catch((error: unknown) => {
+  return {
+    get: () => {
+      pending ??= scan().catch((error: unknown) => {
+        pending = undefined;
+        throw error;
+      });
+      return pending;
+    },
+    invalidate: () => {
       pending = undefined;
-      throw error;
-    });
-    return pending;
+    },
   };
 }
 
