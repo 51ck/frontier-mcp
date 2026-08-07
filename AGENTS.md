@@ -112,8 +112,10 @@ Design decisions settled and binding until an ADR revises them:
 - **`.md` with YAML frontmatter.** Not `.mdc`.
 - **Formal metadata in frontmatter, prose in the body.** Identity, status, edges, and kind are fields.
   Everything an agent reads as prose stays prose.
-- **Stable `id`, cosmetic filename.** `NN-slug.md` is human sort order only. Cross-effort reference is
-  `<effort>/<id>`.
+- **Stable `id`, cosmetic filename.** Ticket ids are `T<n>` from a repo-global counter, unique across
+  every Effort, never reused or changed. `<NN>-T<n>-<slug>.md` carries sort order in `NN` only.
+  Frontmatter is the authority — on disagreement the file is renamed, never the field. Edges are plain
+  ids resolved repo-wide; there is no compound cross-Effort reference form.
 - **Type what gets surgically mutated; leave the rest opaque.** The Map has typed sections because
   wayfinder edits them section by section. The Spec is an opaque body because nothing edits it.
 - **Derive, don't store, what tickets already know.** The Map's Decisions-so-far renders from resolved
@@ -146,6 +148,20 @@ TypeScript, Node 24, stdio MCP server.
 
 No verification framework yet.
 
+## Agent skills
+
+### Issue tracker
+
+Local markdown under `.scratch/<effort-slug>/`. See [docs/agents/issue-tracker.md](./docs/agents/issue-tracker.md).
+
+### Triage labels
+
+The five canonical roles, unchanged. See [docs/agents/triage-labels.md](./docs/agents/triage-labels.md).
+
+### Domain docs
+
+Single-context — root `CONTEXT.md` + `docs/adr/`. See [docs/agents/domain.md](./docs/agents/domain.md).
+
 ## User Preferences
 
 When the user requests a durable behavior change, record it here or in the relevant child AGENTS.md.
@@ -153,4 +169,7 @@ When the user requests a durable behavior change, record it here or in the relev
 ## Child DOX Index
 
 - No child AGENTS.md files are needed for the current repository structure.
-- Root-owned files: [CONTEXT.md](./CONTEXT.md) (glossary), [docs/adr/](./docs/adr/) (decision records).
+- Root-owned files: [CONTEXT.md](./CONTEXT.md) (glossary), [docs/adr/](./docs/adr/) (decision records),
+  [docs/agents/](./docs/agents/) (skill configuration — tracker conventions, triage labels, domain docs).
+- `.scratch/` holds this repo's own Efforts, in the same layout Frontier serves — currently
+  [frontier-v1](./.scratch/frontier-v1/spec.md). It is work tracking, not source; no child AGENTS.md.

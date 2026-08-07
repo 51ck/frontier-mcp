@@ -32,8 +32,8 @@ thereafter.
 _Avoid_: PRD, design doc, requirements
 
 **Ticket**:
-One markdown file under an effort's `issues/`, one unit of work or one question. Identified by a
-stable `id`, never by its filename.
+One markdown file under an Effort's `issues/`, one unit of work or one question. Identified by a
+stable `id` of the form `T<n>`, unique across the whole repo and never by its filename.
 _Avoid_: issue, task, card, story
 
 **Kind**:
@@ -51,8 +51,8 @@ separate field from Status — only `/triage` writes it.
 _Avoid_: status, label
 
 **Edge**:
-A `blocked_by` entry: one ticket declaring another must finish first. Local id, or `<effort>/<id>`
-across efforts.
+A `blocked_by` entry: one Ticket declaring another must finish first. Always a plain Ticket id,
+resolved repo-wide — an Edge across Efforts looks no different from a local one.
 _Avoid_: dependency, link, relation
 
 **Frontier**:
