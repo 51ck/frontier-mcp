@@ -7,6 +7,7 @@ triage: ready-for-agent
 blocked_by: [T15, T16]
 answer_gist: release script removed per T16; AGENTS.md Verification names release:dry with its clean-tree precondition, stack decision moved to Stack-settled, DOX index gains README and CHANGELOG, README gains the install snippet
 ---
+
 # T17 — Release docs tell one story
 
 **What to build:** A reader deciding how to cut a release gets the same answer from the README,
@@ -58,3 +59,15 @@ README, `AGENTS.md` and `package.json` now agree: publishing is CI-only, and the
 One overlap to flag rather than hide: **T9 owns "user-scope install"** and is still open. The snippet added here is the minimum the pin sentence needs and is not meant to pre-empt whatever T9 settles — if T9 lands a different install story, this section is the thing it rewrites.
 
 **Verified:** `pnpm run check` and `pnpm test` pass (176 tests, 23 files); a grep for the removed `release` script and the old spelled-out dry-run command finds nothing stale in README, AGENTS.md or package.json.
+
+## Comments
+
+Correction from the post-implementation code review, fixed in 06d39ee.
+
+**The Verification block named a command that did not work.** `release:dry` omitted `--ci`, so `pnpm run release:dry` prompted and hung — the exact failure this ticket's criterion ("names a release-it command that works when run") existed to prevent. Worse, the obvious workaround does not exist: `pnpm run release:dry -- --ci` sends `--` to release-it as a positional argument and errors. `--ci` is now in the script. Verified: exit 0 in 1s, unattended, tree untouched.
+
+**I added a third copy of the thing this ticket was cleaning up.** The `skipChecks` / pnpm-10 / no-token rationale ended up in AGENTS.md Work Guidance, AGENTS.md Verification *and* the README — the same duplication that let the original release config drift. It now lives once, in the Work Guidance bullet; README and Verification point at it.
+
+**The README pin was unreachable.** It read `frontier-mcp@0.1.0`, but release-it bumps before publishing, so the first release is 0.1.1 and 0.1.0 will never exist on npm. Anyone copying the snippet would have got a 404. It is `x.y.z` now, with a link to the releases page.
+
+Also added to the Child DOX Index: `.release-it.json` and `.github/workflows/release.yml`, both root-owned and load-bearing, both missed the first time.

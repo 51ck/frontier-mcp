@@ -7,6 +7,7 @@ triage: ready-for-agent
 blocked_by: []
 answer_gist: One auth path (OIDC, no NODE_AUTH_TOKEN), npm bootstrap dropped, master-only guard, CHANGELOG intro moved into the plugin header; skipChecks kept because OIDC has no whoami
 ---
+
 # T15 — Release workflow publishes through one auth path, from master only
 
 **What to build:** Dispatching the `Release` workflow actually publishes `frontier-mcp` to npm — it
@@ -71,3 +72,13 @@ Landed in `.github/workflows/release.yml` and `.release-it.json`.
 **Verified:** `pnpm run check` passes; `pnpm exec release-it --dry-run --ci --increment=patch` exits 0 and leaves `CHANGELOG.md` and `package.json` untouched. No test seam exists for CI config — the repo's only seam is the MCP tool layer, and per AGENTS.md a change needing a new one is a design signal, not a reason to add one.
 
 Two criteria could not be ticked through `update_ticket` because their text wraps across lines; that is filed as T18. They are met: the auth path is single, and the CHANGELOG intro survives.
+
+## Comments
+
+Correction from the post-implementation code review, recorded because the Answer above is wrong on two points.
+
+**`registry-url` should have gone too.** The Answer argued for keeping it on the grounds that npm's trusted-publishing recipe keeps it. That recipe covers `npm publish`; this repo runs `pnpm publish`. Reproduced against pnpm 10.33.4: the `.npmrc` that `registry-url` writes carries a `${NODE_AUTH_TOKEN}` placeholder pnpm cannot expand, and `@pnpm/npm-conf` responds by discarding the entire file with a warning — registry line included. So it was inert, it emitted a warning on every release, and the criterion "an absent `NPM_TOKEN` does not leave an empty `_authToken` in `.npmrc`" was met only by accident. `registry-url` is now removed; the default registry is the one we publish to anyway.
+
+**The `skipChecks` justification named the wrong function.** `npm whoami` is `isAuthenticated()`, not `isCollaborator()` — `isCollaborator()` runs `npm access list collaborators`. Both abort with no token, so keeping `skipChecks` is still right, but AGENTS.md records this as load-bearing and the wrong name would have sent the next editor to the wrong place. Both are now named where the rationale lives.
+
+Fixed in 06d39ee.
