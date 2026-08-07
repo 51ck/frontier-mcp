@@ -123,8 +123,10 @@ async function writeAll(issues: string, files: readonly PlannedFile[]): Promise<
     await Promise.all(
       files.map(async file => {
         // Two batches racing on one Effort can pick the same sort order, which
-        // is cosmetic — but the id in the name is unique, so a target that
-        // already exists is a Ticket we would be destroying.
+        // is cosmetic — the id beside it still differs, so the names cannot
+        // actually collide. `replace: false` is the assertion of that rather
+        // than a case with a path to it: a target that already exists would be
+        // a Ticket this write was about to destroy.
         await writeAtomically(join(issues, file.filename), file.contents, { replace: false });
         landed.push(join(issues, file.filename));
       }),
