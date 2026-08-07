@@ -5,7 +5,7 @@ kind: build
 status: resolved
 triage: ready-for-agent
 blocked_by: [T4, T5, T6, T7]
-answer_gist: frontier://tracker-doc resource ships rewritten issue-tracker.md; README documents pinned user-scope npx install; npm pack smoke test verifies dist and doc in tarball
+answer_gist: frontier://tracker-doc resource ships rewritten issue-tracker.md; README documents pinned user-scope npx install; package.json files field carries the doc into the tarball
 ---
 
 # T9 — Ship it: tracker-doc resource, packaging, user-scope install
@@ -32,7 +32,9 @@ sequence because it documents the finished tool surface.
 
 Shipped the tracker configuration document as MCP resource `frontier://tracker-doc` (not a ninth tool). Rewrote `docs/agents/issue-tracker.md` with MCP tool mapping, skill flow, and file fallback including hand-publish steps.
 
-Added `README.md` with user-scope install via pinned `npx frontier-mcp@x.y.z`, first-use flow, and workspace resolution from the session directory. Included `docs/agents/issue-tracker.md` in npm `files`; `test/ship.test.ts` asserts exactly eight tools, resource listing, fallback-valid tickets, packaging metadata, and `npm pack` contents.
+Added `README.md` with user-scope install via pinned `npx frontier-mcp@x.y.z`, first-use flow, and workspace resolution from the session directory. Included `docs/agents/issue-tracker.md` in npm `files`; `test/ship.test.ts` asserts exactly eight tools, resource listing, a Ticket hand-written from the shipped document, and the packaging metadata that carries dist and the doc into the tarball.
+
+Tarball contents are asserted through `package.json` `files` rather than by running a pack: AGENTS.md sanctions only two tests that spawn OS processes, both for concurrency, and bans `npm` in a pnpm repo.
 
 The publish path itself landed separately via T14–T18 (release-it on CI, Trusted Publishing); this Ticket's contribution is the resource, the packaging metadata, and the install docs.
 
