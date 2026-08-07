@@ -121,6 +121,30 @@ export interface TicketEdit {
   readonly tick?: readonly string[];
 }
 
+/**
+ * A Ticket asked for but not yet minted an id.
+ *
+ * `key` is the caller's own temporary name for this draft, and exists only for
+ * the length of the call: sibling drafts declare Edges on it before any id
+ * exists, which is what removes the create-then-wire second pass. It is never
+ * stored, and never appears in a file.
+ */
+export interface TicketDraft {
+  /**
+   * The caller's temporary name. Never `T<n>` — a key shaped like an id could
+   * not be told apart from the real one an Edge might mean.
+   */
+  readonly key: string | undefined;
+  readonly title: string;
+  readonly kind: Kind;
+  readonly type: string | undefined;
+  readonly triage: TriageRole | undefined;
+  /** Edges, each either a real Ticket id or a sibling draft's {@link key}. */
+  readonly blockedBy: readonly string[];
+  /** The prose, written verbatim. A draft with none produces a Ticket with none. */
+  readonly body: string | undefined;
+}
+
 /** The five roles `/triage` writes. A Status is never one of these. */
 export const TRIAGE_ROLES = [
   'needs-triage',

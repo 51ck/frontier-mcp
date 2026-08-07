@@ -7,6 +7,12 @@ import { createMarkdownDriver } from './storage/markdown/driver.ts';
 import type { StorageDriver } from './storage/driver.ts';
 import { RevisionMismatch } from './storage/driver.ts';
 import {
+  createTicketsDescription,
+  createTicketsInputSchema,
+  draftsFrom,
+  renderCreated,
+} from './tools/create-tickets.ts';
+import {
   boardFor,
   getBoardDescription,
   getBoardInputSchema,
@@ -141,6 +147,27 @@ export function createFrontier(options: CreateServerOptions = {}): Frontier {
           },
         ],
       };
+    },
+  );
+
+  server.registerTool(
+    'create_tickets',
+    {
+      title: 'Create Tickets',
+      description: createTicketsDescription,
+      inputSchema: createTicketsInputSchema,
+      annotations: { readOnlyHint: false, idempotentHint: false },
+    },
+    async ({ effort, create, tickets, root }) => {
+      const workspace = resolveWorkspace(root, context);
+      const index = registry.forWorkspace(workspace);
+
+      // Every reference resolves before anything is written, so a refusal —
+      // an unknown key, a cycle — leaves the workspace exactly as it was.
+      const drafts = draftsFrom(tickets, await index.tickets());
+      const created = await index.create(effort, drafts, { createEffort: create === true });
+
+      return { content: [{ type: 'text', text: renderCreated(effort, created) }] };
     },
   );
 

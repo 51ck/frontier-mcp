@@ -1,5 +1,5 @@
-import type { Effort, Ticket } from './domain.ts';
-import type { StorageDriver, TicketEdit } from './storage/driver.ts';
+import type { Effort, Ticket, TicketDraft } from './domain.ts';
+import type { CreateOptions, StorageDriver, TicketEdit } from './storage/driver.ts';
 
 /**
  * The in-memory index: a derived, rebuildable view of one workspace, built by a
@@ -15,6 +15,12 @@ export interface WorkspaceIndex {
   tickets(): Promise<readonly Ticket[]>;
   /** Apply an edit and discard the scan, since the workspace has moved on. */
   update(handle: string, edit: TicketEdit, expectedRevision: string): Promise<Ticket>;
+  /** Create a batch of Tickets and discard the scan, for the same reason. */
+  create(
+    effort: string,
+    drafts: readonly TicketDraft[],
+    options: CreateOptions,
+  ): Promise<readonly Ticket[]>;
 }
 
 export function createWorkspaceIndex(driver: StorageDriver): WorkspaceIndex {
@@ -25,16 +31,25 @@ export function createWorkspaceIndex(driver: StorageDriver): WorkspaceIndex {
     efforts: efforts.get,
     tickets: tickets.get,
     async update(handle, edit, expectedRevision) {
-      try {
-        return await driver.updateTicket(handle, edit, expectedRevision);
-      } finally {
-        // A write moves the workspace on whether or not it succeeded partway,
-        // so the next read rebuilds rather than trusting a scan taken before it.
-        efforts.invalidate();
-        tickets.invalidate();
-      }
+      return moved(() => driver.updateTicket(handle, edit, expectedRevision));
+    },
+    async create(effort, drafts, options) {
+      return moved(() => driver.createTickets(effort, drafts, options));
     },
   };
+
+  /**
+   * A write moves the workspace on whether or not it succeeded partway, so the
+   * next read rebuilds rather than trusting a scan taken before it.
+   */
+  async function moved<T>(operation: () => Promise<T>): Promise<T> {
+    try {
+      return await operation();
+    } finally {
+      efforts.invalidate();
+      tickets.invalidate();
+    }
+  }
 }
 
 /**

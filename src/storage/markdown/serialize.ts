@@ -55,12 +55,7 @@ export function applyEdit(contents: string, edit: TicketEdit, defaults: Defaults
     else document.set(field, value);
   }
 
-  const frontmatter = document
-    // `lineWidth: 0` stops long values being re-wrapped, and without
-    // `flowCollectionPadding: false` an untouched `[a, b]` comes back `[ a, b ]`
-    // — both would be reformatting a field the edit never named.
-    .toString({ lineWidth: 0, flowCollectionPadding: false })
-    .trimEnd();
+  const frontmatter = render(document);
 
   // Only the outer edges are trimmed, and only newlines at the end — trailing
   // spaces on the last line of a comment are part of what the author wrote.
@@ -209,6 +204,30 @@ function fieldsOf(edit: TicketEdit): Array<[string, string | null]> {
 }
 
 /**
+ * A Ticket file as first written. Everything is a field this driver is creating,
+ * so the whole block is in schema order — the one case where that is allowed,
+ * since there is no author's ordering to preserve.
+ *
+ * The body is the caller's prose, stored verbatim. A draft with none produces a
+ * Ticket with none rather than a heading nobody asked for.
+ */
+export function serializeNew(fields: Defaults, body: string | undefined): string {
+  const frontmatter = render(schemaFor(fields));
+  const prose = body?.trim() ?? '';
+
+  return prose === '' ? `---\n${frontmatter}\n---\n` : `---\n${frontmatter}\n---\n\n${prose}\n`;
+}
+
+/**
+ * `lineWidth: 0` stops long values being re-wrapped, and without
+ * `flowCollectionPadding: false` an untouched `[a, b]` comes back `[ a, b ]` —
+ * both would be reformatting a field the edit never named.
+ */
+function render(document: Document): string {
+  return document.toString({ lineWidth: 0, flowCollectionPadding: false }).trimEnd();
+}
+
+/**
  * A Legacy file has no frontmatter, so a write is where it gets one — the
  * "strict on write" half of the contract: the tracker converts itself as it is
  * worked rather than in one risky pass. Only a created block gets to be in the
@@ -216,14 +235,16 @@ function fieldsOf(edit: TicketEdit): Array<[string, string | null]> {
  */
 function schemaFor(defaults: Defaults): Document {
   const document = new Document({});
-  const values: Partial<Record<(typeof FIELD_ORDER)[number], string | readonly string[]>> = {
+  const values: Partial<Record<(typeof FIELD_ORDER)[number], unknown>> = {
     ...(defaults.id === undefined ? {} : { id: defaults.id }),
     title: defaults.title,
     kind: defaults.kind,
     ...(defaults.type === undefined ? {} : { type: defaults.type }),
     status: defaults.status,
     ...(defaults.triage === undefined ? {} : { triage: defaults.triage }),
-    blocked_by: defaults.blockedBy,
+    // Flow, because that is how every Ticket in these repos is written by hand
+    // and a normalized file should not stand out from the ones beside it.
+    blocked_by: document.createNode([...defaults.blockedBy], { flow: true }),
   };
 
   for (const field of FIELD_ORDER) {

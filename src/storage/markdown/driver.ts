@@ -1,10 +1,11 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { Effort, HeaderDoc, Ticket } from '../../domain.ts';
-import type { StorageDriver } from '../driver.ts';
+import type { Effort, HeaderDoc, Ticket, TicketDraft } from '../../domain.ts';
+import type { CreateOptions, StorageDriver } from '../driver.ts';
 import type { TicketEdit } from '../../domain.ts';
-import { NoSuchTicket, RevisionMismatch } from '../driver.ts';
+import { NoSuchEffort, NoSuchTicket, RevisionMismatch } from '../driver.ts';
+import { createTicketFiles } from './create.ts';
 import { applyEdit, type Defaults } from './serialize.ts';
 import { currentRevision, GuardHeld, withGuard, writeAtomically } from './write.ts';
 import { readDestination, readSpecOpening } from './header-doc.ts';
@@ -73,23 +74,62 @@ export function createMarkdownDriver(root: string): StorageDriver {
       return (await scan()).flatMap(entry => entry.tickets);
     },
 
-    /**
-     * Writes are serialized per workspace. Two calls racing on one Ticket would
-     * otherwise both pass the revision check before either renamed, and the
-     * loser's edit would be lost rather than refused. The queue is in-memory
-     * and dies with the process — no lock file can outlive a crash.
-     */
     updateTicket(handle, edit, expectedRevision) {
-      // Queue behind whatever is in flight, and keep queueing after a failure —
-      // one refused write must not stop the next.
-      const next = writes.then(
-        () => write(scratch, handle, edit, expectedRevision),
-        () => write(scratch, handle, edit, expectedRevision),
-      );
-      writes = next.catch(() => undefined);
-      return next;
+      return serialized(() => write(scratch, handle, edit, expectedRevision));
+    },
+
+    createTickets(effort, drafts, options) {
+      // The scan is deliberately not the shared one: allocation re-reads under
+      // its own guards, and an in-flight walk started before them would defeat
+      // the check it exists to make.
+      return serialized(() => create(scratch, effort, drafts, options, walk));
     },
   };
+
+  /**
+   * Writes are serialized per workspace. Two calls racing on one Ticket would
+   * otherwise both pass the revision check before either renamed, and the
+   * loser's edit would be lost rather than refused. The queue is in-memory and
+   * dies with the process — no lock file can outlive a crash.
+   *
+   * Queueing continues after a failure: one refused write must not stop the next.
+   */
+  function serialized<T>(operation: () => Promise<T>): Promise<T> {
+    const next = writes.then(operation, operation);
+    writes = next.catch(() => undefined);
+    return next;
+  }
+}
+
+async function create(
+  scratch: string,
+  effort: string,
+  drafts: readonly TicketDraft[],
+  options: CreateOptions,
+  walk: () => Promise<ScannedEffort[]>,
+): Promise<readonly Ticket[]> {
+  const dir = join(scratch, effort);
+
+  if ((await readEffort(scratch, effort)) === undefined && !options.createEffort) {
+    throw new NoSuchEffort(effort);
+  }
+  // Also for an Effort that exists: one recognized by a Header doc alone has
+  // nowhere to put a Ticket yet.
+  await mkdir(join(dir, ISSUES_DIR), { recursive: true });
+
+  const filenames = await createTicketFiles(scratch, effort, drafts, async () =>
+    (await walk()).flatMap(entry => entry.tickets),
+  );
+
+  const written = await readTicketFiles(dir, effort);
+  const byFilename = new Map(written.map(entry => [entry.filename, entry.ticket]));
+
+  return filenames.map(filename => {
+    const ticket = byFilename.get(filename);
+    if (ticket === undefined)
+      throw new Error(`${filename} was written but could not be read back.`);
+    return ticket;
+  });
 }
 
 async function write(
