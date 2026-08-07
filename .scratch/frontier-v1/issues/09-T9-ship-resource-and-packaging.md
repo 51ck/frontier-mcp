@@ -9,13 +9,13 @@ blocked_by: [T4, T5, T6, T7]
 
 # T9 — Ship it: tracker-doc resource, packaging, user-scope install
 
-**What to build:** Installing Frontier into an existing project as one step. Registered once at user
+**What to build:** Installing FrontierMCP into an existing project as one step. Registered once at user
 scope, resolving the workspace from the session's working directory, with no per-repo configuration and
 no registry round-trip on every session start.
 
 The rewritten tracker configuration document ships as an MCP resource rather than a tool — read once at
 setup, and resources cost no tool-schema tokens. It describes the MCP calls and retains the plain-file
-conventions as a fallback, so a skill run in a session without Frontier loaded still works. Last in the
+conventions as a fallback, so a skill run in a session without FrontierMCP loaded still works. Last in the
 sequence because it documents the finished tool surface.
 
 - [ ] The package publishes to npm as `frontier-mcp` and runs under a pinned version
@@ -25,4 +25,4 @@ sequence because it documents the finished tool surface.
 - [ ] That document describes the MCP calls and retains the file conventions as a fallback
 - [ ] Following the document with no server loaded still produces valid Tickets
 - [ ] The tool surface is exactly eight tools
-- [ ] Install and first-use instructions are written for a repo that has never used Frontier
+- [ ] Install and first-use instructions are written for a repo that has never used FrontierMCP

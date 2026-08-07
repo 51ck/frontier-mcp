@@ -29,4 +29,4 @@ Runs in parallel with everything after T3 — nothing here changes what appears 
 
 ## Comments
 
-Ticked and resolved through Frontier itself — first ticket closed by the server it belongs to.
+Ticked and resolved through FrontierMCP itself — first ticket closed by the server it belongs to.

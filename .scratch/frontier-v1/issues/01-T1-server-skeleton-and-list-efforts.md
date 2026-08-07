@@ -10,7 +10,7 @@ answer_gist: stdio server with list_efforts over the ADR 0001 driver seam and a 
 
 # T1 — Server skeleton, workspace resolution, and `list_efforts`
 
-**What to build:** A developer registers Frontier in a session and asks what Efforts are in the repo,
+**What to build:** A developer registers FrontierMCP in a session and asks what Efforts are in the repo,
 and gets them back — each with its Ticket count and which header docs it has. Works on any repo,
 including one with no `.scratch/` yet.
 

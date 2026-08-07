@@ -1,4 +1,4 @@
-# Frontier v1 — an MCP server over the markdown issue tracker
+# FrontierMCP v1 — an MCP server over the markdown issue tracker
 
 Status: ready-for-agent
 
@@ -30,7 +30,7 @@ owner field, so two parallel sessions can both claim the same Ticket and neither
 
 ## Solution
 
-**Frontier** — an MCP server that serves the same markdown files as a queryable graph. Files stay
+**FrontierMCP** — an MCP server that serves the same markdown files as a queryable graph. Files stay
 canonical and hand-editable; the server owns the schema, computes the graph, and answers the questions
 that currently cost thousands of tokens to infer.
 
@@ -53,7 +53,7 @@ honours. The skills themselves are never forked.
 
 ### Installing and pointing at a repo
 
-1. As a developer, I want to register Frontier once for all my repos, so that I do not maintain a
+1. As a developer, I want to register FrontierMCP once for all my repos, so that I do not maintain a
    per-repo MCP configuration that drifts out of version sync.
 2. As a developer, I want the server to work out which repo it is serving from the session's working
    directory, so that opening a project is the only setup step.
@@ -66,9 +66,9 @@ honours. The skills themselves are never forked.
 6. As a developer, I want the server to work on a repo that has no `.scratch/` yet, so that a fresh
    project is not an error case.
 7. As a developer, I want a ready-made tracker configuration document exposed by the server itself, so
-   that wiring the skills to Frontier is a copy, not a writing exercise.
+   that wiring the skills to FrontierMCP is a copy, not a writing exercise.
 8. As a developer, I want that document to retain the plain-file conventions as a fallback, so that a
-   skill run in a session without Frontier loaded still works.
+   skill run in a session without FrontierMCP loaded still works.
 
 ### Finding what to work on
 
@@ -164,7 +164,7 @@ honours. The skills themselves are never forked.
 
 ### Migrating what already exists
 
-49. As a developer, I want Frontier to read my existing Tickets on the day I install it, so that
+49. As a developer, I want FrontierMCP to read my existing Tickets on the day I install it, so that
     adoption does not begin with a rewrite of 159 files.
 50. As an agent, I want a Legacy Ticket's title, status, and dependencies inferred from its prose, so
     that an unmigrated Effort still produces a usable Board.
@@ -388,7 +388,7 @@ prior art for everything that follows.
   will attach to, and nothing more.
 - **`CONTEXT.md` and `docs/adr/`.** They have no graph and low volume — a glossary is meant to be read
   whole, and nine three-sentence ADRs beat any index. Tickets reference ADRs as plain markdown links.
-- **GitHub, GitLab, or any remote tracker driver.** Frontier serves local markdown.
+- **GitHub, GitLab, or any remote tracker driver.** FrontierMCP serves local markdown.
 - **Forking the engineering skills.** Adaptation happens through the tracker configuration document.
 - **Conventions invented outside the skills** — `backlog.md`, `research/`, the `T31.1` sub-slice
   numbering. Acceptance-criteria checkboxes stay, because both skills define them.
@@ -411,10 +411,10 @@ the surface expanding from eight to twenty over time would quietly undo the savi
 delivers.
 
 This repo's own tracker configuration already describes the target schema, so the Tickets that slice
-this spec are born schema-conformant. Frontier will have no Legacy Tickets in its own repository —
+this spec are born schema-conformant. FrontierMCP will have no Legacy Tickets in its own repository —
 which also means its migration path gets no accidental dogfooding and must be tested against the
 fixtures deliberately.
 
 Two upstream dependencies worth watching: the engineering skills evolve independently, and the tracker
-configuration document is the only contract between them and Frontier. If a skill changes what it asks
+configuration document is the only contract between them and FrontierMCP. If a skill changes what it asks
 of its tracker, that document is where the change lands.
