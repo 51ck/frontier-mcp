@@ -19,6 +19,7 @@ import { currentRevision, GuardHeld, withGuard, writeAtomically } from './write.
 import {
   applyMapEdit,
   type DerivedPointer,
+  ensureTrailingNewline,
   readDestination,
   readMapDocument,
   readSpecOpening,
@@ -114,8 +115,8 @@ export function createMarkdownDriver(root: string): StorageDriver {
       return serialized(() => loadSpec(scratch, effort));
     },
 
-    putSpec(effort, content, expectedRevision, options) {
-      return serialized(() => saveSpec(scratch, effort, content, expectedRevision, options));
+    putSpec(effort, body, expectedRevision, options) {
+      return serialized(() => saveSpec(scratch, effort, body, expectedRevision, options));
     },
   };
 
@@ -234,6 +235,7 @@ async function saveMap(
   const dir = join(scratch, effort);
   const path = join(dir, MAP_FILE);
   const current = await currentRevision(path);
+  const handle = `map:${effort}`;
 
   if (current === undefined) {
     // createEffort only guards starting a new Effort. An Effort that already
@@ -248,32 +250,28 @@ async function saveMap(
     const seeded = applyMapEdit(
       scaffoldMap(edit),
       {},
-      decisionPointers(entries),
-      droppedPointers(entries),
+      ticketPointers(entries, 'resolved'),
+      ticketPointers(entries, 'dropped'),
     );
     await writeAtomically(path, seeded);
-    return readMapDocument(seeded, (await currentRevision(path)) ?? '');
+    return readMapDocument(seeded, await requireRevision(path));
   }
 
-  if (expectedRevision !== undefined && current !== expectedRevision) {
-    throw new RevisionMismatch(`map:${effort}`);
+  if (expectedRevision === undefined || current !== expectedRevision) {
+    throw new RevisionMismatch(handle);
   }
 
   const contents = await readFile(path, 'utf8');
   const entries = await readTicketFiles(dir, effort);
-  const updated = applyMapEdit(contents, edit, decisionPointers(entries), droppedPointers(entries));
+  const updated = applyMapEdit(
+    contents,
+    edit,
+    ticketPointers(entries, 'resolved'),
+    ticketPointers(entries, 'dropped'),
+  );
 
-  try {
-    await withGuard(path, current, async () => {
-      if ((await currentRevision(path)) !== current) throw new RevisionMismatch(`map:${effort}`);
-      await writeAtomically(path, updated);
-    });
-  } catch (error) {
-    if (error instanceof GuardHeld) throw new RevisionMismatch(`map:${effort}`);
-    throw error;
-  }
-
-  return readMapDocument(updated, (await currentRevision(path)) ?? '');
+  await guardedWrite(path, current, updated, handle);
+  return readMapDocument(updated, await requireRevision(path));
 }
 
 /**
@@ -287,7 +285,12 @@ async function refreshMapDerived(scratch: string, effort: string): Promise<void>
 
   const contents = await readFile(path, 'utf8');
   const entries = await readTicketFiles(join(scratch, effort), effort);
-  const updated = applyMapEdit(contents, {}, decisionPointers(entries), droppedPointers(entries));
+  const updated = applyMapEdit(
+    contents,
+    {},
+    ticketPointers(entries, 'resolved'),
+    ticketPointers(entries, 'dropped'),
+  );
   if (updated === contents) return;
 
   try {
@@ -307,19 +310,22 @@ async function loadSpec(scratch: string, effort: string): Promise<SpecDocument> 
   const path = join(scratch, effort, SPEC_FILE);
   const revision = await currentRevision(path);
   if (revision === undefined) throw new NoSuchSpec(effort);
-  return { content: await readFile(path, 'utf8'), revision };
+  return { body: await readFile(path, 'utf8'), revision };
 }
 
 async function saveSpec(
   scratch: string,
   effort: string,
-  content: string,
+  body: string,
   expectedRevision: string | undefined,
   options: HeaderDocOptions,
 ): Promise<SpecDocument> {
   const dir = join(scratch, effort);
   const path = join(dir, SPEC_FILE);
   const current = await currentRevision(path);
+  const handle = `spec:${effort}`;
+  // Opaque bytes — the seam does not reshape Spec framing (ADR 0001 / 0003).
+  const written = ensureTrailingNewline(body.replace(/^\uFEFF/, ''));
 
   if (current === undefined) {
     // Same rule as Maps: createEffort starts an Effort; putting a Spec onto an
@@ -329,67 +335,57 @@ async function saveSpec(
     }
 
     await mkdir(join(dir, ISSUES_DIR), { recursive: true });
-    await writeAtomically(path, normalizeSpec(content));
-    return { content: normalizeSpec(content), revision: (await currentRevision(path)) ?? '' };
+    await writeAtomically(path, written);
+    return { body: written, revision: await requireRevision(path) };
   }
 
-  if (expectedRevision !== undefined && current !== expectedRevision) {
-    throw new RevisionMismatch(`spec:${effort}`);
+  if (expectedRevision === undefined || current !== expectedRevision) {
+    throw new RevisionMismatch(handle);
   }
 
-  const normalized = normalizeSpec(content);
+  await guardedWrite(path, current, written, handle);
+  return { body: written, revision: await requireRevision(path) };
+}
+
+async function guardedWrite(
+  path: string,
+  revision: string,
+  contents: string,
+  handle: string,
+): Promise<void> {
   try {
-    await withGuard(path, current, async () => {
-      if ((await currentRevision(path)) !== current) throw new RevisionMismatch(`spec:${effort}`);
-      await writeAtomically(path, normalized);
+    await withGuard(path, revision, async () => {
+      if ((await currentRevision(path)) !== revision) throw new RevisionMismatch(handle);
+      await writeAtomically(path, contents);
     });
   } catch (error) {
-    if (error instanceof GuardHeld) throw new RevisionMismatch(`spec:${effort}`);
+    if (error instanceof GuardHeld) throw new RevisionMismatch(handle);
     throw error;
   }
-
-  return { content: normalized, revision: (await currentRevision(path)) ?? '' };
 }
 
-/** Ensure a Spec written through the tool carries header: spec in frontmatter. */
-function normalizeSpec(content: string): string {
-  const trimmed = content.replace(/^\uFEFF/, '');
-  if (/^---\r?\n/.test(trimmed)) {
-    if (/^---\r?\n[\s\S]*?\bheader:\s*spec\b/m.test(trimmed)) return ensureTrailingNewline(trimmed);
-    return trimmed.replace(/^---\r?\n/, '---\nheader: spec\n');
+async function requireRevision(path: string): Promise<string> {
+  const revision = await currentRevision(path);
+  if (revision === undefined) {
+    throw new Error(`Wrote ${path} but could not read its revision back.`);
   }
-  return `---\nheader: spec\n---\n\n${trimmed.replace(/^\n+/, '')}`;
+  return revision;
 }
 
-function ensureTrailingNewline(text: string): string {
-  return text.endsWith('\n') ? text : `${text}\n`;
-}
-
-function decisionPointers(entries: readonly TicketFileEntry[]): DerivedPointer[] {
+function ticketPointers(
+  entries: readonly TicketFileEntry[],
+  status: 'resolved' | 'dropped',
+): DerivedPointer[] {
   return entries.flatMap(entry => {
     const { ticket, filename } = entry;
-    if (ticket.status !== 'resolved' || ticket.id === undefined) return [];
+    if (ticket.status !== status || ticket.id === undefined) return [];
+    const gist = status === 'resolved' ? ticket.answerGist : ticket.droppedReason;
     return [
       {
         id: ticket.id,
         title: ticket.title,
         link: `${ISSUES_DIR}/${filename}`,
-        gist: ticket.answerGist ?? '',
-      },
-    ];
-  });
-}
-
-function droppedPointers(entries: readonly TicketFileEntry[]): DerivedPointer[] {
-  return entries.flatMap(entry => {
-    const { ticket, filename } = entry;
-    if (ticket.status !== 'dropped' || ticket.id === undefined) return [];
-    return [
-      {
-        id: ticket.id,
-        title: ticket.title,
-        link: `${ISSUES_DIR}/${filename}`,
-        gist: ticket.droppedReason ?? '',
+        gist: gist ?? '',
       },
     ];
   });

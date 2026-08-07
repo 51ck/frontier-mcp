@@ -26,9 +26,34 @@ The wayfinder header doc, `map.md`. A low-resolution index of an effort, mutated
 the fog clears. An index, never a store.
 _Avoid_: plan, roadmap
 
+**Destination**:
+The Map section stating where this line of enquiry is going. Orienting text for a Board; absent until
+set.
+_Avoid_: goal, vision, objective
+
+**Notes**:
+The Map section for free-form orientation that is not Destination, fog, or scope. Edited as a whole
+section, never line by line.
+_Avoid_: comments, journal
+
+**Not yet specified** (fog):
+The Map section listing fog patches — open questions still to be graduated into Tickets. A fog patch
+is one bullet; graduating it removes that bullet and nowhere else.
+_Avoid_: backlog, TODO, open questions (as a section name)
+
+**Out of scope**:
+The Map section for work ruled beyond the Destination. Hand-ruled bullets live outside GENERATED
+markers; dropped Tickets render inside them.
+_Avoid_: won't do, rejected, deferred (as a section name)
+
+**Decisions so far**:
+The Map section regenerated from resolved Tickets between GENERATED markers — gist plus link, one line
+each. Never accepted as edit input; never read from the file as authority.
+_Avoid_: changelog, history, progress log
+
 **Spec**:
 The `/to-spec` header doc, `spec.md`. Written once from a settled conversation and read whole
-thereafter.
+thereafter. Opaque document bytes across the storage seam.
 _Avoid_: PRD, design doc, requirements
 
 **Ticket**:

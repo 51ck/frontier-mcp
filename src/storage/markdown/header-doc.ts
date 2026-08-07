@@ -77,6 +77,7 @@ export function readMapDocument(contents: string, revision: string): MapDocument
 /**
  * Apply a section edit and rewrite the derived blocks. Content outside the
  * GENERATED markers is left alone; the blocks themselves are replaced whole.
+ * Missing Decisions / Out-of-scope headings are not invented.
  */
 export function applyMapEdit(
   contents: string,
@@ -153,10 +154,17 @@ export function scaffoldMap(edit: MapEdit): string {
     .replace(/\n{3,}/g, '\n\n');
 }
 
+export function ensureTrailingNewline(text: string): string {
+  return text.endsWith('\n') ? text : `${text}\n`;
+}
+
 function renderPointers(pointers: readonly DerivedPointer[]): string {
   if (pointers.length === 0) return '';
   return pointers
-    .map(pointer => `- [${pointer.id} — ${pointer.title}](${pointer.link}) — ${pointer.gist}`)
+    .map(pointer => {
+      const head = `- [${pointer.id} — ${pointer.title}](${pointer.link})`;
+      return pointer.gist === '' ? head : `${head} — ${pointer.gist}`;
+    })
     .join('\n');
 }
 
@@ -169,30 +177,21 @@ function readSection(contents: string, heading: string): string | undefined {
 
 function readSectionRaw(contents: string, heading: string): string | undefined {
   const { body } = splitFrontmatter(contents);
-  const pattern = new RegExp(`^##[ \\t]+${escapeRegExp(heading)}[ \\t]*$`, 'im');
-  const match = pattern.exec(body);
-  if (match === null) return undefined;
-
-  const after = body.slice(match.index + match[0].length);
-  const next = NEXT_HEADING.exec(after);
-  return next === null ? after : after.slice(0, next.index);
+  const located = locateSection(body, heading);
+  if (located === undefined) return undefined;
+  return body.slice(located.start, located.end);
 }
 
 function setSection(contents: string, heading: string, value: string): string {
   const { hasFence, raw, body } = splitFrontmatter(contents);
-  const pattern = new RegExp(`^##[ \\t]+${escapeRegExp(heading)}[ \\t]*$`, 'im');
-  const match = pattern.exec(body);
-
+  const located = locateSection(body, heading);
   const sectionBody = value === '' ? '\n\n' : `\n\n${value}\n\n`;
 
   let nextBody: string;
-  if (match === null) {
+  if (located === undefined) {
     nextBody = ensureTrailingNewline(body) + `\n## ${heading}\n${sectionBody}`;
   } else {
-    const start = match.index + match[0].length;
-    const after = body.slice(start);
-    const next = NEXT_HEADING.exec(after);
-    const end = next === null ? body.length : start + next.index;
+    const { start, end } = located;
     // Keep any GENERATED block that lives in this section (Out of scope).
     const existing = body.slice(start, end);
     const generated = existing.match(GENERATED_BLOCK)?.[0];
@@ -238,24 +237,20 @@ function removeBullet(contents: string, heading: string, text: string): string {
 
 function replaceGenerated(contents: string, heading: string, inner: string): string {
   const raw = readSectionRaw(contents, heading);
+  // Content outside the markers is never touched — inventing a missing section
+  // would rewrite the Map shape on an unrelated edit.
+  if (raw === undefined) return contents;
+
   const block =
     inner === ''
       ? `${GENERATED_OPEN}\n${GENERATED_CLOSE}\n`
       : `${GENERATED_OPEN}\n${inner}\n${GENERATED_CLOSE}\n`;
 
-  if (raw === undefined) {
-    return setSection(contents, heading, block.trimEnd());
-  }
-
   const { hasFence, raw: fence, body } = splitFrontmatter(contents);
-  const pattern = new RegExp(`^##[ \\t]+${escapeRegExp(heading)}[ \\t]*$`, 'im');
-  const match = pattern.exec(body);
-  if (match === null) return contents;
+  const located = locateSection(body, heading);
+  if (located === undefined) return contents;
 
-  const start = match.index + match[0].length;
-  const after = body.slice(start);
-  const next = NEXT_HEADING.exec(after);
-  const end = next === null ? body.length : start + next.index;
+  const { start, end } = located;
   const section = body.slice(start, end);
 
   let replacement: string;
@@ -268,6 +263,22 @@ function replaceGenerated(contents: string, heading: string, inner: string): str
   }
 
   return reassemble(hasFence, fence, body.slice(0, start) + replacement + body.slice(end));
+}
+
+/** Byte range of a section's body inside `body` (after the heading line). */
+function locateSection(
+  body: string,
+  heading: string,
+): { readonly start: number; readonly end: number } | undefined {
+  const pattern = new RegExp(`^##[ \\t]+${escapeRegExp(heading)}[ \\t]*$`, 'im');
+  const match = pattern.exec(body);
+  if (match === null) return undefined;
+
+  const start = match.index + match[0].length;
+  const after = body.slice(start);
+  const next = NEXT_HEADING.exec(after);
+  const end = next === null ? body.length : start + next.index;
+  return { start, end };
 }
 
 function bulletsOutsideGenerated(raw: string | undefined): readonly string[] {
@@ -283,13 +294,10 @@ function stripGenerated(raw: string): string {
 }
 
 function reassemble(hasFence: boolean, raw: string | undefined, body: string): string {
-  const trimmed = body.replace(/^\n+/, '').replace(/\n+$/, '\n');
-  if (!hasFence || raw === undefined) return trimmed;
-  return `---\n${raw}\n---\n\n${trimmed}`;
-}
-
-function ensureTrailingNewline(text: string): string {
-  return text.endsWith('\n') ? text : `${text}\n`;
+  // Preserve leading newlines in the body; only guarantee a trailing newline.
+  const next = ensureTrailingNewline(body);
+  if (!hasFence || raw === undefined) return next;
+  return `---\n${raw}\n---\n\n${next.replace(/^\n+/, '')}`;
 }
 
 function escapeRegExp(value: string): string {

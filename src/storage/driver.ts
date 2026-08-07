@@ -111,13 +111,13 @@ export interface StorageDriver {
     options: HeaderDocOptions,
   ): Promise<MapDocument>;
 
-  /** A Spec as a whole document. Absent when the Effort has none. */
+  /** A Spec as an opaque document. Absent when the Effort has none. */
   readSpec(effort: string): Promise<SpecDocument>;
 
-  /** Replace a Spec wholesale. */
+  /** Replace a Spec wholesale with opaque document bytes. */
   putSpec(
     effort: string,
-    content: string,
+    body: string,
     expectedRevision: string | undefined,
     options: HeaderDocOptions,
   ): Promise<SpecDocument>;

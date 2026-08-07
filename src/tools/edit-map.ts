@@ -21,13 +21,22 @@ export const editMapInputSchema = {
     .min(1)
     .optional()
     .describe('Append a hand-ruled item under Out of scope. Never touches Decisions-so-far.'),
+  expected_revision: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      'Revision from a prior edit_map read. Required when overwriting an existing Map; ' +
+        'omitted when creating one.',
+    ),
   root: z.string().optional().describe('Workspace directory. Defaults to the session workspace.'),
 };
 
 export const editMapDescription =
   "Read a Map's Destination and Notes, or edit one typed section — set Destination or Notes, " +
   'add or graduate a fog patch, rule something out of scope — without rewriting the others. ' +
-  'Decisions-so-far is generated from resolved Tickets and never accepted as input.';
+  'Decisions-so-far is generated from resolved Tickets and never accepted as input. ' +
+  'Mutations pass expected_revision from a prior read so concurrent sessions cannot clobber each other.';
 
 export interface EditMapRequest {
   readonly destination?: string | undefined;

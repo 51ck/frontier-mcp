@@ -10,6 +10,12 @@ afterEach(cleanupFixtures);
 const GENERATED_OPEN =
   '<!-- GENERATED: overwritten on every mutation through the server. Do not hand-edit. -->';
 
+function revisionOf(text: string, kind: 'map' | 'spec'): string {
+  const match = text.match(new RegExp(`${kind} revision: (.+)`));
+  if (match?.[1] === undefined) throw new Error(`no ${kind} revision in:\n${text}`);
+  return match[1]!.trim();
+}
+
 function fullMap(): string {
   return `---
 header: map
@@ -66,10 +72,12 @@ describe('edit_map', () => {
       '.scratch/alpha/map.md': fullMap(),
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
+    const rev = revisionOf(await frontier.call('edit_map', { effort: 'alpha' }), 'map');
 
     await frontier.call('edit_map', {
       effort: 'alpha',
       destination: 'Reach a typed Map edit surface.',
+      expected_revision: rev,
     });
 
     const onDisk = await readFile(join(root, '.scratch/alpha/map.md'), 'utf8');
@@ -83,18 +91,22 @@ describe('edit_map', () => {
       '.scratch/alpha/map.md': fullMap(),
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
+    let rev = revisionOf(await frontier.call('edit_map', { effort: 'alpha' }), 'map');
 
     await frontier.call('edit_map', {
       effort: 'alpha',
       add_fog: 'Whether Markers wrap multi-line gists',
+      expected_revision: rev,
     });
 
     let onDisk = await readFile(join(root, '.scratch/alpha/map.md'), 'utf8');
     expect(onDisk).toContain('- Whether Markers wrap multi-line gists');
 
+    rev = revisionOf(await frontier.call('edit_map', { effort: 'alpha' }), 'map');
     const text = await frontier.call('edit_map', {
       effort: 'alpha',
       graduate_fog: 'Whether Markers wrap multi-line gists',
+      expected_revision: rev,
     });
 
     expect(text).not.toContain('Whether Markers wrap multi-line gists');
@@ -109,10 +121,12 @@ describe('edit_map', () => {
       '.scratch/alpha/map.md': fullMap(),
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
+    const rev = revisionOf(await frontier.call('edit_map', { effort: 'alpha' }), 'map');
 
     await frontier.call('edit_map', {
       effort: 'alpha',
       rule_out: 'A ninth tool',
+      expected_revision: rev,
     });
 
     const onDisk = await readFile(join(root, '.scratch/alpha/map.md'), 'utf8');
@@ -132,8 +146,13 @@ describe('edit_map', () => {
       '.scratch/alpha/issues/02-T2-second.md': ticket('T2', 'Second', { status: 'open' }),
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
+    const rev = revisionOf(await frontier.call('edit_map', { effort: 'alpha' }), 'map');
 
-    await frontier.call('edit_map', { effort: 'alpha', notes: 'Still consulting ADR 0002.' });
+    await frontier.call('edit_map', {
+      effort: 'alpha',
+      notes: 'Still consulting ADR 0002.',
+      expected_revision: rev,
+    });
 
     const onDisk = await readFile(join(root, '.scratch/alpha/map.md'), 'utf8');
     expect(onDisk).toContain(GENERATED_OPEN);
@@ -157,8 +176,13 @@ describe('edit_map', () => {
       }),
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
+    const rev = revisionOf(await frontier.call('edit_map', { effort: 'alpha' }), 'map');
 
-    await frontier.call('edit_map', { effort: 'alpha', notes: 'Refresh derived blocks.' });
+    await frontier.call('edit_map', {
+      effort: 'alpha',
+      notes: 'Refresh derived blocks.',
+      expected_revision: rev,
+    });
 
     const onDisk = await readFile(join(root, '.scratch/alpha/map.md'), 'utf8');
     const decisions = onDisk.slice(
@@ -171,6 +195,82 @@ describe('edit_map', () => {
     expect(decisions).not.toContain('T1 — First');
     expect(outOfScope).toContain('- [T1 — First](issues/01-T1-first.md) — Beyond the destination');
     expect(outOfScope).toContain('- Rewriting CONTEXT.md through this tool');
+  });
+
+  it('omits the gist em dash when a resolved Ticket has no answer_gist', async () => {
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.scratch/alpha/map.md': fullMap(),
+      '.scratch/alpha/issues/01-T1-first.md': ticket('T1', 'First', { status: 'resolved' }),
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+    const rev = revisionOf(await frontier.call('edit_map', { effort: 'alpha' }), 'map');
+
+    await frontier.call('edit_map', {
+      effort: 'alpha',
+      notes: 'Refresh.',
+      expected_revision: rev,
+    });
+
+    const onDisk = await readFile(join(root, '.scratch/alpha/map.md'), 'utf8');
+    expect(onDisk).toContain('- [T1 — First](issues/01-T1-first.md)');
+    expect(onDisk).not.toMatch(/\[T1 — First\]\([^)]+\) —\s*$/m);
+  });
+
+  it('does not invent Decisions or Out-of-scope headings on an unrelated edit', async () => {
+    const slim = `---
+header: map
+---
+
+# Map
+
+## Destination
+
+Ship slim.
+
+## Notes
+
+Keep slim.
+`;
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.scratch/alpha/map.md': slim,
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+    const rev = revisionOf(await frontier.call('edit_map', { effort: 'alpha' }), 'map');
+
+    await frontier.call('edit_map', {
+      effort: 'alpha',
+      notes: 'Still slim.',
+      expected_revision: rev,
+    });
+
+    const onDisk = await readFile(join(root, '.scratch/alpha/map.md'), 'utf8');
+    expect(onDisk).not.toContain('## Decisions so far');
+    expect(onDisk).not.toContain('## Out of scope');
+    expect(onDisk).toContain('## Notes\n\nStill slim.\n');
+  });
+
+  it('refuses a Map edit when expected_revision is stale', async () => {
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.scratch/alpha/map.md': fullMap(),
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+    const rev = revisionOf(await frontier.call('edit_map', { effort: 'alpha' }), 'map');
+
+    await frontier.call('edit_map', {
+      effort: 'alpha',
+      notes: 'First writer wins.',
+      expected_revision: rev,
+    });
+
+    const error = await frontier.callExpectingError('edit_map', {
+      effort: 'alpha',
+      notes: 'Stale writer loses.',
+      expected_revision: rev,
+    });
+    expect(error).toMatch(/changed on disk|Nothing was written/i);
   });
 
   it('refreshes derived blocks when a Ticket is resolved or dropped', async () => {
@@ -202,8 +302,13 @@ describe('edit_map', () => {
       '.scratch/alpha/map.md': fullMap(),
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
+    const rev = revisionOf(await frontier.call('edit_map', { effort: 'alpha' }), 'map');
 
-    await frontier.call('edit_map', { effort: 'alpha', notes: 'Touched.' });
+    await frontier.call('edit_map', {
+      effort: 'alpha',
+      notes: 'Touched.',
+      expected_revision: rev,
+    });
 
     const onDisk = await readFile(join(root, '.scratch/alpha/map.md'), 'utf8');
     expect(onDisk).toContain('<!-- hand-typed stale content the server must ignore -->');
@@ -212,17 +317,18 @@ describe('edit_map', () => {
 });
 
 describe('spec', () => {
-  it('gets and puts a Spec as a whole document with frontmatter', async () => {
-    const root = await makeFixtureTree({
-      '.git/HEAD': 'ref: refs/heads/main\n',
-      '.scratch/alpha/spec.md': `---
+  it('gets and puts a Spec as a whole opaque document', async () => {
+    const original = `---
 header: spec
 ---
 
 # Alpha
 
 Opening paragraph.
-`,
+`;
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.scratch/alpha/spec.md': original,
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
@@ -238,10 +344,79 @@ header: spec
 
 Rewritten Spec body.
 `;
-    await frontier.call('spec', { effort: 'alpha', content: replacement });
+    const rev = revisionOf(got, 'spec');
+    await frontier.call('spec', {
+      effort: 'alpha',
+      content: replacement,
+      expected_revision: rev,
+    });
 
     const onDisk = await readFile(join(root, '.scratch/alpha/spec.md'), 'utf8');
     expect(onDisk).toBe(replacement);
+  });
+
+  it('preserves a Spec body that mentions header: spec without rewriting frontmatter', async () => {
+    const document = `---
+header: spec
+title: keep me
+---
+
+# Alpha
+
+Notes about header: spec in the body stay prose.
+`;
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.scratch/alpha/spec.md': document,
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+    const rev = revisionOf(await frontier.call('spec', { effort: 'alpha' }), 'spec');
+
+    await frontier.call('spec', {
+      effort: 'alpha',
+      content: document,
+      expected_revision: rev,
+    });
+
+    const onDisk = await readFile(join(root, '.scratch/alpha/spec.md'), 'utf8');
+    expect(onDisk).toBe(document);
+  });
+
+  it('refuses a Spec put when expected_revision is stale', async () => {
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.scratch/alpha/spec.md': `---
+header: spec
+---
+
+# Alpha
+`,
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+    const rev = revisionOf(await frontier.call('spec', { effort: 'alpha' }), 'spec');
+
+    await frontier.call('spec', {
+      effort: 'alpha',
+      content: `---
+header: spec
+---
+
+# First
+`,
+      expected_revision: rev,
+    });
+
+    const error = await frontier.callExpectingError('spec', {
+      effort: 'alpha',
+      content: `---
+header: spec
+---
+
+# Stale
+`,
+      expected_revision: rev,
+    });
+    expect(error).toMatch(/changed on disk|Nothing was written/i);
   });
 
   it('allows an Effort to hold both a Map and a Spec', async () => {

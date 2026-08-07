@@ -36,7 +36,7 @@ export interface WorkspaceIndex {
   readSpec(effort: string): Promise<SpecDocument>;
   putSpec(
     effort: string,
-    content: string,
+    body: string,
     expectedRevision: string | undefined,
     options: HeaderDocOptions,
   ): Promise<SpecDocument>;
@@ -60,8 +60,8 @@ export function createWorkspaceIndex(driver: StorageDriver): WorkspaceIndex {
       return moved(() => driver.editMap(effort, edit, expectedRevision, options));
     },
     readSpec: effort => driver.readSpec(effort),
-    async putSpec(effort, content, expectedRevision, options) {
-      return moved(() => driver.putSpec(effort, content, expectedRevision, options));
+    async putSpec(effort, body, expectedRevision, options) {
+      return moved(() => driver.putSpec(effort, body, expectedRevision, options));
     },
   };
 

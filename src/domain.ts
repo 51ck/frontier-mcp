@@ -198,11 +198,12 @@ export interface MapEdit {
 }
 
 /**
- * A Spec as a whole document. Opaque body with frontmatter — nothing edits it
- * section by section.
+ * A Spec as an opaque document. Nothing edits it section by section; the driver
+ * stores the bytes and the tool layer may present them with framing the store
+ * itself does not know about.
  */
 export interface SpecDocument {
-  /** The whole file, frontmatter and body. */
-  readonly content: string;
+  /** Opaque Spec document as stored. */
+  readonly body: string;
   readonly revision: string;
 }
