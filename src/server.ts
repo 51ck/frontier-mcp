@@ -5,7 +5,7 @@ import { frontierOf } from './frontier.ts';
 import { createIndexRegistry } from './workspace-index.ts';
 import { createMarkdownDriver } from './storage/markdown/driver.ts';
 import type { StorageDriver } from './storage/driver.ts';
-import { RevisionMismatch } from './storage/driver.ts';
+import { NoSuchMap, RevisionMismatch } from './storage/driver.ts';
 import {
   createTicketsDescription,
   createTicketsInputSchema,
@@ -277,12 +277,22 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       const edit = mapEditFor({ destination, notes, add_fog, graduate_fog, rule_out });
       const mutating = Object.keys(edit).length > 0;
 
-      const document =
-        !mutating && create !== true
-          ? await index.readMap(effort)
-          : await index.editMap(effort, edit, expected_revision, {
-              createEffort: create === true,
-            });
+      // create alone is for starting a missing Effort/Map — not a flag to send
+      // on every call. With no section fields, an existing Map is a plain read
+      // (no expected_revision); only a missing Map takes the write path.
+      let document;
+      if (!mutating) {
+        try {
+          document = await index.readMap(effort);
+        } catch (error) {
+          if (!(create === true && error instanceof NoSuchMap)) throw error;
+          document = await index.editMap(effort, edit, undefined, { createEffort: true });
+        }
+      } else {
+        document = await index.editMap(effort, edit, expected_revision, {
+          createEffort: create === true,
+        });
+      }
 
       return { content: [{ type: 'text', text: renderMap(effort, document) }] };
     },

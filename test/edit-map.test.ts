@@ -87,6 +87,48 @@ Consult ADR 0002. Keep sections typed.
 }
 
 describe('edit_map', () => {
+  it('create with no section fields reads an existing Map without a revision', async () => {
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.scratch/alpha/map.md': fullMap(),
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+    const before = await readFile(join(root, '.scratch/alpha/map.md'), 'utf8');
+
+    const text = await frontier.call('edit_map', { effort: 'alpha', create: true });
+
+    expect(text).toContain('destination: Ship the header docs.');
+    expect(text).toContain('notes: Consult ADR 0002. Keep sections typed.');
+    expect(text).toMatch(/map revision:/);
+    expect(await readFile(join(root, '.scratch/alpha/map.md'), 'utf8')).toBe(before);
+  });
+
+  it('create with no section fields still starts a missing Effort and Map', async () => {
+    const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const text = await frontier.call('edit_map', { effort: 'fresh', create: true });
+
+    expect(text).toContain('effort: fresh');
+    expect(text).toMatch(/map revision:/);
+    expect(await readFile(join(root, '.scratch/fresh/map.md'), 'utf8')).toContain('header: map');
+  });
+
+  it('create with section fields on an existing Map still requires expected_revision', async () => {
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.scratch/alpha/map.md': fullMap(),
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const error = await frontier.callExpectingError('edit_map', {
+      effort: 'alpha',
+      create: true,
+      notes: 'Must not skip the revision check.',
+    });
+    expect(error).toMatch(/changed on disk|Nothing was written/i);
+  });
+
   it('reads Destination and Notes without returning the whole Map body', async () => {
     const root = await makeFixtureTree({
       '.git/HEAD': 'ref: refs/heads/main\n',

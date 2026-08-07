@@ -7,7 +7,11 @@ export const editMapInputSchema = {
   create: z
     .boolean()
     .optional()
-    .describe('Start the Effort and its Map if neither exists. Otherwise an unknown slug fails.'),
+    .describe(
+      'Start a missing Effort and its Map. Only for Effort/Map that do not exist yet — ' +
+        'not a flag to send on every call. Does not change revision rules for mutations on an ' +
+        'existing Map; create with no section fields reads an existing Map like a plain read.',
+    ),
   destination: z.string().optional().describe('Replace the Destination section.'),
   notes: z.string().optional().describe('Replace the Notes section.'),
   add_fog: z.string().min(1).optional().describe('Append a fog patch under Not yet specified.'),

@@ -2,9 +2,10 @@
 id: T13
 title: edit_map with create and no section fields does not force revision mismatch
 kind: build
-status: open
+status: resolved
 triage: ready-for-agent
 blocked_by: []
+answer_gist: edit_map create with no sections reads an existing Map; create only writes when the Map is missing; mutations still require expected_revision
 ---
 
 # T13 — edit_map with create and no section fields does not force revision mismatch
@@ -31,3 +32,11 @@ valid.
       or absent revision
 - [ ] The `create` argument description states it is for starting a missing Effort/Map only, and
       that it does not change the revision rules for mutations
+
+## Answer
+
+Handler tries readMap first when there are no section fields. create:true only takes the write path on NoSuchMap. create description clarified. Section edits still go through editMap with expected_revision.
+
+## Comments
+
+Verified by three harness tests under edit_map create with…. Tick blocked by T18 (wrapped criterion text).
