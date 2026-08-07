@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -175,6 +176,28 @@ describe('create_tickets', () => {
 
     expect(error).toContain('T8');
     expect(await issuesIn(root, 'alpha')).toEqual(['01-T1-first.md', '02-T2-second.md']);
+  });
+
+  it('leaves no empty Effort behind when the batch it was created for is refused', async () => {
+    const root = await makeFixtureTree({
+      ...WORKSPACE,
+      // A dangling Edge on an id nobody has minted: a Board warning, not an
+      // error — until the batch mints exactly that id and closes the loop.
+      '.scratch/alpha/issues/01-T1-first.md': ticket('T1', 'First', { blocked_by: ['T8'] }),
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const error = await frontier.callExpectingError('create_tickets', {
+      effort: 'brandnew',
+      create: true,
+      tickets: [{ title: 'Closes the loop', blocked_by: ['T1'] }],
+    });
+    expect(error).toContain('cycle');
+
+    // A bare issues/ directory is enough to make an Effort, so a refusal that
+    // left one would have invented an Effort nobody asked for.
+    expect(await frontier.call('list_efforts')).not.toContain('brandnew');
+    expect(existsSync(join(root, '.scratch/brandnew'))).toBe(false);
   });
 
   it('refuses an unknown Effort unless the call asks for it to be created', async () => {

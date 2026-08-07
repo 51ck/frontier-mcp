@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -56,8 +56,8 @@ blocked_by: []
 Body.
 `;
 
-/** Every `T<n>` in a filename. The frontmatter is the authority; this checks both agree. */
 const IN_FILENAME = /-(T\d+)-/;
+const IN_FRONTMATTER = /^id:[ \t]*(\S+)$/m;
 
 let workspace: string | undefined;
 
@@ -102,9 +102,19 @@ describe('creation from separate processes', () => {
     const files = (await readdir(issues)).filter(name => name.endsWith('.md'));
     expect(files).toHaveLength(SESSIONS * PER_SESSION + 1);
 
-    const ids = files.map(name => IN_FILENAME.exec(name)?.[1]);
-    expect(ids.filter(id => id === undefined)).toEqual([]);
-    expect(new Set(ids).size).toBe(ids.length);
+    // The frontmatter is the authority and the filename is cosmetic, so both are
+    // read: an id issued twice shows up in either, and a disagreement between
+    // them is its own defect.
+    const ids = await Promise.all(
+      files.map(async name => ({
+        inFilename: IN_FILENAME.exec(name)?.[1],
+        inFrontmatter: IN_FRONTMATTER.exec(await readFile(join(issues, name), 'utf8'))?.[1],
+      })),
+    );
+
+    expect(ids.filter(entry => entry.inFrontmatter === undefined)).toEqual([]);
+    expect(ids.filter(entry => entry.inFilename !== entry.inFrontmatter)).toEqual([]);
+    expect(new Set(ids.map(entry => entry.inFrontmatter)).size).toBe(ids.length);
   }, 60_000);
 
   it('leaves no allocation guard behind', async () => {

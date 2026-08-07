@@ -26,16 +26,30 @@ against a naive `max + 1` produces thirteen files carrying four distinct ids.
 This is a lock file, and the spec's "no lock files" bullet is again deliberately deviated from rather
 than quietly reinterpreted. It cannot wedge the tracker: a guard is never waited on, only bumped past,
 so the worst a crashed session can do is make one id number get skipped — and ids are promised never to
-be *reused*, never that they run without gaps. It is swept on sight once older than 30 seconds anyway.
-Guards are hidden, are not `.md`, and are not directories, so no scan sees them and `.scratch/` yields
-them no Effort.
+be *reused*, never that they run without gaps. Guards are hidden, are not `.md`, and are not
+directories, so no scan sees them and `.scratch/` yields them no Effort.
+
+A guard is broken only when **its holder's process is gone**, tested by pid rather than by age. The
+claim guard of ADR 0004 uses a 30-second staleness sweep, and that is safe there because the revision
+check sits behind it — breaking one early costs a retry and nothing else. An id guard has nothing
+behind it: it *is* the guarantee. Breaking one held by a session that is merely slow — suspended,
+paging, mid-GC — would let two sessions write the same id, and there is no age at which that stops
+being true. Asking whether the holder still exists has no window at all. A recycled pid reads as alive
+and costs a skipped id, which is the direction this is allowed to be wrong in.
 
 Allocation costs two full workspace scans per batch, plus one more per contended retry. At the volumes
 this serves that is single-digit milliseconds, and creation is the rarest call on the surface.
 
-The Ticket file is still written with an exclusive create, now as an assertion rather than as the
-mechanism: with a unique id in every filename, a target that already exists would be a Ticket the write
-was about to destroy.
+"All or none" needs two phases rather than one. Every file is staged beside its target first, and only
+once all of them exist does anything get renamed — so a full disk or a bad path fails while nothing is
+visible, and the renames that follow are within one directory and essentially cannot fail. Both phases
+settle in full before the next begins: a `Promise.all` that rejects on the first failure leaves its
+siblings running, and a rename landing after the cleanup ran is exactly the orphan this prevents.
+
+For the same reason the Effort's directory is created *after* validation, not before. A bare `issues/`
+directory is enough to make an Effort, so a refused batch that had already made one would have invented
+an Effort nobody asked for — and `create: true` is precisely the case where the caller is told nothing
+was created.
 
 Cycle rejection had to move with it. A Ticket on disk may declare an Edge on an id nobody has minted
 yet — a dangling Edge, which the Board reports and does not refuse — and minting exactly that id is the

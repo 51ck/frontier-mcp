@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import type { Kind, Ticket, TicketDraft, TriageRole } from '../domain.ts';
 import { MINTED_ID, TRIAGE_ROLES } from '../domain.ts';
-import { cycleThrough, renderCycle, type EdgesOf } from '../edges.ts';
+import { cycleThrough, renderCycle, resolveDraftEdges, type EdgesOf } from '../edges.ts';
 import { indexById } from '../frontier.ts';
 
 export const createTicketsInputSchema = {
@@ -64,12 +64,17 @@ export interface DraftRequest {
 export interface PlannedBatch {
   readonly drafts: readonly TicketDraft[];
   /**
-   * The cycle check, re-run against the ids the batch is actually given. A
-   * Ticket already on disk can declare an Edge on an id nobody has minted yet,
-   * and minting exactly that id is the moment that dangling Edge becomes a loop
-   * — which is invisible until the ids are real.
+   * The cycle check, re-run against the ids the batch is actually given and the
+   * workspace as it looks under the driver's reservations. A Ticket already on
+   * disk can declare an Edge on an id nobody has minted yet, and minting exactly
+   * that id is the moment that dangling Edge becomes a loop — which is invisible
+   * until the ids are real.
+   *
+   * It takes the Tickets rather than closing over the ones read here, because
+   * the read that produced those came before the reservations and may have
+   * missed the very Ticket whose dangling Edge is about to close.
    */
-  readonly validate: (ids: readonly string[]) => void;
+  readonly validate: (ids: readonly string[], tickets: readonly Ticket[]) => void;
 }
 
 /**
@@ -92,24 +97,10 @@ export function planBatch(
 
   return {
     drafts,
-    validate: ids => {
-      checkCycles(drafts, ids, existing, resolvedBy(drafts, keys, ids));
+    validate: (ids, tickets) => {
+      checkCycles(drafts, ids, tickets, resolveDraftEdges(drafts, ids));
     },
   };
-}
-
-/** Once the ids are real, an Edge naming a key means the id that key was given. */
-function resolvedBy(
-  drafts: readonly TicketDraft[],
-  keys: ReadonlySet<string>,
-  ids: readonly string[],
-): (edge: string) => string {
-  const byKey = new Map<string, string>();
-  drafts.forEach((draft, index) => {
-    if (draft.key !== undefined) byKey.set(draft.key, ids[index] ?? '');
-  });
-
-  return edge => (keys.has(edge) ? (byKey.get(edge) ?? edge) : edge);
 }
 
 function toDraft(request: DraftRequest): TicketDraft {

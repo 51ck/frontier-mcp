@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { Effort, HeaderDoc, Ticket, TicketDraft } from '../../domain.ts';
@@ -109,21 +109,19 @@ async function create(
   walk: () => Promise<ScannedEffort[]>,
 ): Promise<readonly Ticket[]> {
   const dir = join(scratch, effort);
+  const missing = (await readEffort(scratch, effort)) === undefined;
+  if (missing && !options.createEffort) throw new NoSuchEffort(effort);
 
-  if ((await readEffort(scratch, effort)) === undefined && !options.createEffort) {
-    throw new NoSuchEffort(effort);
-  }
-  // Also for an Effort that exists: one recognized by a Header doc alone has
-  // nowhere to put a Ticket yet.
-  await mkdir(join(dir, ISSUES_DIR), { recursive: true });
-
-  const filenames = await createTicketFiles(
+  // The directory is made inside, after validation — an Effort created here and
+  // then refused would show up in list_efforts as an empty one nobody asked for.
+  const filenames = await createTicketFiles({
     scratch,
     effort,
     drafts,
-    async () => (await walk()).flatMap(entry => entry.tickets),
-    options.validate,
-  );
+    rescan: async () => (await walk()).flatMap(entry => entry.tickets),
+    validate: options.validate ?? (() => {}),
+    createEffort: missing,
+  });
 
   const written = await readTicketFiles(dir, effort);
   const byFilename = new Map(written.map(entry => [entry.filename, entry.ticket]));

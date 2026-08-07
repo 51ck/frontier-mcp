@@ -84,12 +84,7 @@ export class GuardHeld extends Error {
   }
 }
 
-/**
- * Remove a guard old enough to have outlived its process, reporting whether the
- * caller may now try again. Shared with id allocation, which takes guards of the
- * same shape for the same reason.
- */
-export async function breakIfStale(guard: string): Promise<boolean> {
+async function breakIfStale(guard: string): Promise<boolean> {
   try {
     const info = await stat(guard);
     if (Date.now() - info.mtimeMs < GUARD_STALE_MS) return false;
@@ -109,34 +104,40 @@ function guardPath(path: string, revision: string): string {
   return join(dirname(path), `.${basename(path)}.${revision.replace(/[^\w.-]/g, '_')}.guard`);
 }
 
-export interface WriteOptions {
-  /**
-   * Whether an existing file at `path` may be replaced. Off for a creation,
-   * where a target that already exists is a Ticket the write would destroy
-   * rather than a previous version of the one being edited.
-   */
-  readonly replace: boolean;
+export async function writeAtomically(path: string, contents: string): Promise<void> {
+  const temporary = await stage(path, contents);
+
+  try {
+    await rename(temporary, path);
+  } catch (error) {
+    await unstage(temporary);
+    throw error;
+  }
 }
 
-export async function writeAtomically(
-  path: string,
-  contents: string,
-  options: WriteOptions = { replace: true },
-): Promise<void> {
+/**
+ * The first half of {@link writeAtomically}, for a caller that has several files
+ * to land together: write the contents beside the target and hand back the
+ * temporary path, leaving the rename to the caller.
+ *
+ * Everything that can fail — a full disk, a bad path, a name too long — fails
+ * here, where nothing is visible yet. That is what lets a batch stage every file
+ * before renaming any, and so be all-or-none rather than merely per-file atomic.
+ */
+export async function stage(path: string, contents: string): Promise<string> {
   sequence += 1;
   const temporary = join(dirname(path), `.frontier-${String(process.pid)}-${String(sequence)}.tmp`);
 
   try {
     await writeFile(temporary, contents, 'utf8');
-    // `rename` replaces silently, so a creation checks first. The gap between
-    // the check and the rename is not a race worth closing: ids are unique, so
-    // no other session can be writing this filename at all.
-    if (!options.replace && (await currentRevision(path)) !== undefined) {
-      throw new Error(`Refusing to overwrite ${basename(path)}, which already exists.`);
-    }
-    await rename(temporary, path);
+    return temporary;
   } catch (error) {
-    await unlink(temporary).catch(() => {});
+    await unstage(temporary);
     throw error;
   }
+}
+
+/** Discard a staged file. Never throws: it runs on the path where something already went wrong. */
+export async function unstage(temporary: string): Promise<void> {
+  await unlink(temporary).catch(() => {});
 }

@@ -10,9 +10,10 @@ export interface CreateOptions {
    */
   readonly createEffort: boolean;
   /**
-   * Called with the ids about to be written, in draft order, once they are
-   * reserved and before anything lands. Throwing abandons the batch, so nothing
-   * is created.
+   * Called with the ids about to be written, in draft order, and the workspace
+   * as it looks under those reservations. Runs before anything lands, so
+   * throwing abandons the batch and nothing is created — not the Tickets, and
+   * not the Effort either.
    *
    * It exists for the rules that cannot be checked until the ids are real. A
    * cycle is the one that matters: a Ticket already on disk may declare an Edge
@@ -21,7 +22,7 @@ export interface CreateOptions {
    * seam can see that coming, because nothing above the seam knows what the
    * next id will be.
    */
-  readonly validate?: (ids: readonly string[]) => void;
+  readonly validate?: (ids: readonly string[], tickets: readonly Ticket[]) => void;
 }
 
 /**
