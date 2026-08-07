@@ -4,7 +4,7 @@ import type { Ticket } from './domain.ts';
 import { frontierOf } from './frontier.ts';
 import { createIndexRegistry } from './workspace-index.ts';
 import { createMarkdownDriver } from './storage/markdown/driver.ts';
-import type { StorageDriver } from './storage/driver.ts';
+import type { StorageDriver, TicketWriteResult } from './storage/driver.ts';
 import { NoSuchMap, RevisionMismatch } from './storage/driver.ts';
 import {
   createTicketsDescription,
@@ -227,7 +227,7 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
 
       const ticket = find(tickets);
 
-      let written: Awaited<ReturnType<typeof index.update>>;
+      let written: TicketWriteResult;
       try {
         written = await index.update(
           ticket.handle,

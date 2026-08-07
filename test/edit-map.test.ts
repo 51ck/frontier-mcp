@@ -548,6 +548,34 @@ Keep slim.
     );
   });
 
+  it('drop succeeds with a warning when Map derived refresh fails', async () => {
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.scratch/alpha/map.md': fullMap(),
+      '.scratch/alpha/issues/01-T1-first.md': ticket('T1', 'First', {
+        status: 'claimed',
+        claimed_by: 'a',
+        claimed_at: '2026-01-01T00:00:00.000Z',
+      }),
+    });
+    const mapPath = join(root, '.scratch/alpha/map.md');
+    await rm(mapPath);
+    await mkdir(mapPath);
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const result = await frontier.call('update_ticket', {
+      id: 'T1',
+      drop: { reason: 'Beyond the destination' },
+    });
+
+    expect(result).toMatch(/status=dropped/);
+    expect(result).toMatch(/warnings:/i);
+    expect(result).toMatch(/stale/i);
+    expect(await readFile(join(root, '.scratch/alpha/issues/01-T1-first.md'), 'utf8')).toMatch(
+      /status: dropped/,
+    );
+  });
+
   it('leaves content outside the GENERATED markers untouched', async () => {
     const root = await makeFixtureTree({
       '.git/HEAD': 'ref: refs/heads/main\n',
