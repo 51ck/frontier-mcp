@@ -152,4 +152,52 @@ describe('filesystem watcher', () => {
     );
     expect(board).toContain('Version 20');
   });
+
+  it('writes nothing while watching', async () => {
+    const mapPath = '.scratch/alpha/map.md';
+    const tracked = [mapPath, FILE];
+    const root = await makeFixtureTree({
+      [mapPath]: map('Somewhere.'),
+      [FILE]: ticket('T1', 'Quiet'),
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {}, watcherDebounceMs: DEBOUNCE_MS });
+
+    await frontier.call('get_board', { effort: 'alpha' });
+    await new Promise(resolve => setTimeout(resolve, DEBOUNCE_MS * 2));
+
+    const before = await snapshotScratch(root, tracked);
+    await frontier.call('get_board', { effort: 'alpha' });
+    await new Promise(resolve => setTimeout(resolve, DEBOUNCE_MS * 2));
+    const after = await snapshotScratch(root, tracked);
+
+    for (const path of tracked) {
+      expect(after.get(path)).toBe(before.get(path));
+    }
+  });
+
+  it('ignores changes outside .scratch/', async () => {
+    const outside = 'README.md';
+    const root = await makeFixtureTree({
+      [outside]: '# Not tracker data\n',
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      [FILE]: ticket('T1', 'Stable'),
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {}, watcherDebounceMs: DEBOUNCE_MS });
+
+    const initial = await frontier.call('get_board', { effort: 'alpha' });
+    expect(initial).toContain('Stable');
+
+    await writeFile(join(root, outside), '# Changed outside scratch\n', 'utf8');
+    await new Promise(resolve => setTimeout(resolve, DEBOUNCE_MS * 2));
+
+    expect(await frontier.call('get_board', { effort: 'alpha' })).toBe(initial);
+
+    await writeFile(join(root, FILE), ticket('T1', 'Changed inside scratch'), 'utf8');
+
+    const updated = await waitFor(
+      () => frontier.call('get_board', { effort: 'alpha' }),
+      text => text.includes('Changed inside scratch'),
+    );
+    expect(updated).toContain('Changed inside scratch');
+  });
 });

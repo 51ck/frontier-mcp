@@ -15,6 +15,9 @@ export interface WorkspaceWatcherOptions {
 /**
  * Watch `.scratch/` under a resolved workspace and call `invalidate` when it
  * changes. Never writes — only schedules invalidation after debouncing.
+ *
+ * If `.scratch/` does not exist yet, the workspace root is watched until the
+ * directory appears, then the recursive scratch watch is attached.
  */
 export function watchWorkspace(
   root: string,
@@ -24,7 +27,8 @@ export function watchWorkspace(
   const debounceMs = options.debounceMs ?? 50;
   const scratchPath = join(root, SCRATCH);
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let watcher: FSWatcher | undefined;
+  let scratchWatcher: FSWatcher | undefined;
+  let rootWatcher: FSWatcher | undefined;
 
   const scheduleInvalidate = () => {
     if (timer !== undefined) clearTimeout(timer);
@@ -34,25 +38,46 @@ export function watchWorkspace(
     }, debounceMs);
   };
 
-  if (existsSync(scratchPath)) {
+  const attachScratchWatcher = () => {
+    if (scratchWatcher !== undefined || !existsSync(scratchPath)) return;
     try {
-      watcher = watch(scratchPath, { recursive: true }, () => {
+      scratchWatcher = watch(scratchPath, { recursive: true }, () => {
         scheduleInvalidate();
       });
-      watcher.on('error', () => {
-        watcher?.close();
-        watcher = undefined;
+      scratchWatcher.on('error', () => {
+        scratchWatcher?.close();
+        scratchWatcher = undefined;
       });
     } catch {
-      // A workspace with no `.scratch/` yet is valid; reads stay empty until one appears.
+      // `.scratch/` may have disappeared between the exists check and watch.
+    }
+  };
+
+  attachScratchWatcher();
+
+  if (scratchWatcher === undefined) {
+    try {
+      rootWatcher = watch(root, (_event, filename) => {
+        if (filename !== SCRATCH) return;
+        attachScratchWatcher();
+        scheduleInvalidate();
+      });
+      rootWatcher.on('error', () => {
+        rootWatcher?.close();
+        rootWatcher = undefined;
+      });
+    } catch {
+      // Unusual, but a missing workspace root should not wedge the server.
     }
   }
 
   return {
     close() {
       if (timer !== undefined) clearTimeout(timer);
-      watcher?.close();
-      watcher = undefined;
+      scratchWatcher?.close();
+      rootWatcher?.close();
+      scratchWatcher = undefined;
+      rootWatcher = undefined;
     },
   };
 }
