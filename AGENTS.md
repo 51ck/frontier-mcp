@@ -198,13 +198,28 @@ Rendering rules that are load-bearing, not cosmetic:
 
 - **A Board never carries a body.** Bodies come from `get_tickets`, by id, only for the Tickets
   actually being worked.
-- **Warnings are grouped, never itemized per Ticket.** An unmigrated Effort carries a dangling Edge
+- **Warnings are grouped, never itemized per Ticket.** An Effort of Legacy Tickets carries a dangling Edge
   on nearly every Ticket; itemizing produced a warnings block longer than the Board it annotated,
   which undoes the saving the Board exists to deliver.
 - **A foreign blocker renders `T9@beta`, a local one bare.** There is no compound cross-Effort
   reference form, so the Board is the only thing that can make a foreign Edge followable.
 - **An unresolvable Edge renders `T9?`** and is counted in the warnings block. It never silently
   makes a Ticket look takeable.
+- **Every Ticket is nameable.** A Legacy Ticket with no id gets an `<effort>#<order>` handle, which
+  `get_tickets` accepts. It is an address, not an id — not repo-stable, and never usable as an Edge —
+  but without it a whole Effort has no route to its own bodies.
+- **A Spec-only Effort opens with its Spec's first paragraph**, labelled `spec:` rather than
+  `destination:`. Destination is a Map section; calling a Spec's opening one would be a lie in the
+  vocabulary. Multi-line header prose has its continuation lines indented so it can never be read as
+  further Ticket lines.
+
+Two inferences that are deliberately conservative, both for the same reason — a Ticket wrongly kept
+off the Frontier is a missed opportunity, one wrongly put on it is wasted work:
+
+- `superseded` and `deferred` read as closed.
+- `wontfix` is a **Triage role**, never a Status. It leaves the Ticket `open` (mapping it to
+  `dropped` would make it contagious and orphan every dependent) but excludes it from the Frontier,
+  because open is not the same as takeable.
 
 ## Verification
 
@@ -236,10 +251,15 @@ spec's testing decisions. Nothing below the tool layer gets a test entry point o
 that would need one is a design signal, not a reason to add a seam.
 
 `test/fixtures/legacy/` holds two Efforts copied **verbatim** out of sobrina and tag-customizer.
-Never tidy them: they are the real input, and every awkward shape in them is a case the parser has to
-survive — `T31` ids in headings, tag-customizer Tickets with no id at all, `Blocked by: —`, bare
-`Blocked by: 01, 02` sort orders, struck-through `~~T61~~`, `Status:` lines with trailing prose, and
-a `research/` directory the schema does not recognize. Refresh them by re-copying, not by editing.
+Never tidy them, and refresh them by re-copying rather than editing: they are the real input, and
+every awkward shape in them is a case the parser has to survive — `T31` ids in headings,
+tag-customizer Tickets with no id at all, `Blocked by: —`, bare `Blocked by: 01, 02` sort orders,
+sub-slice references like `T38.1`, `Status:` lines with trailing prose, and a `research/` directory
+the schema does not recognize.
+
+Shapes the parser handles that these two Efforts happen **not** to contain — struck-through Edges,
+`Status: done` / `fixed` / `superseded`, bold field labels — are covered by synthetic files in
+`test/legacy-shapes.test.ts`. Put new shapes there; never add them to the fixtures.
 
 `test/read-path-cost.test.ts` asserts the spec's token measurements. They are the argument for the
 project existing, so they are checked rather than restated.

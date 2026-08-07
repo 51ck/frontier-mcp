@@ -122,7 +122,10 @@ export function createFrontier(options: CreateServerOptions = {}): Frontier {
             type: 'text',
             text: renderTickets(
               ids,
-              tickets.filter(ticket => ticket.id !== undefined && wanted.has(ticket.id)),
+              tickets.filter(
+                ticket =>
+                  wanted.has(ticket.handle) || (ticket.id !== undefined && wanted.has(ticket.id)),
+              ),
             ),
           },
         ],

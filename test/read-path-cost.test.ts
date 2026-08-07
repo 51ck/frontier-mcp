@@ -45,33 +45,50 @@ async function costOfReadingWhole(root: string, effort: string): Promise<number>
 }
 
 describe('the cost of a Board', () => {
-  it('is a small fraction of reading the same Effort whole', async () => {
+  it('reproduces the spec measurement of what reading an Effort whole costs', async () => {
+    const root = await makeLegacyWorkspace({
+      telegram: 'sobrina-telegram',
+      'ship-0-5-0': 'tag-customizer-ship-0-5-0',
+    });
+
+    // The spec's Problem Statement: telegram is 15 Tickets / 32.7 KB ~ 8.2k
+    // tokens, ship-0-5-0 is 7 Tickets / 52.7 KB ~ 13k. These are the numbers the
+    // whole project argues from, so they are pinned, not merely bounded.
+    expect(await costOfReadingWhole(root, 'telegram')).toBeCloseTo(8200, -2.5);
+    expect(await costOfReadingWhole(root, 'ship-0-5-0')).toBeCloseTo(13100, -2.5);
+  });
+
+  it('answers the same question for a small, pinned fraction of that', async () => {
     const root = await makeLegacyWorkspace({ telegram: 'sobrina-telegram' });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
     const board = tokens(await frontier.call('get_board', { effort: 'telegram' }));
-    const whole = await costOfReadingWhole(root, 'telegram');
 
-    // The spec measured sobrina's telegram Effort at 15 Tickets / 32.7 KB, and
-    // claims a Board answers the same question for a fraction of it.
-    expect(whole).toBeGreaterThan(5000);
-    expect(board).toBeLessThan(whole / 10);
+    // Pinned rather than bounded: a Board that doubled would still have passed
+    // a `< whole/10` assertion, and quietly giving back the saving is exactly
+    // the regression this file exists to catch.
+    expect(board).toBeGreaterThan(150);
+    expect(board).toBeLessThan(600);
   });
 
-  it('does not grow when Tickets carry long resolved answers', async () => {
+  it('does not grow when an Effort carries far longer bodies', async () => {
     const root = await makeLegacyWorkspace({
       telegram: 'sobrina-telegram',
       'ship-0-5-0': 'tag-customizer-ship-0-5-0',
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    // ship-0-5-0 is half the Ticket count of telegram but carries far longer
-    // bodies — an Effort gets more expensive to read the further it progresses,
-    // and a Board is the thing that does not.
-    const board = tokens(await frontier.call('get_board', { effort: 'ship-0-5-0' }));
-    const whole = await costOfReadingWhole(root, 'ship-0-5-0');
+    const cheap = tokens(await frontier.call('get_board', { effort: 'telegram' }));
+    const expensive = tokens(await frontier.call('get_board', { effort: 'ship-0-5-0' }));
 
-    expect(board).toBeLessThan(whole / 10);
+    // ship-0-5-0 costs 1.6x telegram to read whole while holding half the
+    // Tickets, because resolved Tickets carry their full answers. The Boards
+    // must not track that: the one with fewer Tickets must not cost more than
+    // the Ticket count alone would explain.
+    const wholeRatio =
+      (await costOfReadingWhole(root, 'ship-0-5-0')) / (await costOfReadingWhole(root, 'telegram'));
+    expect(wholeRatio).toBeGreaterThan(1.5);
+    expect(expensive).toBeLessThan(cheap * 1.5);
   });
 });
 

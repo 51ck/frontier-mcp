@@ -29,7 +29,11 @@ export function renderBoard(board: Board): string {
   const { effort, tickets, frontier } = board;
   const lines = [`effort: ${effort.slug}`];
 
-  if (effort.destination !== undefined) lines.push(`destination: ${effort.destination}`);
+  // Header-doc prose is the author's, wrapped however they wrote it. Indenting
+  // continuation lines keeps a multi-paragraph Destination from being read as
+  // more Ticket lines, which are strictly one per line.
+  if (effort.destination !== undefined) lines.push(labelled('destination', effort.destination));
+  else if (effort.specOpening !== undefined) lines.push(labelled('spec', effort.specOpening));
 
   if (tickets.length === 0) {
     lines.push('', '(no tickets)');
@@ -55,14 +59,22 @@ export function renderBoard(board: Board): string {
   return lines.join('\n');
 }
 
+function labelled(label: string, prose: string): string {
+  return `${label}: ${prose.split('\n').join('\n  ')}`;
+}
+
 function renderLine(ticket: TicketSummary, board: Board): string {
   const parts = [
-    ticket.id ?? '(no id)',
+    ticket.handle,
     ticket.title,
     `${ticket.kind}/${ticket.status}`,
+    ticket.triage === undefined ? undefined : `triage=${ticket.triage}`,
     ticket.blockedBy.length > 0
       ? `blocked_by=${ticket.blockedBy.map(id => renderEdge(id, ticket, board)).join(',')}`
       : undefined,
+    ticket.answerGist === undefined ? undefined : `gist=${ticket.answerGist}`,
+    ticket.droppedReason === undefined ? undefined : `dropped=${ticket.droppedReason}`,
+    ticket.claimedBy === undefined ? undefined : `claimed_by=${ticket.claimedBy}`,
   ].filter(part => part !== undefined);
 
   return parts.join('  ');
@@ -83,31 +95,29 @@ function renderEdge(id: string, from: TicketSummary, board: Board): string {
 /**
  * Broken Edges surface here rather than through a separate validation tool,
  * because a validation tool nobody calls is a validator that does not exist.
- */
-/**
- * Warnings are grouped, not itemized. An unmigrated Effort can carry a dangling
- * Edge on nearly every Ticket, and a warnings block longer than the Board it
- * annotates would undo the saving the Board exists to deliver.
+ *
+ * Every warning is grouped, never itemized per Ticket. An Effort of Legacy
+ * Tickets can carry a dangling Edge on nearly every one of them, and a warnings
+ * block longer than the Board it annotates would undo the saving the Board
+ * exists to deliver.
  */
 function collectWarnings(board: Board): string[] {
   const warnings: string[] = [];
   const dangling = new Set<string>();
-  const orphaned: string[] = [];
-  const unrecognized: string[] = [];
+  const orphaned = new Set<string>();
+  const unrecognized = new Set<string>();
+  const collapsed = new Set<string>();
 
   for (const ticket of board.tickets) {
-    const id = ticket.id ?? `#${String(ticket.order)}`;
-
     for (const edge of ticket.blockedBy) {
       const blocker = board.byId.get(edge);
 
       if (blocker === undefined) dangling.add(edge);
-      else if (blocker.status === 'dropped') orphaned.push(`${id} blocked_by ${edge}`);
+      else if (blocker.status === 'dropped') orphaned.add(ticket.handle);
     }
 
-    if (ticket.unrecognizedStatus !== undefined) {
-      unrecognized.push(`${id} "${ticket.unrecognizedStatus}"`);
-    }
+    if (ticket.unrecognizedStatus !== undefined) unrecognized.add(ticket.handle);
+    for (const ref of ticket.collapsedRefs) collapsed.add(ref);
   }
 
   if (dangling.size > 0) {
@@ -116,11 +126,23 @@ function collectWarnings(board: Board): string[] {
         [...dangling].toSorted().join(' '),
     );
   }
-  if (orphaned.length > 0) {
-    warnings.push(`blocked by a dropped Ticket, which never unblocks: ${orphaned.join(', ')}`);
+  if (orphaned.size > 0) {
+    warnings.push(
+      `blocked by a dropped Ticket, which never unblocks (${String(orphaned.size)}): ` +
+        [...orphaned].toSorted().join(' '),
+    );
   }
-  if (unrecognized.length > 0) {
-    warnings.push(`unrecognized status, read as open: ${unrecognized.join(', ')}`);
+  if (unrecognized.size > 0) {
+    warnings.push(
+      `unrecognized status, read as open (${String(unrecognized.size)}): ` +
+        [...unrecognized].toSorted().join(' '),
+    );
+  }
+  if (collapsed.size > 0) {
+    warnings.push(
+      `sub-slice Edges coarsened to their parent Ticket (${String(collapsed.size)}): ` +
+        [...collapsed].toSorted().join(' '),
+    );
   }
 
   const legacy = board.tickets.filter(ticket => ticket.legacy);
@@ -129,7 +151,8 @@ function collectWarnings(board: Board): string[] {
     const idNote =
       unidentified === 0
         ? ''
-        : ` ${String(unidentified)} carry no id and cannot be fetched or blocked on until one is minted.`;
+        : ` ${String(unidentified)} carry no id — fetch those by the <effort>#<order> handle shown, ` +
+          'and note nothing can declare an Edge on them until migration mints one.';
 
     warnings.push(
       `${String(legacy.length)}/${String(board.tickets.length)} Tickets are Legacy — title, ` +

@@ -45,14 +45,25 @@ describe('Legacy Tickets', () => {
     expect(board.toLowerCase()).toContain('legacy');
   });
 
-  it('reads a tag-customizer Ticket that has no T-id at all', async () => {
+  it('gives a Ticket with no T-id an addressable handle instead of no name', async () => {
     const { frontier } = await legacyRepo();
 
     const board = await frontier.call('get_board', { effort: 'ship-0-5-0' });
 
     // `# 01 — Is the data-map colour-space fix an r185 fix or a latent bug?`
     expect(board).toContain('Is the data-map colour-space fix');
-    expect(board).toContain('(no id)');
+    expect(board).toContain('ship-0-5-0#1');
+    expect(board).not.toContain('(no id)');
+  });
+
+  it('fetches an id-less Ticket by that handle, so no Effort is unreachable', async () => {
+    const { frontier } = await legacyRepo();
+
+    const text = await frontier.call('get_tickets', { ids: ['ship-0-5-0#1'] });
+
+    expect(text).toContain('Is the data-map colour-space fix');
+    // The body, which is the whole point of fetching one.
+    expect(text).toContain('was `0.147` doing the same wrong thing');
   });
 
   it('reads a Status line carrying a trailing note', async () => {
