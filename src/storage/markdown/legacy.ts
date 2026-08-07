@@ -15,19 +15,36 @@ const HEADING = /^#[ \t]+(.+?)[ \t]*$/m;
 const HEADING_ID = /^(T\d+)[ \t]*[—–-][ \t]*(.*)$/;
 const HEADING_ORDER = /^\d+[ \t]*[—–-][ \t]*(.*)$/;
 
-/** `Status: resolved`, or `Status: resolved — **`0.5.0` published**`. */
-const STATUS_LINE = /^Status:[ \t]*(.+?)[ \t]*$/m;
-const TYPE_LINE = /^Type:[ \t]*(.+?)[ \t]*$/m;
+/**
+ * `Status: resolved`, `**Status:** done`, or ``Status: resolved — **`0.5.0`
+ * published**``. Bold is tolerated everywhere, because these files mark up
+ * their field labels inconsistently and a bold label is still a label.
+ */
+const STATUS_LINE = /^\**Status\**:\**[ \t]*(.+?)[ \t]*$/im;
+const TYPE_LINE = /^\**Type\**:\**[ \t]*(.+?)[ \t]*$/im;
 
 /** `**Depends on:** T31 (...)` and `Blocked by: 01, 02`, bold or bare. */
 const EDGE_LINE = /^\**(?:Depends on|Blocked by)\**:\**[ \t]*(.+?)[ \t]*$/gim;
 
-/** A withdrawn dependency, struck through rather than deleted. */
+/** A withdrawn Edge, struck through rather than deleted. */
 const STRIKETHROUGH = /~~[\s\S]*?~~/g;
-/** Link targets, so a path never contributes a false id. */
-const LINK_TARGET = /\]\([^)]*\)/g;
+/**
+ * Whole markdown links, label and target both, so a path never contributes a
+ * false id. Verified against every Edge line in the fixtures: real
+ * references are always written outside their link, so nothing is lost — and a
+ * label like `[../T99/issues/01.md]` would otherwise mint an Edge to T99.
+ */
+const MARKDOWN_LINK = /\[[^\]]*\]\([^)]*\)/g;
 
-const TICKET_REF = /\bT(\d+)(?:\.\d+)?\b/g;
+/** `T31`, and `T38.1` — a sub-slice of T38, which is the Ticket that exists. */
+const TICKET_REF = /\bT(\d+)(\.\d+)?\b/g;
+
+/**
+ * A bare `01` in `Blocked by: 01, 02` — this Effort's sort orders, written
+ * before ids existed. Anything touching a `.` is excluded so a version string
+ * like `0.5.0` never becomes an Edge.
+ */
+const BARE_ORDER = /(?:^|[\s,;])(\d{1,3})(?![.\d])(?=[\s,;]|$)/g;
 
 /**
  * Status words seen in the wild, mapped to the four the schema has. `done` and
@@ -35,19 +52,26 @@ const TICKET_REF = /\bT(\d+)(?:\.\d+)?\b/g;
  * rather than open, which is the safe direction: a Ticket wrongly left off the
  * Frontier is a missed opportunity, one wrongly put on it is wasted work.
  */
-const STATUS_WORDS: Readonly<Record<string, Status>> = {
-  open: 'open',
-  claimed: 'claimed',
-  resolved: 'resolved',
-  done: 'resolved',
-  fixed: 'resolved',
-  dropped: 'dropped',
-  superseded: 'dropped',
-  deferred: 'dropped',
-  wontfix: 'dropped',
-};
+const STATUS_WORDS = new Map<string, Status>([
+  ['open', 'open'],
+  ['claimed', 'claimed'],
+  ['resolved', 'resolved'],
+  ['done', 'resolved'],
+  ['fixed', 'resolved'],
+  ['dropped', 'dropped'],
+  ['superseded', 'dropped'],
+  ['deferred', 'dropped'],
+]);
 
-/** Triage roles found in a `Status:` line, where they do not belong. */
+/**
+ * Triage roles found in a `Status:` line, where they do not belong. These are
+ * checked first: a triage role says nothing about lifecycle position, so
+ * finding one means the Status field never held a Status at all.
+ *
+ * `wontfix` is here and deliberately not in {@link STATUS_WORDS} — it is a
+ * Triage role, not a Status, and mapping it to `dropped` would make it
+ * contagious, turning every dependent into a broken Edge.
+ */
 const TRIAGE_WORDS = new Set([
   'needs-triage',
   'needs-info',
@@ -65,23 +89,29 @@ export interface LegacyTicket {
   readonly blockedBy: readonly string[];
   /** The raw `Status:` text when it did not map to a known Status. */
   readonly unrecognizedStatus: string | undefined;
+  /** Sub-slice references (`T38.1`) coarsened to the Ticket that exists. */
+  readonly collapsedRefs: readonly string[];
+  readonly type: string | undefined;
 }
 
 export function parseLegacyBody(contents: string): LegacyTicket {
   const { id, title } = readHeading(contents);
-  const rawStatus = STATUS_LINE.exec(contents)?.[1];
-  const { status, triage, unrecognized } = readStatus(rawStatus);
+  const { status, triage, unrecognized } = readStatus(STATUS_LINE.exec(contents)?.[1]);
+  const { edges, collapsed } = readEdges(contents);
+  const type = TYPE_LINE.exec(contents)?.[1];
 
   return {
     id,
     title,
     // A `Type:` line is wayfinder's decision vocabulary; its presence is what
     // marks the Ticket as a question rather than a slice of work.
-    kind: TYPE_LINE.test(contents) ? 'decision' : 'build',
+    kind: type === undefined ? 'build' : 'decision',
+    type,
     status,
     triage,
-    blockedBy: readEdges(contents),
+    blockedBy: edges,
     unrecognizedStatus: unrecognized,
+    collapsedRefs: collapsed,
   };
 }
 
@@ -109,43 +139,48 @@ function readStatus(raw: string | undefined): {
 
   // `resolved — 2026-08-04` and `deferred to 0.6.0` both carry their meaning in
   // the first word; everything after it is a note for a human.
-  const word = (raw.split(/[—–]/)[0] ?? '').trim().toLowerCase();
+  const word = (raw.split(/[—–]| - /)[0] ?? '').trim().toLowerCase();
   const first = (word.split(/\s+/)[0] ?? '').replace(/[.,]$/, '');
 
-  const triage = TRIAGE_WORDS.has(first) ? first : undefined;
-  const status = STATUS_WORDS[first];
+  // A Triage role is checked first, and leaves the lifecycle position alone —
+  // it never described one.
+  if (TRIAGE_WORDS.has(first)) return { status: 'open', triage: first, unrecognized: undefined };
 
-  if (status !== undefined) return { status, triage, unrecognized: undefined };
-  // A triage role in the Status field says nothing about lifecycle position.
-  if (triage !== undefined) return { status: 'open', triage, unrecognized: undefined };
+  const status = STATUS_WORDS.get(first);
+  if (status !== undefined) return { status, triage: undefined, unrecognized: undefined };
 
   return { status: 'open', triage: undefined, unrecognized: raw };
 }
 
 /**
- * Edges out of prose. Struck-through text is dropped because a withdrawn
- * dependency is not a dependency, and link targets are stripped so a relative
- * path never contributes an id of its own.
+ * Edges out of prose. Struck-through text is dropped because a withdrawn Edge
+ * is not an Edge, and whole markdown links are stripped so a relative path
+ * never contributes an id of its own.
  *
  * Bare numbers (`Blocked by: 01, 02`) are kept verbatim. They are this Effort's
  * sort orders, not ids, and are reported as unresolvable rather than guessed at
  * — resolving them would invent a repo-wide identity the file never had.
  */
-function readEdges(contents: string): readonly string[] {
+function readEdges(contents: string): { edges: readonly string[]; collapsed: readonly string[] } {
   const edges = new Set<string>();
-  EDGE_LINE.lastIndex = 0;
+  const collapsed = new Set<string>();
 
   for (const line of contents.matchAll(EDGE_LINE)) {
-    const declared = (line[1] ?? '').replace(STRIKETHROUGH, '').replace(LINK_TARGET, '');
+    const declared = (line[1] ?? '').replace(STRIKETHROUGH, '').replace(MARKDOWN_LINK, '');
     if (/^\s*(?:—|–|-|none)\s*$/i.test(declared)) continue;
 
-    for (const ref of declared.matchAll(TICKET_REF)) edges.add(`T${ref[1] ?? ''}`);
-
-    for (const bare of declared.matchAll(/(?:^|[\s,;])(\d{1,3})(?=[\s,;.]|$)/g)) {
-      edges.add(bare[1] ?? '');
+    for (const ref of declared.matchAll(TICKET_REF)) {
+      const id = `T${ref[1] ?? ''}`;
+      // `T38.1` names a slice of T38, and T38 is the Ticket that exists — but
+      // the reader is told, because the Edge on the Board is then coarser than
+      // the one the file declared.
+      if (ref[2] !== undefined) collapsed.add(`${id}${ref[2]}`);
+      edges.add(id);
     }
+
+    for (const bare of declared.matchAll(BARE_ORDER)) edges.add(bare[1] ?? '');
   }
 
   edges.delete('');
-  return [...edges];
+  return { edges: [...edges], collapsed: [...collapsed] };
 }

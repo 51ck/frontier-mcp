@@ -24,3 +24,19 @@ export function readDestination(contents: string): string | undefined {
 
   return section === '' ? undefined : section;
 }
+
+/**
+ * The opening paragraph of a Spec — the first prose under its title. A Spec has
+ * no Destination section, so this is the orienting text a Spec-only Effort has,
+ * and a Board that opens with nothing leaves every Ticket line uninterpretable.
+ */
+export function readSpecOpening(contents: string): string | undefined {
+  const { body } = splitFrontmatter(contents);
+
+  const paragraph = body
+    .split(/\n{2,}/)
+    .map(block => block.trim())
+    .find(block => block !== '' && !block.startsWith('#'));
+
+  return paragraph;
+}

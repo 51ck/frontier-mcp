@@ -27,11 +27,26 @@ export const STATUSES: readonly Status[] = ['open', 'claimed', 'resolved', 'drop
 export interface TicketSummary {
   /** `T<n>`, unique repo-wide. Absent on a Legacy Ticket that carries no id. */
   readonly id: string | undefined;
+  /**
+   * How to name this Ticket in a call. The id when it has one; otherwise
+   * `<effort>#<order>`, which is the only handle an id-less Legacy Ticket has
+   * until migration mints it a real one.
+   */
+  readonly handle: string;
   readonly title: string;
   readonly kind: Kind;
+  /** `research` / `prototype` / `grilling` / `task`. Only when `kind` is `decision`. */
+  readonly type: string | undefined;
   readonly status: Status;
   /** A `/triage` label. A separate field from {@link status}. */
   readonly triage: string | undefined;
+  /** Required when resolved — the one line that makes a Board of finished work readable. */
+  readonly answerGist: string | undefined;
+  /** Required when dropped. What the Map's Out-of-scope section renders. */
+  readonly droppedReason: string | undefined;
+  /** Who holds the claim, and when they took it. Set together. */
+  readonly claimedBy: string | undefined;
+  readonly claimedAt: string | undefined;
   /** Edges: the Tickets that must finish first, as plain ids resolved repo-wide. */
   readonly blockedBy: readonly string[];
   /** The slug of the Effort that owns this Ticket. */
@@ -45,6 +60,8 @@ export interface TicketSummary {
   readonly legacy: boolean;
   /** The raw `Status:` text of a Legacy Ticket whose value did not map. */
   readonly unrecognizedStatus: string | undefined;
+  /** Sub-slice references (`T38.1`) coarsened to the Ticket that exists. */
+  readonly collapsedRefs: readonly string[];
 }
 
 /** A Ticket with its prose. */
@@ -53,8 +70,8 @@ export interface Ticket extends TicketSummary {
 }
 
 /**
- * One Effort, as much of it as T1 knows: enough to choose an Effort without
- * opening it. Frontier size joins this in T2, when Tickets are parsed.
+ * One Effort: enough to choose one without opening it. Frontier size is not a
+ * field — it is computed from the Tickets, like the Frontier itself.
  */
 export interface Effort {
   /** The Effort's identity. Unique within a workspace. */
@@ -64,8 +81,14 @@ export interface Effort {
   /** How many Tickets the Effort holds. */
   readonly ticketCount: number;
   /**
-   * Where this line of enquiry is going, from the Map. Absent when the Effort
-   * has no Map, or a Map that has not been given one.
+   * Where this line of enquiry is going, from the Map's Destination. Absent
+   * when the Effort has no Map, or a Map that has not been given one.
    */
   readonly destination: string | undefined;
+  /**
+   * The opening of the Effort's Spec. Not a Destination — a Spec has no such
+   * section — but it is the orienting text a Spec-only Effort does have, and a
+   * Board that opens with nothing leaves every Ticket line below uninterpretable.
+   */
+  readonly specOpening: string | undefined;
 }

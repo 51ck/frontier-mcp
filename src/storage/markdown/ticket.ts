@@ -16,23 +16,32 @@ export interface TicketFile {
  * everything else falls through to the Legacy parser and is flagged, because a
  * server that is useless until its repo is migrated never gets installed.
  */
-export function parseTicket(effort: string, file: TicketFile): Ticket {
+export function parseTicket(effort: string, file: TicketFile, fallbackOrder: number): Ticket {
   const { fields, body } = splitFrontmatter(file.contents);
-  const order = readOrder(file.filename);
+  const order = readOrder(file.filename) ?? fallbackOrder;
 
   if (fields === undefined) return parseLegacy(effort, order, file.contents);
 
+  const id = text(fields['id']);
+
   return {
-    id: text(fields['id']),
+    id,
+    handle: handleFor(id, effort, order),
     title: text(fields['title']) ?? '(untitled)',
     kind: readKind(fields['kind']),
+    type: text(fields['type']),
     status: readStatus(text(fields['status'])) ?? 'open',
     triage: text(fields['triage']),
+    answerGist: text(fields['answer_gist']),
+    droppedReason: text(fields['dropped_reason']),
+    claimedBy: text(fields['claimed_by']),
+    claimedAt: text(fields['claimed_at']),
     blockedBy: readEdgeList(fields['blocked_by']),
     effort,
     order,
     legacy: false,
     unrecognizedStatus: undefined,
+    collapsedRefs: [],
     body: body.trim(),
   };
 }
@@ -42,22 +51,41 @@ function parseLegacy(effort: string, order: number, contents: string): Ticket {
 
   return {
     id: inferred.id,
+    handle: handleFor(inferred.id, effort, order),
     title: inferred.title,
     kind: inferred.kind,
+    type: inferred.type,
     status: inferred.status,
     triage: inferred.triage,
+    // A Legacy file records its answer as prose in the body, not as a field.
+    answerGist: undefined,
+    droppedReason: undefined,
+    claimedBy: undefined,
+    claimedAt: undefined,
     blockedBy: inferred.blockedBy,
     effort,
     order,
     legacy: true,
     unrecognizedStatus: inferred.unrecognizedStatus,
+    collapsedRefs: inferred.collapsedRefs,
     body: contents.trim(),
   };
 }
 
-function readOrder(filename: string): number {
+/**
+ * A Ticket with no id still has to be nameable, or a whole Effort of Legacy Tickets
+ * has no route to its own bodies. `<effort>#<order>` is that fallback — an
+ * address, deliberately not an id: it is not repo-stable and never appears as
+ * an Edge.
+ */
+function handleFor(id: string | undefined, effort: string, order: number): string {
+  return id ?? `${effort}#${String(order)}`;
+}
+
+/** `<NN>-...` gives sort order. A file with no numeric prefix has none of its own. */
+function readOrder(filename: string): number | undefined {
   const match = FILENAME_ORDER.exec(filename);
-  return match?.[1] === undefined ? Number.MAX_SAFE_INTEGER : Number(match[1]);
+  return match?.[1] === undefined ? undefined : Number(match[1]);
 }
 
 function readKind(value: unknown): Kind {

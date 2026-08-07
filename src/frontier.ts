@@ -28,6 +28,10 @@ export function indexById(all: readonly TicketSummary[]): ReadonlyMap<string, Ti
 
 function isTakeable(ticket: TicketSummary, byId: ReadonlyMap<string, TicketSummary>): boolean {
   if (ticket.status !== 'open') return false;
+  // `wontfix` is a Triage role rather than a Status, so it leaves a Ticket
+  // open — but open is not the same as takeable, and handing an agent work
+  // somebody has already declined is the one thing the Frontier must not do.
+  if (ticket.triage === 'wontfix') return false;
 
   return ticket.blockedBy.every(id => byId.get(id)?.status === 'resolved');
 }
