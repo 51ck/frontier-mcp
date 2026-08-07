@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { ticket } from './support/fixtures.ts';
 import { cleanupFixtures, connectFrontier, makeFixtureTree } from './support/harness.ts';
 
 afterEach(cleanupFixtures);
@@ -87,6 +86,28 @@ describe('the shipped surface', () => {
 });
 
 describe('the tracker configuration document', () => {
+  /**
+   * Transcribed by hand from the frontmatter template in the shipped document,
+   * not built with the `ticket()` fixture helper. The helper is
+   * schema-conformant by construction, so a Ticket built from it would prove
+   * the fixtures work rather than that the document is followable — which is
+   * the claim under test: an agent with no server loaded reads the document,
+   * types this, and the server accepts it as a first-class Ticket.
+   */
+  const HAND_WRITTEN = `---
+id: T1
+title: Handwritten per tracker doc
+kind: build
+status: open
+triage: ready-for-agent
+blocked_by: []
+---
+
+# T1 — Handwritten per tracker doc
+
+Written by following the tracker configuration document only.
+`;
+
   it('describes file conventions that produce readable Tickets without the server', async () => {
     const doc = shippedTrackerDoc();
 
@@ -97,14 +118,14 @@ describe('the tracker configuration document', () => {
 
     const root = await makeFixtureTree({
       '.git/HEAD': 'ref: refs/heads/main\n',
-      '.scratch/hand/issues/01-T1-handwritten.md': ticket('T1', 'Handwritten per tracker doc', {
-        body: 'Written by following the tracker configuration document only.',
-      }),
+      '.scratch/hand/issues/01-T1-handwritten.md': HAND_WRITTEN,
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
     const board = await frontier.call('get_board', { effort: 'hand' });
     expect(board).toContain('T1  Handwritten per tracker doc');
+    // A Ticket the parser had to infer would be flagged Legacy — this one
+    // carries real frontmatter, so it must not be.
     expect(board).not.toContain('legacy');
   });
 });
