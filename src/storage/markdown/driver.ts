@@ -6,6 +6,8 @@ import type {
   HeaderDoc,
   MapDocument,
   MapEdit,
+  MigrateOptions,
+  MigrationReport,
   SpecDocument,
   Ticket,
   TicketDraft,
@@ -14,6 +16,7 @@ import type { CreateOptions, HeaderDocOptions, StorageDriver } from '../driver.t
 import type { TicketEdit } from '../../domain.ts';
 import { NoSuchEffort, NoSuchMap, NoSuchSpec, NoSuchTicket, RevisionMismatch } from '../driver.ts';
 import { createTicketFiles } from './create.ts';
+import { migrateEffortFiles } from './migrate.ts';
 import { applyEdit, type Defaults } from './serialize.ts';
 import { currentRevision, GuardHeld, withGuard, writeAtomically } from './write.ts';
 import {
@@ -118,6 +121,10 @@ export function createMarkdownDriver(root: string): StorageDriver {
     putSpec(effort, body, expectedRevision, options) {
       return serialized(() => saveSpec(scratch, effort, body, expectedRevision, options));
     },
+
+    migrateEffort(effort, options) {
+      return serialized(() => migrate(scratch, effort, options, walk));
+    },
   };
 
   /**
@@ -133,6 +140,34 @@ export function createMarkdownDriver(root: string): StorageDriver {
     writes = next.catch(() => undefined);
     return next;
   }
+}
+
+async function migrate(
+  scratch: string,
+  effort: string,
+  options: MigrateOptions,
+  walk: () => Promise<ScannedEffort[]>,
+): Promise<MigrationReport> {
+  const dir = join(scratch, effort);
+  if ((await readEffort(scratch, effort)) === undefined) throw new NoSuchEffort(effort);
+
+  const entries = await readTicketFiles(dir, effort);
+  const allTickets = (await walk()).flatMap(entry => entry.tickets);
+  const issues = join(dir, ISSUES_DIR);
+
+  return migrateEffortFiles({
+    scratch,
+    effort,
+    issues,
+    entries,
+    allTickets,
+    preview: options.preview,
+    rename: options.rename,
+    // Allocation must not share a walk started before the guards — same reason
+    // createTickets builds its own rescan.
+    rescan: async () => (await walk()).flatMap(entry => entry.tickets),
+    readContents: filename => readFile(join(issues, filename), 'utf8'),
+  });
 }
 
 async function create(

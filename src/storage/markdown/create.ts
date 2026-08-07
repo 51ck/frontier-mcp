@@ -96,6 +96,48 @@ export async function createTicketFiles(request: CreateRequest): Promise<readonl
 }
 
 /**
+ * Hold exclusive id guards for `count` fresh ids, run `use`, then release.
+ * Migration mints through this so a parallel create_tickets cannot collide.
+ */
+export async function withIdReservations<T>(
+  scratch: string,
+  count: number,
+  rescan: Rescan,
+  use: (ids: readonly string[]) => Promise<T>,
+): Promise<T> {
+  if (count === 0) return use([]);
+
+  const { reservations } = await reserve(scratch, count, rescan);
+  try {
+    return await use(reservations.map(entry => entry.id));
+  } finally {
+    await release(reservations);
+  }
+}
+
+/**
+ * The next `count` minted ids from a scan, without taking guards. Preview uses
+ * this so a dry run never leaves `.frontier-id-*.guard` files behind.
+ */
+export function peekMintedIds(used: ReadonlySet<string>, count: number): readonly string[] {
+  const ids: string[] = [];
+  let candidate = highestMinted(used) + 1;
+
+  while (ids.length < count) {
+    const id = `T${String(candidate)}`;
+    if (!used.has(id)) ids.push(id);
+    candidate += 1;
+  }
+
+  return ids;
+}
+
+/** The cosmetic filename convention: `<NN>-T<n>-<slug>.md`. */
+export function ticketFilename(order: number, id: string, title: string): string {
+  return `${pad(order)}-${id}-${slugify(title)}.md`;
+}
+
+/**
  * Remove an Effort this call made and then failed to fill. `rmdir` rather than a
  * recursive delete: it fails with ENOTEMPTY on a directory holding anything,
  * which is exactly right if a concurrent session has already put something
@@ -143,7 +185,7 @@ function filesFor(
       draft.body,
     );
 
-    return { filename: `${pad(firstOrder + index)}-${id}-${slugify(draft.title)}.md`, contents };
+    return { filename: ticketFilename(firstOrder + index, id, draft.title), contents };
   });
 }
 

@@ -1,4 +1,13 @@
-import type { Effort, MapDocument, MapEdit, SpecDocument, Ticket, TicketDraft } from './domain.ts';
+import type {
+  Effort,
+  MapDocument,
+  MapEdit,
+  MigrateOptions,
+  MigrationReport,
+  SpecDocument,
+  Ticket,
+  TicketDraft,
+} from './domain.ts';
 import type {
   CreateOptions,
   HeaderDocOptions,
@@ -40,6 +49,7 @@ export interface WorkspaceIndex {
     expectedRevision: string | undefined,
     options: HeaderDocOptions,
   ): Promise<SpecDocument>;
+  migrate(effort: string, options: MigrateOptions): Promise<MigrationReport>;
 }
 
 export function createWorkspaceIndex(driver: StorageDriver): WorkspaceIndex {
@@ -62,6 +72,9 @@ export function createWorkspaceIndex(driver: StorageDriver): WorkspaceIndex {
     readSpec: effort => driver.readSpec(effort),
     async putSpec(effort, body, expectedRevision, options) {
       return moved(() => driver.putSpec(effort, body, expectedRevision, options));
+    },
+    async migrate(effort, options) {
+      return moved(() => driver.migrateEffort(effort, options));
     },
   };
 
