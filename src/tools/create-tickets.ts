@@ -1,16 +1,9 @@
 import { z } from 'zod';
 
 import type { Kind, Ticket, TicketDraft, TriageRole } from '../domain.ts';
-import { TRIAGE_ROLES } from '../domain.ts';
+import { MINTED_ID, TRIAGE_ROLES } from '../domain.ts';
 import { cycleThrough, renderCycle, type EdgesOf } from '../edges.ts';
 import { indexById } from '../frontier.ts';
-
-/**
- * A temporary key may not be shaped like a minted id, because an Edge naming
- * `T8` could then mean either the sibling draft or the Ticket already answering
- * to it, and the server would have to guess.
- */
-const MINTED_ID = /^T\d+$/;
 
 export const createTicketsInputSchema = {
   effort: z.string().describe('Effort slug to create them in.'),
@@ -144,6 +137,9 @@ function declaredKeys(drafts: readonly TicketDraft[]): ReadonlySet<string> {
   for (const draft of drafts) {
     if (draft.key === undefined) continue;
 
+    // A key shaped like an id is ambiguous: an Edge naming `T8` could mean the
+    // sibling draft or the Ticket already answering to it, and the server would
+    // have to guess which.
     if (MINTED_ID.test(draft.key)) {
       throw new Error(
         `Temporary key "${draft.key}" looks like a Ticket id. Pick a name that does not, ` +

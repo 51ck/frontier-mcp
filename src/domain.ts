@@ -15,6 +15,16 @@ export type HeaderDoc = 'map' | 'spec';
 /** Which of the two shapes a Ticket is. */
 export type Kind = 'build' | 'decision';
 
+/**
+ * The shape of a minted id: `T<n>`, visibly an id so it is never mistaken for a
+ * sort position. Ids preserved verbatim through migration need not match — those
+ * occupy their name without being part of the counter.
+ *
+ * Both sides of the storage seam test against this, so it lives with the rest of
+ * the vocabulary rather than in either of them.
+ */
+export const MINTED_ID = /^T(\d+)$/;
+
 /** A Ticket's position in the graph's lifecycle. Owned by the server. */
 export type Status = 'open' | 'claimed' | 'resolved' | 'dropped';
 

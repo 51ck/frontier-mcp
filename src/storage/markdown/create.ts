@@ -2,11 +2,9 @@ import { unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { Ticket, TicketDraft } from '../../domain.ts';
+import { MINTED_ID } from '../../domain.ts';
 import { serializeNew } from './serialize.ts';
 import { breakIfStale, writeAtomically } from './write.ts';
-
-/** `T<n>` — the only id shape the counter mints, and the only one it counts. */
-const MINTED_ID = /^T(\d+)$/;
 
 /**
  * How many times the batch will re-scan and start over when a parallel session
