@@ -256,6 +256,10 @@ Write rules, equally load-bearing:
   somebody's hand edit, and overwriting that is what the check exists to prevent.
 - **Writes are serialized per workspace.** Otherwise two calls racing on one Ticket both pass the
   revision check before either renames, and the loser's edit is lost rather than refused.
+- **Resolve/drop Map refresh is best-effort.** After the Ticket write lands, regenerating
+  Decisions-so-far / dropped Out-of-scope must not make a completed lifecycle change look like a
+  failure. The tool returns success with a warning that those blocks may be stale; a later
+  successful refresh or Map mutation catches them up.
 - **A write normalizes the Legacy file it touches**, and keeps the prose it inferred from verbatim.
 - **Claims are flagged when stale, never released.** 24h; auto-expiry is out of scope.
 - **A batch creation is all or none.** Every reference resolves before anything is written, so an

@@ -13,6 +13,7 @@ import type {
   HeaderDocOptions,
   StorageDriver,
   TicketEdit,
+  TicketWriteResult,
 } from './storage/driver.ts';
 import { createWatcherRegistry, type WatcherRegistry } from './workspace-watcher.ts';
 
@@ -28,7 +29,7 @@ export interface WorkspaceIndex {
   efforts(): Promise<readonly Effort[]>;
   tickets(): Promise<readonly Ticket[]>;
   /** Apply an edit and discard the scan, since the workspace has moved on. */
-  update(handle: string, edit: TicketEdit, expectedRevision: string): Promise<Ticket>;
+  update(handle: string, edit: TicketEdit, expectedRevision: string): Promise<TicketWriteResult>;
   /** Create a batch of Tickets and discard the scan, for the same reason. */
   create(
     effort: string,

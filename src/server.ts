@@ -227,7 +227,7 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
 
       const ticket = find(tickets);
 
-      let written: Ticket;
+      let written: Awaited<ReturnType<typeof index.update>>;
       try {
         written = await index.update(
           ticket.handle,
@@ -247,7 +247,9 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
         throw error;
       }
 
-      return { content: [{ type: 'text', text: renderUpdate(written) }] };
+      return {
+        content: [{ type: 'text', text: renderUpdate(written.ticket, written.warnings) }],
+      };
     },
   );
 

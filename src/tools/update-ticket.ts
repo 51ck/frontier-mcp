@@ -197,7 +197,7 @@ function claimEdit(ticket: Ticket, by: string, now: string): TicketEdit {
   return { status: 'claimed', claimedBy: by, claimedAt: now };
 }
 
-export function renderUpdate(ticket: Ticket): string {
+export function renderUpdate(ticket: Ticket, warnings: readonly string[] = []): string {
   const fields = [
     `status=${ticket.status}`,
     ticket.claimedBy === undefined ? undefined : `claimed_by=${ticket.claimedBy}`,
@@ -206,5 +206,7 @@ export function renderUpdate(ticket: Ticket): string {
     ticket.droppedReason === undefined ? undefined : `dropped_reason=${ticket.droppedReason}`,
   ].filter(field => field !== undefined);
 
-  return `${ticket.handle} updated\n${fields.join('  ')}`;
+  const body = `${ticket.handle} updated\n${fields.join('  ')}`;
+  if (warnings.length === 0) return body;
+  return `${body}\nwarnings:\n${warnings.map(warning => `- ${warning}`).join('\n')}`;
 }
