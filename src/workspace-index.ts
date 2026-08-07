@@ -39,9 +39,7 @@ export interface IndexRegistry {
   forWorkspace(root: string): WorkspaceIndex;
 }
 
-export function createIndexRegistry(
-  createDriver: (root: string) => StorageDriver,
-): IndexRegistry {
+export function createIndexRegistry(createDriver: (root: string) => StorageDriver): IndexRegistry {
   const indexes = new Map<string, WorkspaceIndex>();
 
   return {

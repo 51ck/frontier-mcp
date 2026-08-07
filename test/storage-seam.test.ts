@@ -12,7 +12,10 @@ afterEach(cleanupFixtures);
  * of Efforts. Anything the tool layer needed that this could not supply would
  * be a markdown concept leaking across the seam.
  */
-function fixedDriver(efforts: readonly Effort[]): { createDriver: () => StorageDriver; scans: () => number } {
+function fixedDriver(efforts: readonly Effort[]): {
+  createDriver: () => StorageDriver;
+  scans: () => number;
+} {
   let scans = 0;
   return {
     createDriver: () => ({

@@ -3,13 +3,13 @@
   "version": "0.1.0",
   "description": "An MCP server exposing the markdown issue tracker under a repo's .scratch/ as a queryable graph",
   "license": "MIT",
-  "type": "module",
-  "engines": {
-    "node": ">=24"
-  },
   "bin": {
     "frontier-mcp": "./dist/bin.js"
   },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -18,15 +18,18 @@
       "default": "./dist/index.js"
     }
   },
-  "files": [
-    "dist"
-  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc -p tsconfig.test.json",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "format": "oxfmt --write",
+    "format:check": "oxfmt --check",
+    "check": "pnpm run typecheck && pnpm run lint && pnpm run format:check",
     "test": "vitest run",
     "test:watch": "vitest",
     "start": "node src/bin.ts",
+    "prepare": "git config core.hooksPath .githooks || exit 0",
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
@@ -35,7 +38,12 @@
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
+    "oxfmt": "^0.62.0",
+    "oxlint": "^1.77.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

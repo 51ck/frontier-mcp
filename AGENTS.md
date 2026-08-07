@@ -163,6 +163,15 @@ Stack, settled:
   actually buys, is worth nothing here.
 - **`tsc` alone** for the build, no bundler. The only heavy dependency is the SDK, and bundling it
   would inline express and hono for a stdio server that needs neither.
+- **`oxlint`** for linting and **`oxfmt`** for formatting. No ESLint, no Prettier.
+  - `oxfmt` is configured to the style the repo already had — single quotes, `printWidth` 100 to
+    match the prose in these docs, `arrowParens: avoid` — rather than the other way round.
+  - It never touches markdown. `**/*.md` and `.scratch/**` are in `ignorePatterns`, because
+    `.scratch/` is the tracker data this server exists to serve and becomes T2's fixtures; a
+    formatter rewrapping it would corrupt the input under test.
+  - `oxfmt` sorts `package.json` keys by default. That is left on.
+  - Lint categories are `correctness`, `suspicious`, and `perf`. `pedantic`, `style`, and
+    `restriction` are off — they need a suppression list before they say anything useful.
 - Imports name `.ts` files and `rewriteRelativeImportExtensions` emits `.js`, so `node src/bin.ts`
   runs under Node's native type stripping with no build step. `erasableSyntaxOnly` keeps it that way
   — no enums, no namespaces, no parameter properties.
@@ -187,10 +196,26 @@ Nothing under `src/tools/` may import from `src/storage/`.
 ## Verification
 
 ```
-pnpm run typecheck    # tsc over src and test
+pnpm run check        # typecheck + lint + format:check — what pre-commit runs
 pnpm test             # vitest, the MCP tool layer only
 pnpm run build        # tsc emit to dist/
 ```
+
+Individually: `typecheck` (tsc over src and test), `lint` / `lint:fix` (oxlint), `format` /
+`format:check` (oxfmt).
+
+`.githooks/pre-commit` runs `check` — never `test`, which is slow enough to make people reach for
+`--no-verify` out of habit. The hook **checks and never rewrites**: a hook that reformats mid-commit
+can stage changes you deliberately left unstaged. When it fails, run `pnpm run format` or
+`pnpm run lint:fix` yourself.
+
+It checks the working tree, not the staged content, so staging a fix while leaving a broken version
+on disk still fails. `git commit --no-verify` skips it.
+
+Hooks are wired by `core.hooksPath`, set by the `prepare` script on `pnpm install` — so a fresh
+clone needs one `pnpm install` before the hook is live, and nothing needs to be committed into
+`.git/`. The hook shells out to `pnpm`, so it needs `pnpm` on `PATH`; a GUI git client with a
+stripped environment will not find it.
 
 Tests enter through `test/support/harness.ts` — a real MCP client speaking to the server in-process
 over a linked transport pair, against a temporary fixture tree. That is the only test seam, per the

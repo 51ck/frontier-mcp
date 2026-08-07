@@ -39,7 +39,7 @@ export function createMarkdownDriver(root: string): StorageDriver {
 
       return efforts
         .filter((effort): effort is Effort => effort !== undefined)
-        .sort((a, b) => a.slug.localeCompare(b.slug));
+        .toSorted((a, b) => a.slug.localeCompare(b.slug));
     },
   };
 }

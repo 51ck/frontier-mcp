@@ -16,11 +16,14 @@ export async function makeFixtureTree(tree: FixtureTree): Promise<string> {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'frontier-')));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
 
-  for (const [path, contents] of Object.entries(tree)) {
-    const target = join(root, path);
-    await mkdir(dirname(target), { recursive: true });
-    await writeFile(target, contents, 'utf8');
-  }
+  // Recursive mkdir tolerates the races between entries sharing a parent.
+  await Promise.all(
+    Object.entries(tree).map(async ([path, contents]) => {
+      const target = join(root, path);
+      await mkdir(dirname(target), { recursive: true });
+      await writeFile(target, contents, 'utf8');
+    }),
+  );
 
   return root;
 }
@@ -38,7 +41,9 @@ export interface ConnectedFrontier {
  * a linked transport pair. Every test enters here, so nothing below the tool
  * layer gets a test entry point of its own.
  */
-export async function connectFrontier(options: CreateServerOptions = {}): Promise<ConnectedFrontier> {
+export async function connectFrontier(
+  options: CreateServerOptions = {},
+): Promise<ConnectedFrontier> {
   const frontier = createFrontier(options);
   // Mirrors bin.ts: a workspace that cannot be scanned yet forfeits the warm
   // start, and nothing more.
@@ -47,10 +52,7 @@ export async function connectFrontier(options: CreateServerOptions = {}): Promis
   const client = new Client({ name: 'frontier-test', version: '0.0.0' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
-  await Promise.all([
-    frontier.server.connect(serverTransport),
-    client.connect(clientTransport),
-  ]);
+  await Promise.all([frontier.server.connect(serverTransport), client.connect(clientTransport)]);
 
   cleanups.push(async () => {
     await client.close();

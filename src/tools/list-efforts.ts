@@ -10,7 +10,9 @@ export const listEffortsInputSchema = {
   root: z
     .string()
     .optional()
-    .describe('Workspace directory. Defaults to $FRONTIER_ROOT, then the session working directory.'),
+    .describe(
+      'Workspace directory. Defaults to $FRONTIER_ROOT, then the session working directory.',
+    ),
 };
 
 export const listEffortsDescription =

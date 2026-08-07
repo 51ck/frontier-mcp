@@ -1,0 +1,25 @@
+#!/bin/sh
+#
+# The Verification gate from AGENTS.md, run before every commit.
+#
+# Checks only — it never rewrites the working tree. A hook that reformats
+# mid-commit can silently stage changes you deliberately left unstaged, so this
+# one reports and stops instead.
+#
+# It checks the working tree, not the staged content: stage a fix while leaving
+# a broken version on disk and this still fails. Bypass a single commit with
+# `git commit --no-verify`.
+
+fail() {
+  printf '\npre-commit: %s\n' "$1" >&2
+  exit 1
+}
+
+printf 'pre-commit: typecheck\n'
+pnpm run --silent typecheck || fail 'typecheck failed.'
+
+printf 'pre-commit: lint\n'
+pnpm run --silent lint || fail 'lint failed. Auto-fixable ones: pnpm run lint:fix'
+
+printf 'pre-commit: format\n'
+pnpm run --silent format:check || fail 'formatting differs. Run: pnpm run format'
