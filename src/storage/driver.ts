@@ -1,4 +1,4 @@
-import type { Effort } from '../domain.ts';
+import type { Effort, Ticket } from '../domain.ts';
 
 /**
  * The seam from ADR 0001. Every read and write reaches storage through this
@@ -16,4 +16,11 @@ export interface StorageDriver {
    * Efforts yields an empty list; that is not an error.
    */
   listEfforts(): Promise<readonly Effort[]>;
+
+  /**
+   * Every Ticket in the workspace, ordered by Effort then by sort order. Ids
+   * resolve repo-wide, so callers that need one Effort filter this rather than
+   * asking for a subset — at these volumes the whole set is the cheap answer.
+   */
+  listTickets(): Promise<readonly Ticket[]>;
 }

@@ -1,8 +1,20 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
+import { frontierOf } from './frontier.ts';
 import { createIndexRegistry } from './workspace-index.ts';
 import { createMarkdownDriver } from './storage/markdown/driver.ts';
 import type { StorageDriver } from './storage/driver.ts';
+import {
+  boardFor,
+  getBoardDescription,
+  getBoardInputSchema,
+  renderBoard,
+} from './tools/get-board.ts';
+import {
+  getTicketsDescription,
+  getTicketsInputSchema,
+  renderTickets,
+} from './tools/get-tickets.ts';
 import {
   listEffortsDescription,
   listEffortsInputSchema,
@@ -56,9 +68,66 @@ export function createFrontier(options: CreateServerOptions = {}): Frontier {
     },
     async ({ root }) => {
       const workspace = resolveWorkspace(root, context);
-      const efforts = await registry.forWorkspace(workspace).efforts();
+      const index = registry.forWorkspace(workspace);
+      const [efforts, tickets] = await Promise.all([index.efforts(), index.tickets()]);
 
-      return { content: [{ type: 'text', text: renderEfforts(workspace, efforts) }] };
+      return {
+        content: [{ type: 'text', text: renderEfforts(workspace, efforts, frontierOf(tickets)) }],
+      };
+    },
+  );
+
+  server.registerTool(
+    'get_board',
+    {
+      title: 'Get Board',
+      description: getBoardDescription,
+      inputSchema: getBoardInputSchema,
+      annotations: { readOnlyHint: true },
+    },
+    async ({ effort: slug, root }) => {
+      const workspace = resolveWorkspace(root, context);
+      const index = registry.forWorkspace(workspace);
+      const [efforts, tickets] = await Promise.all([index.efforts(), index.tickets()]);
+
+      const effort = efforts.find(candidate => candidate.slug === slug);
+      if (effort === undefined) {
+        throw new Error(
+          `No Effort '${slug}' in ${workspace}. Known: ${efforts.map(e => e.slug).join(', ') || '(none)'}`,
+        );
+      }
+
+      return { content: [{ type: 'text', text: renderBoard(boardFor(effort, tickets)) }] };
+    },
+  );
+
+  server.registerTool(
+    'get_tickets',
+    {
+      title: 'Get Tickets',
+      description: getTicketsDescription,
+      inputSchema: getTicketsInputSchema,
+      annotations: { readOnlyHint: true },
+    },
+    async ({ ids, root }) => {
+      const workspace = resolveWorkspace(root, context);
+      const tickets = await registry.forWorkspace(workspace).tickets();
+      const wanted = new Set(ids);
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: renderTickets(
+              ids,
+              tickets.filter(
+                ticket =>
+                  wanted.has(ticket.handle) || (ticket.id !== undefined && wanted.has(ticket.id)),
+              ),
+            ),
+          },
+        ],
+      };
     },
   );
 

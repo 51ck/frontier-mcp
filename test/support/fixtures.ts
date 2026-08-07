@@ -1,17 +1,39 @@
 import type { FixtureTree } from './harness.ts';
 
-export function ticket(id: string, title: string): string {
-  return `---
-id: ${id}
-title: ${title}
-kind: build
-status: open
-triage: ready-for-agent
-blocked_by: []
----
+export interface TicketFields {
+  kind?: string;
+  type?: string;
+  status?: string;
+  triage?: string;
+  blocked_by?: string[];
+  claimed_by?: string;
+  claimed_at?: string;
+  answer_gist?: string;
+  dropped_reason?: string;
+  body?: string;
+}
 
-# ${id} — ${title}
-`;
+/** A schema-conformant Ticket. Fields left out are simply absent from the frontmatter. */
+export function ticket(id: string, title: string, fields: TicketFields = {}): string {
+  const { body, blocked_by, ...scalars } = fields;
+  const lines = [`id: ${id}`, `title: ${title}`, `kind: ${scalars.kind ?? 'build'}`];
+
+  for (const key of [
+    'type',
+    'status',
+    'triage',
+    'claimed_by',
+    'claimed_at',
+    'answer_gist',
+    'dropped_reason',
+  ] as const) {
+    const value = scalars[key];
+    if (value !== undefined) lines.push(`${key}: ${value}`);
+  }
+  if (scalars.status === undefined) lines.push('status: open');
+  lines.push(`blocked_by: [${(blocked_by ?? []).join(', ')}]`);
+
+  return `---\n${lines.join('\n')}\n---\n\n# ${id} — ${title}\n\n${body ?? 'Body prose.'}\n`;
 }
 
 export function map(destination: string): string {

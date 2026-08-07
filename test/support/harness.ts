@@ -1,6 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -11,10 +11,16 @@ export type FixtureTree = Record<string, string>;
 
 const cleanups: Array<() => Promise<void>> = [];
 
-/** Build a fixture tree in a fresh temporary directory. Returns its real path. */
-export async function makeFixtureTree(tree: FixtureTree): Promise<string> {
+/** A fresh temporary directory, registered for teardown. Returns its real path. */
+async function makeTempRoot(): Promise<string> {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'frontier-')));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
+  return root;
+}
+
+/** Build a fixture tree in a fresh temporary directory. Returns its real path. */
+export async function makeFixtureTree(tree: FixtureTree): Promise<string> {
+  const root = await makeTempRoot();
 
   // Recursive mkdir tolerates the races between entries sharing a parent.
   await Promise.all(
@@ -23,6 +29,31 @@ export async function makeFixtureTree(tree: FixtureTree): Promise<string> {
       await mkdir(dirname(target), { recursive: true });
       await writeFile(target, contents, 'utf8');
     }),
+  );
+
+  return root;
+}
+
+/**
+ * A workspace built from Efforts copied verbatim out of the real repos, keyed
+ * slug -> directory name under `test/fixtures/legacy/`. These files are the
+ * actual input Frontier has to survive; hand-written fixtures would be more
+ * polite than the real thing.
+ */
+export async function makeLegacyWorkspace(efforts: Record<string, string>): Promise<string> {
+  const root = await makeTempRoot();
+
+  await mkdir(join(root, '.git'), { recursive: true });
+  await Promise.all(
+    Object.entries(efforts).map(async ([slug, fixture]) =>
+      cp(
+        join(import.meta.dirname, '..', 'fixtures', 'legacy', fixture),
+        join(root, '.scratch', slug),
+        {
+          recursive: true,
+        },
+      ),
+    ),
   );
 
   return root;

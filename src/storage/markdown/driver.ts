@@ -1,8 +1,10 @@
-import { readdir } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { Effort, HeaderDoc } from '../../domain.ts';
+import type { Effort, HeaderDoc, Ticket } from '../../domain.ts';
 import type { StorageDriver } from '../driver.ts';
+import { readDestination, readSpecOpening } from './header-doc.ts';
+import { parseTicket } from './ticket.ts';
 
 /**
  * The layout this driver serves, per AGENTS.md:
@@ -29,19 +31,92 @@ const HEADER_DOCS: ReadonlyArray<readonly [HeaderDoc, string]> = [
 export function createMarkdownDriver(root: string): StorageDriver {
   const scratch = join(root, SCRATCH_DIR);
 
+  const walk = async (): Promise<ScannedEffort[]> => {
+    // A repo that has never used the tracker is a supported starting state,
+    // not an error: it simply holds no Efforts.
+    const slugs = await readDirectories(scratch);
+    const scanned = await Promise.all(slugs.map(slug => readEffort(scratch, slug)));
+
+    return scanned
+      .filter((entry): entry is ScannedEffort => entry !== undefined)
+      .toSorted((a, b) => a.effort.slug.localeCompare(b.effort.slug));
+  };
+
+  /**
+   * Both methods are always called together to build one index, and each walk
+   * reads every `issues/` directory. Sharing the in-flight walk makes that one
+   * pass instead of two.
+   *
+   * The share lasts only as long as the walk itself — the driver holds no
+   * results, because deciding when a scan is stale belongs to the index above
+   * it and to the watcher T8 attaches there.
+   */
+  let inFlight: Promise<ScannedEffort[]> | undefined;
+  const scan = () => {
+    inFlight ??= walk().finally(() => {
+      inFlight = undefined;
+    });
+    return inFlight;
+  };
+
   return {
     async listEfforts(): Promise<readonly Effort[]> {
-      // A repo that has never used the tracker is a supported starting state,
-      // not an error: it simply holds no Efforts.
-      const candidates = await readDirectories(scratch);
+      return (await scan()).map(entry => entry.effort);
+    },
 
-      const efforts = await Promise.all(candidates.map(slug => readEffort(scratch, slug)));
-
-      return efforts
-        .filter((effort): effort is Effort => effort !== undefined)
-        .toSorted((a, b) => a.slug.localeCompare(b.slug));
+    async listTickets(): Promise<readonly Ticket[]> {
+      return (await scan()).flatMap(entry => entry.tickets);
     },
   };
+}
+
+interface ScannedEffort {
+  readonly effort: Effort;
+  readonly tickets: readonly Ticket[];
+}
+
+/** Every Ticket in one Effort, in sort order. A missing `issues/` yields none. */
+async function readTickets(dir: string, effort: string): Promise<Ticket[]> {
+  const issues = join(dir, ISSUES_DIR);
+  const entries = await readDir(issues);
+  const filenames = entries
+    .filter(entry => entry.isFile() && entry.name.endsWith('.md'))
+    .map(entry => entry.name)
+    .toSorted();
+
+  const tickets = await Promise.all(
+    filenames.map(async (filename, position) => {
+      const contents = await readFile(join(issues, filename), 'utf8');
+      // A file with no `NN-` prefix still needs a position; its place in the
+      // sorted listing is the only order it has.
+      return parseTicket(effort, { filename, contents }, position + 1);
+    }),
+  );
+
+  return withUniqueHandles(tickets.toSorted((a, b) => a.order - b.order));
+}
+
+/**
+ * Two files can share an `NN-` prefix, which would give two id-less Tickets the
+ * same `<effort>#<order>` handle and make one of them unfetchable. Later
+ * collisions get a suffix, so every Ticket stays individually addressable.
+ */
+function withUniqueHandles(tickets: readonly Ticket[]): Ticket[] {
+  const seen = new Set<string>();
+
+  return tickets.map(ticket => {
+    if (!seen.has(ticket.handle)) {
+      seen.add(ticket.handle);
+      return ticket;
+    }
+
+    let suffix = 2;
+    while (seen.has(`${ticket.handle}.${String(suffix)}`)) suffix += 1;
+    const handle = `${ticket.handle}.${String(suffix)}`;
+    seen.add(handle);
+
+    return { ...ticket, handle };
+  });
 }
 
 /**
@@ -50,12 +125,9 @@ export function createMarkdownDriver(root: string): StorageDriver {
  * also where these repos keep loose scratch output, and a directory of research
  * notes is not an empty Effort.
  */
-async function readEffort(scratch: string, slug: string): Promise<Effort | undefined> {
+async function readEffort(scratch: string, slug: string): Promise<ScannedEffort | undefined> {
   const dir = join(scratch, slug);
-  const [entries, ticketCount] = await Promise.all([
-    readDir(dir),
-    countTickets(join(dir, ISSUES_DIR)),
-  ]);
+  const entries = await readDir(dir);
 
   const files = new Set(entries.filter(entry => entry.isFile()).map(entry => entry.name));
   const headerDocs = HEADER_DOCS.filter(([, filename]) => files.has(filename)).map(([doc]) => doc);
@@ -63,13 +135,26 @@ async function readEffort(scratch: string, slug: string): Promise<Effort | undef
   const hasIssues = entries.some(entry => entry.isDirectory() && entry.name === ISSUES_DIR);
   if (headerDocs.length === 0 && !hasIssues) return undefined;
 
-  return { slug, headerDocs, ticketCount };
+  const [tickets, destination, specOpening] = await Promise.all([
+    readTickets(dir, slug),
+    headerDocs.includes('map') ? readText(join(dir, 'map.md')).then(readDestination) : undefined,
+    headerDocs.includes('spec') ? readText(join(dir, 'spec.md')).then(readSpecOpening) : undefined,
+  ]);
+
+  return {
+    effort: { slug, headerDocs, ticketCount: tickets.length, destination, specOpening },
+    tickets,
+  };
 }
 
-/** Tickets are the `.md` files directly under `issues/`. Nothing else counts. */
-async function countTickets(issues: string): Promise<number> {
-  const entries = await readDir(issues);
-  return entries.filter(entry => entry.isFile() && entry.name.endsWith('.md')).length;
+/** A file that vanished between the scan and the read is read as empty, not as a failure. */
+async function readText(path: string): Promise<string> {
+  try {
+    return await readFile(path, 'utf8');
+  } catch (error) {
+    if (isMissing(error)) return '';
+    throw error;
+  }
 }
 
 async function readDirectories(dir: string): Promise<string[]> {
