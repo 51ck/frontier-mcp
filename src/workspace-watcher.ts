@@ -48,6 +48,8 @@ export function watchWorkspace(
         scratchWatcher?.close();
         scratchWatcher = undefined;
       });
+      rootWatcher?.close();
+      rootWatcher = undefined;
     } catch {
       // `.scratch/` may have disappeared between the exists check and watch.
     }
