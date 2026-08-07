@@ -233,6 +233,15 @@ export interface MigrationChange {
   readonly minted: boolean;
   /** True when the file was Legacy and gains schema frontmatter. */
   readonly normalized: boolean;
+  /**
+   * Cosmetic Ticket filenames (basenames only) when rename would move the file.
+   * Absent when filenames stay put. Not filesystem paths — those stay below the
+   * storage seam.
+   */
+  readonly fromName: string | undefined;
+  readonly toName: string | undefined;
+  /** Edges as they will be written after bare sort-order remapping. */
+  readonly blockedBy: readonly string[];
 }
 
 /** The result of migrating one Effort — enough for the tool to render a report. */

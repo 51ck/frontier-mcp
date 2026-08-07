@@ -48,7 +48,25 @@ function renderChange(change: MigrationChange): string {
     change.minted ? 'mint' : undefined,
   ].filter(part => part !== undefined);
 
-  return [change.id, change.title, flags.length === 0 ? undefined : flags.join('+')]
+  const rename =
+    change.fromName !== undefined && change.toName !== undefined
+      ? `${change.fromName} -> ${change.toName}`
+      : undefined;
+
+  const was =
+    change.minted && change.beforeHandle !== change.id ? `was ${change.beforeHandle}` : undefined;
+
+  const edges =
+    change.blockedBy.length === 0 ? undefined : `blocked_by=${change.blockedBy.join(',')}`;
+
+  return [
+    change.id,
+    change.title,
+    flags.length === 0 ? undefined : flags.join('+'),
+    was,
+    rename,
+    edges,
+  ]
     .filter(part => part !== undefined)
     .join('  ');
 }

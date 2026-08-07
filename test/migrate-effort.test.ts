@@ -218,6 +218,32 @@ blocked_by: []
     expect(onDisk).toContain('id: T30');
   });
 
+  it('preview with rename reports the planned filename moves and writes nothing', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      '.scratch/alpha/issues/01-grammy-group-boot.md': LEGACY_WITH_ID,
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const before = await readFile(
+      join(root, '.scratch/alpha/issues/01-grammy-group-boot.md'),
+      'utf8',
+    );
+    const report = await frontier.call('migrate_effort', {
+      effort: 'alpha',
+      preview: true,
+      rename: true,
+    });
+
+    expect(report.toLowerCase()).toContain('preview');
+    expect(report).toContain('01-grammy-group-boot.md -> 01-T30-grammy-group-boot.md');
+    expect(report).toContain('blocked_by=T31');
+    expect(
+      await readFile(join(root, '.scratch/alpha/issues/01-grammy-group-boot.md'), 'utf8'),
+    ).toBe(before);
+    expect(await readdir(join(root, '.scratch/alpha/issues'))).toEqual(['01-grammy-group-boot.md']);
+  });
+
   it('preview reports every change and writes nothing', async () => {
     // No dangling Depends-on:T31 here — colour mints as T31 (max+1 after T30),
     // and a prose Edge naming T31 would make the report ambiguous.
@@ -251,6 +277,7 @@ Status: open
     expect(report).toMatch(/\bmint(?:ed|s)?\b/i);
     // Workspace already holds T30 — the counter continues at max+1.
     expect(report).toContain('T31');
+    expect(report).toContain('was alpha#2');
 
     expect(
       await readFile(join(root, '.scratch/alpha/issues/01-grammy-group-boot.md'), 'utf8'),

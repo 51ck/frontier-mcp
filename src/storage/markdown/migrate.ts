@@ -98,9 +98,12 @@ function planChanges(
     const id = assigned.get(entry.ticket.handle);
     if (id === undefined) throw new Error(`No id planned for ${entry.ticket.handle}.`);
 
+    const to = rename ? ticketFilename(entry.ticket.order, id, entry.ticket.title) : entry.filename;
+    const blockedBy = remapEdges(entry.ticket.blockedBy, idByOrder);
+
     return {
       from: entry.filename,
-      to: rename ? ticketFilename(entry.ticket.order, id, entry.ticket.title) : entry.filename,
+      to,
       defaults: {
         id,
         title: entry.ticket.title,
@@ -108,7 +111,7 @@ function planChanges(
         type: entry.ticket.type,
         status: entry.ticket.status,
         triage: entry.ticket.triage,
-        blockedBy: remapEdges(entry.ticket.blockedBy, idByOrder),
+        blockedBy,
       },
       change: {
         beforeHandle: entry.ticket.handle,
@@ -116,6 +119,9 @@ function planChanges(
         title: entry.ticket.title,
         minted: entry.ticket.id === undefined,
         normalized: entry.ticket.legacy,
+        fromName: to === entry.filename ? undefined : entry.filename,
+        toName: to === entry.filename ? undefined : to,
+        blockedBy,
       },
     };
   });
