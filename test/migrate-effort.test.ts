@@ -90,7 +90,7 @@ describe('migrate_effort', () => {
     expect(t31).toContain('id: T31');
   });
 
-  it('turns prose Edges into blocked_by entries', async () => {
+  it('turns Depends-on prose Edges into blocked_by entries', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
       '.scratch/alpha/issues/01-grammy-group-boot.md': LEGACY_WITH_ID,
@@ -106,6 +106,21 @@ describe('migrate_effort', () => {
       'utf8',
     );
     expect(onDisk).toMatch(/blocked_by:\s*\[T31\]/);
+  });
+
+  it('resolves bare sort-order Blocked-by Edges to the minted ids', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      '.scratch/alpha/issues/01-colour.md': LEGACY_NO_ID,
+      '.scratch/alpha/issues/02-texture.md': LEGACY_NO_ID_TWO,
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    await frontier.call('migrate_effort', { effort: 'alpha' });
+
+    const texture = await readFile(join(root, '.scratch/alpha/issues/02-texture.md'), 'utf8');
+    // `Blocked by: 01` named the colour Ticket by sort order; colour mints first as T1.
+    expect(texture).toMatch(/blocked_by:\s*\[T1\]/);
   });
 
   it('keeps inferred prose verbatim after normalization', async () => {
@@ -211,26 +226,30 @@ blocked_by: []
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    const before = await readFile(
+    const beforeBoot = await readFile(
       join(root, '.scratch/alpha/issues/01-grammy-group-boot.md'),
       'utf8',
     );
+    const beforeColour = await readFile(join(root, '.scratch/alpha/issues/02-colour.md'), 'utf8');
     const report = await frontier.call('migrate_effort', {
       effort: 'alpha',
       preview: true,
     });
 
     expect(report.toLowerCase()).toContain('preview');
+    // Both Tickets appear: preserved id and the id that would be minted.
     expect(report).toContain('T30');
-    expect(report).toMatch(/T\d+/);
-    expect(report.toLowerCase()).toMatch(/mint|id/);
+    expect(report).toContain('Grammy group boot');
+    expect(report).toContain('Is the colour-space fix a latent bug?');
+    expect(report).toMatch(/\bmint(?:ed|s)?\b/i);
+    expect(report).toContain('T1');
 
-    const after = await readFile(
-      join(root, '.scratch/alpha/issues/01-grammy-group-boot.md'),
-      'utf8',
+    expect(
+      await readFile(join(root, '.scratch/alpha/issues/01-grammy-group-boot.md'), 'utf8'),
+    ).toBe(beforeBoot);
+    expect(await readFile(join(root, '.scratch/alpha/issues/02-colour.md'), 'utf8')).toBe(
+      beforeColour,
     );
-    expect(after).toBe(before);
-    expect(after.startsWith('---\n')).toBe(false);
 
     const board = await frontier.call('get_board', { effort: 'alpha' });
     expect(board).toContain('are Legacy');
@@ -324,18 +343,33 @@ describe('migrate_effort against real Legacy fixtures', () => {
 
     const board = await frontier.call('get_board', { effort: 'telegram' });
     expect(board).not.toContain('are Legacy');
-    expect(board).toContain('T30');
-    expect(board).toContain('T31');
-    expect(board).toContain('T32');
+    // Every sobrina Ticket carries a T3x id in its heading — none are minted.
+    for (const id of [
+      'T30',
+      'T31',
+      'T32',
+      'T33',
+      'T34',
+      'T35',
+      'T36',
+      'T37',
+      'T38',
+      'T39',
+      'T40',
+      'T41',
+      'T42',
+      'T43',
+      'T44',
+    ]) {
+      expect(board).toContain(id);
+      expect(report).toContain(id);
+    }
 
     // Filenames stay put by default — Maps and Tickets link by relative path.
     const names = await readdir(join(root, '.scratch/telegram/issues'));
     expect(names).toContain('01-grammy-group-boot.md');
     expect(names).toContain('02-identity-bridge.md');
 
-    // research/ is not part of the schema and must survive untouched.
-    // sobrina has no research/; the ignore contract is covered above and by
-    // tag-customizer below.
     const t30 = await readFile(
       join(root, '.scratch/telegram/issues/01-grammy-group-boot.md'),
       'utf8',
