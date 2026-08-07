@@ -87,7 +87,7 @@ export async function connectFrontier(
 
   cleanups.push(async () => {
     await client.close();
-    await frontier.server.close();
+    await frontier.close();
   });
 
   const invoke = async (name: string, args: Record<string, unknown> = {}) => {

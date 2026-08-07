@@ -14,15 +14,15 @@ import type {
   StorageDriver,
   TicketEdit,
 } from './storage/driver.ts';
+import { createWatcherRegistry, type WatcherRegistry } from './workspace-watcher.ts';
 
 /**
  * The in-memory index: a derived, rebuildable view of one workspace, built by a
  * full scan. At the volumes involved a full scan is single-digit milliseconds,
  * so the index rebuilds wholesale rather than tracking entries individually.
  *
- * The scan is held for the life of the process, so a file edited on disk is not
- * seen until T8 adds the watcher that discards it. Within one session that is
- * the gap T8 exists to close.
+ * A filesystem watcher invalidates the scan when `.scratch/` changes on disk,
+ * so the next read rebuilds without restarting the process.
  */
 export interface WorkspaceIndex {
   efforts(): Promise<readonly Effort[]>;
@@ -50,11 +50,30 @@ export interface WorkspaceIndex {
     options: HeaderDocOptions,
   ): Promise<SpecDocument>;
   migrate(effort: string, options: MigrateOptions): Promise<MigrationReport>;
+  /** Discard cached scans so the next read rebuilds from disk. */
+  invalidate(): void;
 }
 
 export function createWorkspaceIndex(driver: StorageDriver): WorkspaceIndex {
   const efforts = cache(() => driver.listEfforts());
   const tickets = cache(() => driver.listTickets());
+
+  const invalidate = () => {
+    efforts.invalidate();
+    tickets.invalidate();
+  };
+
+  /**
+   * A write moves the workspace on whether or not it succeeded partway, so the
+   * next read rebuilds rather than trusting a scan taken before it.
+   */
+  async function moved<T>(operation: () => Promise<T>): Promise<T> {
+    try {
+      return await operation();
+    } finally {
+      invalidate();
+    }
+  }
 
   return {
     efforts: efforts.get,
@@ -76,20 +95,8 @@ export function createWorkspaceIndex(driver: StorageDriver): WorkspaceIndex {
     async migrate(effort, options) {
       return moved(() => driver.migrateEffort(effort, options));
     },
+    invalidate,
   };
-
-  /**
-   * A write moves the workspace on whether or not it succeeded partway, so the
-   * next read rebuilds rather than trusting a scan taken before it.
-   */
-  async function moved<T>(operation: () => Promise<T>): Promise<T> {
-    try {
-      return await operation();
-    } finally {
-      efforts.invalidate();
-      tickets.invalidate();
-    }
-  }
 }
 
 /**
@@ -119,19 +126,36 @@ function cache<T>(scan: () => Promise<T>): { get: () => Promise<T>; invalidate: 
  */
 export interface IndexRegistry {
   forWorkspace(root: string): WorkspaceIndex;
+  closeAll(): void;
 }
 
-export function createIndexRegistry(createDriver: (root: string) => StorageDriver): IndexRegistry {
+export interface IndexRegistryOptions {
+  readonly watcherDebounceMs?: number;
+}
+
+export function createIndexRegistry(
+  createDriver: (root: string) => StorageDriver,
+  options: IndexRegistryOptions = {},
+): IndexRegistry {
   const indexes = new Map<string, WorkspaceIndex>();
+  const watchers: WatcherRegistry = createWatcherRegistry(
+    options.watcherDebounceMs === undefined ? {} : { debounceMs: options.watcherDebounceMs },
+  );
 
   return {
     forWorkspace(root) {
       let index = indexes.get(root);
       if (index === undefined) {
-        index = createWorkspaceIndex(createDriver(root));
-        indexes.set(root, index);
+        const created = createWorkspaceIndex(createDriver(root));
+        indexes.set(root, created);
+        watchers.attach(root, () => created.invalidate());
+        index = created;
       }
       return index;
+    },
+    closeAll() {
+      watchers.closeAll();
+      indexes.clear();
     },
   };
 }
