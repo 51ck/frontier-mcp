@@ -2,9 +2,10 @@
 id: T3
 title: Write foundation and Ticket lifecycle — claim, resolve, drop
 kind: build
-status: open
+status: resolved
 triage: ready-for-agent
 blocked_by: [T2]
+answer_gist: update_ticket claims, resolves and drops over atomic renames with an opaque revision check; 8 concurrent claims yield exactly one winner and a write normalizes the Legacy file it touches
 ---
 
 # T3 — Write foundation and Ticket lifecycle: claim, resolve, drop
@@ -19,18 +20,18 @@ Underneath it, the write machinery every later slice depends on: atomic writes, 
 that fails loudly rather than clobbering a concurrent edit, and normalization of whatever Legacy file
 the write happens to touch.
 
-- [ ] Writes are atomic — a temporary file renamed over the target, so an interrupted write cannot
+- [x] Writes are atomic — a temporary file renamed over the target, so an interrupted write cannot
       leave a partial Ticket
-- [ ] Every read-modify-write checks the file's modification time and size against what was read, and
+- [x] Every read-modify-write checks the file's modification time and size against what was read, and
       fails loudly on mismatch
-- [ ] No lock files are created
-- [ ] Claiming sets holder and timestamp, and is compare-and-set: claiming a Ticket someone else holds
+- [x] No lock files are created
+- [x] Claiming sets holder and timestamp, and is compare-and-set: claiming a Ticket someone else holds
       fails
-- [ ] Genuinely concurrent claims on one Ticket produce exactly one winner — tested with real
+- [x] Genuinely concurrent claims on one Ticket produce exactly one winner — tested with real
       concurrency, not sequential calls
-- [ ] Claims older than a threshold are flagged on the Board and never auto-released
-- [ ] Resolving requires a one-line `answer_gist` on every kind, build included, and writes the answer
+- [x] Claims older than a threshold are flagged on the Board and never auto-released
+- [x] Resolving requires a one-line `answer_gist` on every kind, build included, and writes the answer
       into the body
-- [ ] Dropping requires a `dropped_reason`
-- [ ] A Ticket blocked by a dropped Ticket is reported as a broken Edge, not promoted to the Frontier
-- [ ] A write to a Legacy Ticket normalizes that file to the schema
+- [x] Dropping requires a `dropped_reason`
+- [x] A Ticket blocked by a dropped Ticket is reported as a broken Edge, not promoted to the Frontier
+- [x] A write to a Legacy Ticket normalizes that file to the schema
