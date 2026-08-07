@@ -3,5 +3,5 @@
   "singleQuote": true,
   "printWidth": 100,
   "arrowParens": "avoid",
-  "ignorePatterns": ["**/*.md", ".scratch/**"]
+  "ignorePatterns": ["**/*.md", ".scratch/**", ".serena/**"]
 }
