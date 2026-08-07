@@ -328,6 +328,11 @@ The five canonical roles, unchanged. See [docs/agents/triage-labels.md](./docs/a
 
 Single-context — root `CONTEXT.md` + `docs/adr/`. See [docs/agents/domain.md](./docs/agents/domain.md).
 
+### Friction
+
+Frontier MCP call awkward, wrong-shaped, or costly mid-work — file consumer signal.
+See [docs/agents/frontier-consumer.md](./docs/agents/frontier-consumer.md).
+
 ## User Preferences
 
 When the user requests a durable behavior change, record it here or in the relevant child AGENTS.md.
@@ -338,6 +343,7 @@ When the user requests a durable behavior change, record it here or in the relev
   small enough that Work Guidance above covers them; `src/storage/` earns its own doc the day a second
   driver lands.
 - Root-owned files: [CONTEXT.md](./CONTEXT.md) (glossary), [docs/adr/](./docs/adr/) (decision records),
-  [docs/agents/](./docs/agents/) (skill configuration — tracker conventions, triage labels, domain docs).
+  [docs/agents/](./docs/agents/) (skill configuration — tracker conventions, triage labels, domain docs,
+  Frontier consumer friction).
 - `.scratch/` holds this repo's own Efforts, in the same layout Frontier serves — currently
   [frontier-v1](./.scratch/frontier-v1/spec.md). It is work tracking, not source; no child AGENTS.md.
