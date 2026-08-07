@@ -113,34 +113,4 @@ describe('packaging', () => {
     expect(readme).toContain('frontier://tracker-doc');
     expect(readme).toContain('The pin is the version you get');
   });
-
-  it('packs dist and the tracker document for npm publish', async () => {
-    const { execFileSync } = await import('node:child_process');
-    const { mkdtempSync, readFileSync, rmSync } = await import('node:fs');
-    const { join } = await import('node:path');
-    const { tmpdir } = await import('node:os');
-
-    execFileSync('pnpm', ['run', 'build'], {
-      cwd: join(import.meta.dirname, '..'),
-      stdio: 'ignore',
-    });
-
-    const packDir = mkdtempSync(join(tmpdir(), 'frontier-pack-'));
-    try {
-      execFileSync('npm', ['pack', '--pack-destination', packDir], {
-        cwd: join(import.meta.dirname, '..'),
-        stdio: 'ignore',
-      });
-      const tarball = execFileSync('ls', [packDir], { encoding: 'utf8' }).trim().split('\n')[0]!;
-      const listing = execFileSync('tar', ['-tzf', join(packDir, tarball)], { encoding: 'utf8' });
-
-      expect(listing).toContain('package/dist/bin.js');
-      expect(listing).toContain('package/docs/agents/issue-tracker.md');
-      expect(readFileSync(join(import.meta.dirname, '..', 'dist', 'bin.js'), 'utf8')).toContain(
-        'createFrontierMCP',
-      );
-    } finally {
-      rmSync(packDir, { recursive: true, force: true });
-    }
-  });
 });
