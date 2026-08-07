@@ -109,9 +109,23 @@ export interface Effort {
  */
 export interface TicketEdit {
   readonly status?: Status;
+  readonly triage?: string | null;
   readonly claimedBy?: string | null;
   readonly claimedAt?: string | null;
   readonly answerGist?: string | null;
   readonly droppedReason?: string | null;
   readonly answer?: string;
+  /** Appended to the comment log, verbatim. Nothing is added around it. */
+  readonly comment?: string;
+  /** Acceptance criteria to tick, addressed by their text. */
+  readonly tick?: readonly string[];
 }
+
+/** The five roles `/triage` writes. A Status is never one of these. */
+export const TRIAGE_ROLES = [
+  'needs-triage',
+  'needs-info',
+  'ready-for-agent',
+  'ready-for-human',
+  'wontfix',
+] as const;

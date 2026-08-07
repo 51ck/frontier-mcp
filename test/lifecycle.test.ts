@@ -169,11 +169,11 @@ describe('rejecting impossible transitions', () => {
     expect(error).toContain('resolved');
   });
 
-  it('refuses a call that names no action, and one that names two', async () => {
+  it('refuses a call that asks for nothing, and one that names two transitions', async () => {
     const { frontier } = await oneTicket();
 
     expect(await frontier.callExpectingError('update_ticket', { id: 'T1' })).toContain(
-      'exactly one',
+      'Nothing to do',
     );
     expect(
       await frontier.callExpectingError('update_ticket', {
@@ -181,6 +181,6 @@ describe('rejecting impossible transitions', () => {
         claim: { by: 'a' },
         drop: { reason: 'b' },
       }),
-    ).toContain('exactly one');
+    ).toContain('at most one');
   });
 });

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import type { Ticket, TicketEdit } from '../domain.ts';
+import { TRIAGE_ROLES } from '../domain.ts';
 
 export const updateTicketInputSchema = {
   id: z.string().describe('Ticket id, or the <effort>#<order> handle of a Legacy Ticket.'),
@@ -19,17 +20,34 @@ export const updateTicketInputSchema = {
     .object({ reason: z.string().min(1).describe('Why it is beyond the destination.') })
     .optional()
     .describe('Close the Ticket as work ruled out of scope.'),
+  triage: z
+    .enum(TRIAGE_ROLES)
+    .optional()
+    .describe('Set the triage role. A separate field from status; neither touches the other.'),
+  comment: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Append to the comment log, stored exactly as written.'),
+  tick: z
+    .array(z.string().min(1))
+    .optional()
+    .describe('Acceptance criteria to check off, matched on their text.'),
   root: z.string().optional().describe('Workspace directory. Defaults to the session workspace.'),
 };
 
 export const updateTicketDescription =
-  'Move a Ticket through its lifecycle: claim it, resolve it with a one-line gist, or drop it ' +
-  'with a reason. Exactly one of claim/resolve/drop per call.';
+  'Change one Ticket. Lifecycle: claim, resolve with a one-line gist, or drop with a reason — at ' +
+  'most one of those per call. Annotations: triage role, a comment, ticking acceptance criteria; ' +
+  'these touch no part of the graph and may accompany a lifecycle change or stand alone.';
 
 export interface UpdateRequest {
   readonly claim?: { by: string } | undefined;
   readonly resolve?: { answer_gist: string; answer?: string | undefined } | undefined;
   readonly drop?: { reason: string } | undefined;
+  readonly triage?: string | undefined;
+  readonly comment?: string | undefined;
+  readonly tick?: readonly string[] | undefined;
 }
 
 /**
@@ -38,19 +56,35 @@ export interface UpdateRequest {
  * it is a rule about the domain, not about storage.
  */
 export function editFor(ticket: Ticket, request: UpdateRequest, now: string): TicketEdit {
+  // Annotations are not graph operations. They carry no lifecycle meaning, so
+  // they ride along with a transition or stand on their own.
+  const annotations: TicketEdit = {
+    ...(request.triage === undefined ? {} : { triage: request.triage }),
+    ...(request.comment === undefined ? {} : { comment: request.comment }),
+    ...(request.tick === undefined ? {} : { tick: request.tick }),
+  };
+
   const actions = [request.claim, request.resolve, request.drop].filter(
     action => action !== undefined,
   );
-  if (actions.length !== 1) {
-    throw new Error('Pass exactly one of claim, resolve, or drop.');
+  if (actions.length > 1) throw new Error('Pass at most one of claim, resolve, or drop.');
+
+  if (actions.length === 0) {
+    if (Object.keys(annotations).length === 0) {
+      throw new Error('Nothing to do: pass a lifecycle change, or triage, comment, or tick.');
+    }
+    return annotations;
   }
 
-  if (request.claim !== undefined) return claimEdit(ticket, request.claim.by, now);
+  if (request.claim !== undefined) {
+    return { ...annotations, ...claimEdit(ticket, request.claim.by, now) };
+  }
 
   if (request.resolve !== undefined) {
     // Required on every kind, build included: a build Ticket's one line of what
     // landed is what makes a Board of finished work readable.
     return {
+      ...annotations,
       status: 'resolved',
       answerGist: request.resolve.answer_gist,
       claimedBy: null,
@@ -59,16 +93,13 @@ export function editFor(ticket: Ticket, request: UpdateRequest, now: string): Ti
     };
   }
 
-  if (request.drop !== undefined) {
-    return {
-      status: 'dropped',
-      droppedReason: request.drop.reason,
-      claimedBy: null,
-      claimedAt: null,
-    };
-  }
-
-  throw new Error('Pass exactly one of claim, resolve, or drop.');
+  return {
+    ...annotations,
+    status: 'dropped',
+    droppedReason: request.drop?.reason ?? '',
+    claimedBy: null,
+    claimedAt: null,
+  };
 }
 
 /**

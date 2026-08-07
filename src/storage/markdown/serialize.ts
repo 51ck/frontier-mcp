@@ -22,8 +22,9 @@ const FIELD_ORDER = [
   'dropped_reason',
 ] as const;
 
-/** The one body section a write in T3 may touch. */
+/** The body sections a write may touch. Everything else is opaque prose. */
 const ANSWER_HEADING = '## Answer';
+const COMMENTS_HEADING = '## Comments';
 /** Any `##` heading, so replacing the answer stops at the next section. */
 const NEXT_SECTION = /^##[ \t]/m;
 
@@ -61,7 +62,63 @@ export function applyEdit(contents: string, edit: TicketEdit, defaults: Defaults
     .toString({ lineWidth: 0, flowCollectionPadding: false })
     .trimEnd();
 
-  return `---\n${frontmatter}\n---\n\n${withAnswer(split.body.trim(), edit.answer)}\n`;
+  let body = split.body.trim();
+  body = withTicks(body, edit.tick);
+  body = withAnswer(body, edit.answer);
+  body = withComment(body, edit.comment);
+
+  return `---\n${frontmatter}\n---\n\n${body}\n`;
+}
+
+/**
+ * Tick acceptance criteria by their text. Only the checkbox marker changes —
+ * the line keeps its own indentation and wording, and every other line of the
+ * body is untouched, so progress is visible without rewriting the body around
+ * it.
+ */
+function withTicks(body: string, tick: readonly string[] | undefined): string {
+  if (tick === undefined || tick.length === 0) return body;
+
+  // Matched case-insensitively on the criterion's own text, but reported back in
+  // the caller's words — an error that echoes a lowercased version of what you
+  // typed reads as though it found something and changed it.
+  const wanted = tick.map(text => ({ asked: text, target: text.trim().toLowerCase() }));
+  const unmatched = new Set(wanted.map(entry => entry.asked));
+
+  const ticked = body.split('\n').map(line => {
+    const box = /^(\s*[-*]\s*\[)( |x|X)(\]\s*)(.*)$/.exec(line);
+    if (box === null) return line;
+
+    const text = (box[4] ?? '').trim().toLowerCase();
+    const match = wanted.find(entry => text === entry.target || text.includes(entry.target));
+    if (match === undefined) return line;
+
+    unmatched.delete(match.asked);
+    return `${box[1] ?? ''}x${box[3] ?? ''}${box[4] ?? ''}`;
+  });
+
+  if (unmatched.size > 0) {
+    throw new Error(
+      `No acceptance criterion matches: ${[...unmatched].map(text => `"${text}"`).join(', ')}`,
+    );
+  }
+
+  return ticked.join('\n');
+}
+
+/**
+ * Append to the comment log, creating its heading the first time. The comment
+ * is stored exactly as written — nothing is prepended, appended, or reformatted
+ * around it, including `/triage`'s mandatory disclaimer, which is the skill's
+ * own to write and not ours to inject.
+ */
+function withComment(body: string, comment: string | undefined): string {
+  if (comment === undefined) return body;
+
+  const heading = /^##[ \t]+Comments[ \t]*$/m.exec(body);
+  if (heading === null) return `${body}\n\n${COMMENTS_HEADING}\n\n${comment}`;
+
+  return `${body}\n\n${comment}`;
 }
 
 /**
@@ -81,6 +138,7 @@ function fieldsOf(edit: TicketEdit): Array<[string, string | null]> {
   const pairs: Array<[string, string | null]> = [];
 
   if (edit.status !== undefined) pairs.push(['status', edit.status]);
+  if (edit.triage !== undefined) pairs.push(['triage', edit.triage]);
   if (edit.claimedBy !== undefined) pairs.push(['claimed_by', edit.claimedBy]);
   if (edit.claimedAt !== undefined) pairs.push(['claimed_at', edit.claimedAt]);
   if (edit.answerGist !== undefined) pairs.push(['answer_gist', edit.answerGist]);

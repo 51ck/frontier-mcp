@@ -26,12 +26,14 @@ export function indexById(all: readonly TicketSummary[]): ReadonlyMap<string, Ti
   return byId;
 }
 
+/**
+ * Status and Edges decide this, and nothing else. A Triage role never does:
+ * `/triage` and the graph must not compete for one field, so a Ticket labelled
+ * `wontfix` still counts as takeable here and the Board says so in its
+ * warnings, leaving the judgement to the reader.
+ */
 function isTakeable(ticket: TicketSummary, byId: ReadonlyMap<string, TicketSummary>): boolean {
   if (ticket.status !== 'open') return false;
-  // `wontfix` is a Triage role rather than a Status, so it leaves a Ticket
-  // open — but open is not the same as takeable, and handing an agent work
-  // somebody has already declined is the one thing the Frontier must not do.
-  if (ticket.triage === 'wontfix') return false;
 
   return ticket.blockedBy.every(id => byId.get(id)?.status === 'resolved');
 }
