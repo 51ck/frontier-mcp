@@ -242,7 +242,8 @@ blocked_by: []
     expect(report).toContain('Grammy group boot');
     expect(report).toContain('Is the colour-space fix a latent bug?');
     expect(report).toMatch(/\bmint(?:ed|s)?\b/i);
-    expect(report).toContain('T1');
+    // Workspace already holds T30 — the counter continues at max+1.
+    expect(report).toContain('T31');
 
     expect(
       await readFile(join(root, '.scratch/alpha/issues/01-grammy-group-boot.md'), 'utf8'),
