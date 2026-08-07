@@ -5,12 +5,13 @@ import { fileURLToPath } from 'node:url';
 /** Stable URI for the tracker configuration document MCP resource. */
 export const TRACKER_DOC_URI = 'frontier://tracker-doc';
 
-/** Path to the shipped tracker configuration document inside the package. */
-export function trackerDocPath(fromDir = dirname(fileURLToPath(import.meta.url))): string {
-  return join(fromDir, '..', 'docs', 'agents', 'issue-tracker.md');
-}
-
-/** Read the shipped tracker configuration document from disk. */
+/**
+ * Read the shipped tracker configuration document. It sits beside `dist/` in
+ * the published package, which is why the path is resolved from this module
+ * rather than from the process working directory — the server is started from
+ * the user's repo, not from its own install.
+ */
 export function readTrackerDoc(): string {
-  return readFileSync(trackerDocPath(), 'utf8');
+  const here = dirname(fileURLToPath(import.meta.url));
+  return readFileSync(join(here, '..', 'docs', 'agents', 'issue-tracker.md'), 'utf8');
 }
