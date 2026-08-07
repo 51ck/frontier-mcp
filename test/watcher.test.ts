@@ -10,14 +10,23 @@ afterEach(cleanupFixtures);
 const FILE = '.scratch/alpha/issues/01-T1-work.md';
 const DEBOUNCE_MS = 25;
 
-/** Poll until `probe` satisfies `ready`, or time out. */
+/**
+ * Poll until `probe` satisfies `ready`, or throw. The deadline is generous
+ * because the whole suite runs its files in parallel: the watcher competes
+ * for the event loop, and a debounced `fs.watch` is the first thing to lose.
+ * Throwing beats returning the last value — a silent timeout used to surface
+ * as a puzzling content mismatch instead of the wait it actually was.
+ */
 async function waitFor<T>(
   probe: () => Promise<T>,
   ready: (value: T) => boolean,
-  deadline = Date.now() + 3_000,
+  deadline = Date.now() + 15_000,
 ): Promise<T> {
   const value = await probe();
-  if (ready(value) || Date.now() >= deadline) return value;
+  if (ready(value)) return value;
+  if (Date.now() >= deadline) {
+    throw new Error(`waitFor timed out; last value was:\n${String(value)}`);
+  }
   await new Promise(resolve => setTimeout(resolve, DEBOUNCE_MS));
   return waitFor(probe, ready, deadline);
 }
