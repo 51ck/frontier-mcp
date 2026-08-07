@@ -33,10 +33,17 @@ export function readDestination(contents: string): string | undefined {
 export function readSpecOpening(contents: string): string | undefined {
   const { body } = splitFrontmatter(contents);
 
-  const paragraph = body
+  return body
     .split(/\n{2,}/)
     .map(block => block.trim())
-    .find(block => block !== '' && !block.startsWith('#'));
+    .find(block => block !== '' && !block.startsWith('#') && !isFieldLine(block));
+}
 
-  return paragraph;
+/**
+ * A single `Key: value` line — `Status: ready-for-agent` and the like. These sit
+ * under the title in several of these documents and say nothing about where the
+ * Effort is going, which is the whole job of the text a Board opens with.
+ */
+function isFieldLine(block: string): boolean {
+  return !block.includes('\n') && /^[A-Za-z][\w -]{0,24}:[ \t]*\S+$/.test(block);
 }

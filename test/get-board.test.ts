@@ -107,6 +107,29 @@ describe('get_board', () => {
     expect(line.split('  ')).toEqual(['> T1', 'Title with wide gaps', 'build/open']);
   });
 
+  it('opens a Spec-only Effort with prose, not with a metadata line', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/alpha/spec.md': [
+        '# Alpha',
+        '',
+        'Status: ready-for-agent',
+        '',
+        'What this Effort is actually for.',
+        '',
+        '## Problem Statement',
+      ].join('\n'),
+      '.scratch/alpha/issues/01-T1-first.md': ticket('T1', 'First'),
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const board = await frontier.call('get_board', { effort: 'alpha' });
+
+    // `Status: ready-for-agent` is a field, not orienting text, and opening the
+    // Board with it wastes the one line that makes the Ticket lines readable.
+    expect(board).toContain('spec: What this Effort is actually for.');
+    expect(board).not.toContain('spec: Status:');
+  });
+
   it('names an Effort that does not exist rather than returning an empty Board', async () => {
     const root = await makeFixtureTree({ '.scratch/alpha/map.md': map('Somewhere.') });
     const frontier = await connectFrontier({ cwd: root, env: {} });
