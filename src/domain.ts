@@ -15,6 +15,16 @@ export type HeaderDoc = 'map' | 'spec';
 /** Which of the two shapes a Ticket is. */
 export type Kind = 'build' | 'decision';
 
+/**
+ * The shape of a minted id: `T<n>`, visibly an id so it is never mistaken for a
+ * sort position. Ids preserved verbatim through migration need not match — those
+ * occupy their name without being part of the counter.
+ *
+ * Both sides of the storage seam test against this, so it lives with the rest of
+ * the vocabulary rather than in either of them.
+ */
+export const MINTED_ID = /^T(\d+)$/;
+
 /** A Ticket's position in the graph's lifecycle. Owned by the server. */
 export type Status = 'open' | 'claimed' | 'resolved' | 'dropped';
 
@@ -115,10 +125,36 @@ export interface TicketEdit {
   readonly answerGist?: string | null;
   readonly droppedReason?: string | null;
   readonly answer?: string;
+  /** Replaces the Edge list outright. An empty list clears it. */
+  readonly blockedBy?: readonly string[];
   /** Appended to the comment log, verbatim. Nothing is added around it. */
   readonly comment?: string;
   /** Acceptance criteria to tick, addressed by their text. */
   readonly tick?: readonly string[];
+}
+
+/**
+ * A Ticket asked for but not yet minted an id.
+ *
+ * `key` is the caller's own temporary name for this draft, and exists only for
+ * the length of the call: sibling drafts declare Edges on it before any id
+ * exists, which is what removes the create-then-wire second pass. It is never
+ * stored, and never appears in a file.
+ */
+export interface TicketDraft {
+  /**
+   * The caller's temporary name. Never `T<n>` — a key shaped like an id could
+   * not be told apart from the real one an Edge might mean.
+   */
+  readonly key: string | undefined;
+  readonly title: string;
+  readonly kind: Kind;
+  readonly type: string | undefined;
+  readonly triage: TriageRole | undefined;
+  /** Edges, each either a real Ticket id or a sibling draft's {@link key}. */
+  readonly blockedBy: readonly string[];
+  /** The prose, written verbatim. A draft with none produces a Ticket with none. */
+  readonly body: string | undefined;
 }
 
 /** The five roles `/triage` writes. A Status is never one of these. */

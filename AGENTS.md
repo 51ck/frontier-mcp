@@ -113,9 +113,13 @@ Design decisions settled and binding until an ADR revises them:
 - **Formal metadata in frontmatter, prose in the body.** Identity, status, edges, and kind are fields.
   Everything an agent reads as prose stays prose.
 - **Stable `id`, cosmetic filename.** Ticket ids are `T<n>` from a repo-global counter, unique across
-  every Effort, never reused or changed. `<NN>-T<n>-<slug>.md` carries sort order in `NN` only.
-  Frontmatter is the authority — on disagreement the file is renamed, never the field. Edges are plain
-  ids resolved repo-wide; there is no compound cross-Effort reference form.
+  every Effort, never reused or changed — though they may be skipped. `<NN>-T<n>-<slug>.md` carries
+  sort order in `NN` only. Frontmatter is the authority — on disagreement the file is renamed, never
+  the field. Edges are plain ids resolved repo-wide; there is no compound cross-Effort reference form.
+- **The counter is derived, and allocated under a guard.** `max + 1` from a scan, so there is no
+  counter file to drift. The exclusive create is taken on a separate guard file rather than on the
+  Ticket file, because two sessions minting one id into different Efforts write different paths and
+  would collide over nothing. See [ADR 0005](./docs/adr/0005-ids-are-allocated-under-a-guard-and-a-rescan.md).
 - **Type what gets surgically mutated; leave the rest opaque.** The Map has typed sections because
   wayfinder edits them section by section. The Spec is an opaque body because nothing edits it.
 - **Derive, don't store, what tickets already know.** The Map's Decisions-so-far renders from resolved
@@ -183,8 +187,9 @@ Source layout:
 | --- | --- |
 | `src/domain.ts` | The CONTEXT.md vocabulary as types. Naming here is bound by the glossary, including its `_Avoid_` lines. |
 | `src/frontier.ts` | The Frontier computation. Takes every Ticket in the workspace, because Edges resolve repo-wide. |
+| `src/edges.ts` | Cycle detection over the Edge graph. Above the seam, because a cycle is a rule about the domain rather than about storage — the same reason the Status model is checked in the tool layer. |
 | `src/storage/driver.ts` | The ADR 0001 seam, its edit vocabulary, and its typed failures. |
-| `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout — `frontmatter.ts` splits the fence, `ticket.ts` parses a Ticket, `legacy.ts` infers one from prose, `header-doc.ts` reads the Map's sections, `serialize.ts` applies an edit, `write.ts` renames it into place. |
+| `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout — `frontmatter.ts` splits the fence, `ticket.ts` parses a Ticket, `legacy.ts` infers one from prose, `header-doc.ts` reads the Map's sections, `serialize.ts` applies an edit, `create.ts` allocates ids and writes a new batch, `write.ts` renames it into place. |
 | `src/workspace.ts` | Workspace resolution — the one place above the driver that reads the filesystem, and only to locate a repository root. |
 | `src/workspace-index.ts` | The in-memory index, one per resolved workspace. |
 | `src/tools/` | One module per tool: its input schema, its description, and how its result renders. |
@@ -231,6 +236,15 @@ Write rules, equally load-bearing:
   revision check before either renames, and the loser's edit is lost rather than refused.
 - **A write normalizes the Legacy file it touches**, and keeps the prose it inferred from verbatim.
 - **Claims are flagged when stale, never released.** 24h; auto-expiry is out of scope.
+- **A batch creation is all or none.** Every reference resolves before anything is written, so an
+  undeclared temporary key or a cycle leaves the workspace untouched. Temporary keys exist for the
+  length of the call and never reach a file.
+- **A cycle is refused on both write paths**, creation and Edge update, and only when it runs through
+  the node being written. A cycle already in the workspace is somebody's hand edit; refusing it here
+  would make an unrelated Effort unwritable, and the Board already reports the damage it does.
+- **A dangling Edge is never refused.** It is a Board warning, and pointing at a Ticket not yet
+  written is how a breakdown gets built up. An Edge naming an undeclared *temporary key* is refused,
+  because that is a typo rather than a forward reference.
 
 Annotation rules — a comment, a ticked criterion, and a Triage role are records of work, not moves
 in the graph:
@@ -278,6 +292,13 @@ Tests enter through `test/support/harness.ts` — a real MCP client speaking to 
 over a linked transport pair, against a temporary fixture tree. That is the only test seam, per the
 spec's testing decisions. Nothing below the tool layer gets a test entry point of its own, and a test
 that would need one is a design signal, not a reason to add a seam.
+
+**The two deliberate exceptions** spawn real OS processes: `test/cross-process-claim.test.ts` for the
+compare-and-set claim, `test/cross-process-create.test.ts` for id allocation. Concurrency needs real
+concurrency — one process shares a scan, a write queue and module state, all of which hand an
+in-process test a pass it has not earned, which is how the claim guarantee came to hold only
+in-process. Both were checked against a deliberately broken implementation to confirm they bite.
+Add a third only for something with the same shape.
 
 `test/fixtures/legacy/` holds two Efforts copied **verbatim** out of sobrina and tag-customizer.
 Never tidy them, and refresh them by re-copying rather than editing: they are the real input, and

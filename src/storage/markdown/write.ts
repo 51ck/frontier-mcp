@@ -105,14 +105,39 @@ function guardPath(path: string, revision: string): string {
 }
 
 export async function writeAtomically(path: string, contents: string): Promise<void> {
+  const temporary = await stage(path, contents);
+
+  try {
+    await rename(temporary, path);
+  } catch (error) {
+    await unstage(temporary);
+    throw error;
+  }
+}
+
+/**
+ * The first half of {@link writeAtomically}, for a caller that has several files
+ * to land together: write the contents beside the target and hand back the
+ * temporary path, leaving the rename to the caller.
+ *
+ * Everything that can fail — a full disk, a bad path, a name too long — fails
+ * here, where nothing is visible yet. That is what lets a batch stage every file
+ * before renaming any, and so be all-or-none rather than merely per-file atomic.
+ */
+export async function stage(path: string, contents: string): Promise<string> {
   sequence += 1;
   const temporary = join(dirname(path), `.frontier-${String(process.pid)}-${String(sequence)}.tmp`);
 
   try {
     await writeFile(temporary, contents, 'utf8');
-    await rename(temporary, path);
+    return temporary;
   } catch (error) {
-    await unlink(temporary).catch(() => {});
+    await unstage(temporary);
     throw error;
   }
+}
+
+/** Discard a staged file. Never throws: it runs on the path where something already went wrong. */
+export async function unstage(temporary: string): Promise<void> {
+  await unlink(temporary).catch(() => {});
 }

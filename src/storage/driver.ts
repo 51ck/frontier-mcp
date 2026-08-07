@@ -1,6 +1,29 @@
-import type { Effort, Ticket, TicketEdit } from '../domain.ts';
+import type { Effort, Ticket, TicketDraft, TicketEdit } from '../domain.ts';
 
-export type { TicketEdit };
+export type { TicketDraft, TicketEdit };
+
+export interface CreateOptions {
+  /**
+   * Create the Effort rather than failing when the workspace does not hold it.
+   * Off by default, so starting work is one deliberate call while a mistyped
+   * slug never silently forks an Effort.
+   */
+  readonly createEffort: boolean;
+  /**
+   * Called with the ids about to be written, in draft order, and the workspace
+   * as it looks under those reservations. Runs before anything lands, so
+   * throwing abandons the batch and nothing is created — not the Tickets, and
+   * not the Effort either.
+   *
+   * It exists for the rules that cannot be checked until the ids are real. A
+   * cycle is the one that matters: a Ticket already on disk may declare an Edge
+   * on an id nobody has minted yet, which the Board reports as dangling — and
+   * minting exactly that id is the moment it becomes a loop. Nothing above the
+   * seam can see that coming, because nothing above the seam knows what the
+   * next id will be.
+   */
+  readonly validate?: (ids: readonly string[], tickets: readonly Ticket[]) => void;
+}
 
 /**
  * The seam from ADR 0001. Every read and write reaches storage through this
@@ -35,6 +58,24 @@ export interface StorageDriver {
    * atomic: it either lands whole or not at all.
    */
   updateTicket(handle: string, edit: TicketEdit, expectedRevision: string): Promise<Ticket>;
+
+  /**
+   * Create a whole set of Tickets in one Effort and return them as written, in
+   * the order asked for.
+   *
+   * The batch is the unit for a reason: the driver mints every id, resolves
+   * every {@link TicketDraft.key} an Edge names into the id it was given, and
+   * either creates all of them or none. Splitting this into a create call and a
+   * wire-them-up call is the second pass this exists to delete.
+   *
+   * Ids are unique across the whole workspace, and stay unique when two sessions
+   * in separate processes create at the same instant.
+   */
+  createTickets(
+    effort: string,
+    drafts: readonly TicketDraft[],
+    options: CreateOptions,
+  ): Promise<readonly Ticket[]>;
 }
 
 /** Thrown when the stored Ticket moved on since the caller read it. */
@@ -52,5 +93,13 @@ export class NoSuchTicket extends Error {
   constructor(handle: string) {
     super(`No Ticket '${handle}' in this workspace.`);
     this.name = 'NoSuchTicket';
+  }
+}
+
+/** Thrown when a creation names an Effort that does not exist and may not be made. */
+export class NoSuchEffort extends Error {
+  constructor(slug: string) {
+    super(`No Effort '${slug}' in this workspace. Pass create to start it.`);
+    this.name = 'NoSuchEffort';
   }
 }
