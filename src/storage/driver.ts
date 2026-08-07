@@ -100,9 +100,9 @@ export interface StorageDriver {
   readMap(effort: string): Promise<MapDocument>;
 
   /**
-   * Apply a section edit to a Map and regenerate its derived blocks. An empty
-   * edit is a no-op write that still refreshes Decisions-so-far and dropped
-   * Tickets into Out of scope.
+   * Apply a section edit to a Map and regenerate its derived blocks. Reads go
+   * through {@link readMap} — the tool layer never uses an empty edit as a
+   * refresh; resolve/drop refresh the derived blocks on their own path.
    */
   editMap(
     effort: string,

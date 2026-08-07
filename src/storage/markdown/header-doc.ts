@@ -79,7 +79,10 @@ export interface ApplyMapEditOptions {
 /**
  * Apply a section edit and rewrite the derived blocks. Content outside the
  * GENERATED markers is left alone; the blocks themselves are replaced whole.
- * Missing Decisions / Out-of-scope headings are not invented unless
+ * When Decisions has no markers, its whole body is replaced by a GENERATED
+ * block (unfenced stale prose must not remain). Out of scope without markers
+ * keeps unfenced bullets as hand-owned and installs the GENERATED block under
+ * them. Missing headings are not invented unless
  * {@link ApplyMapEditOptions.ensureDerivedSections} is set.
  */
 export function applyMapEdit(
@@ -112,7 +115,11 @@ export function applyMapEdit(
     next = ensureDerivedHeading(next, SECTION_HEADINGS.outOfScope);
   }
 
-  next = replaceGenerated(next, SECTION_HEADINGS.decisions, renderPointers(decisions));
+  // Decisions is wholly derived: unfenced prose is stale cache, not hand-owned.
+  next = replaceGenerated(next, SECTION_HEADINGS.decisions, renderPointers(decisions), {
+    wipeUnfenced: true,
+  });
+  // Out of scope mixes hand-ruled bullets (outside) with dropped Tickets (inside).
   next = replaceGenerated(next, SECTION_HEADINGS.outOfScope, renderPointers(dropped));
 
   return next;
@@ -257,7 +264,12 @@ function ensureDerivedHeading(contents: string, heading: string): string {
   return reassemble(hasFence, raw, ensureTrailingNewline(body) + addition);
 }
 
-function replaceGenerated(contents: string, heading: string, inner: string): string {
+function replaceGenerated(
+  contents: string,
+  heading: string,
+  inner: string,
+  options: { readonly wipeUnfenced?: boolean } = {},
+): string {
   const raw = readSectionRaw(contents, heading);
   // Content outside the markers is never touched — inventing a missing section
   // would rewrite the Map shape on an unrelated edit.
@@ -276,7 +288,14 @@ function replaceGenerated(contents: string, heading: string, inner: string): str
   if (GENERATED_BLOCK.test(section)) {
     replacement = section.replace(GENERATED_BLOCK, block.trimEnd());
     if (!replacement.endsWith('\n')) replacement += '\n';
+  } else if (options.wipeUnfenced) {
+    // No markers: the whole section body is the derived cache the server owns.
+    // Replacing (not appending) clears hand-typed stale Decisions that would
+    // otherwise lie next to a fresh GENERATED block — ADR 0002.
+    replacement = `\n${block}`;
   } else {
+    // Mixed sections (Out of scope): keep unfenced bullets as hand-owned and
+    // install the GENERATED dropped-Ticket block beneath them.
     const outside = section.replace(/\s+$/, '');
     replacement = outside === '' ? `\n${block}` : `${outside}\n\n${block}`;
   }

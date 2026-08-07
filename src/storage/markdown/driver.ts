@@ -322,6 +322,7 @@ async function refreshMapDerivedOnce(
       await writeAtomically(path, updated);
     });
   } catch (error) {
+    // Server-owned derived regeneration may retry; caller CAS mismatches never do.
     if (!(error instanceof GuardHeld || error instanceof DerivedRefreshLost)) throw error;
     if (remaining <= 1) {
       throw new Error(

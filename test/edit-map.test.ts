@@ -1,12 +1,15 @@
-import { readFile, unlink, writeFile } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { cleanupFixtures, connectFrontier, makeFixtureTree } from './support/harness.ts';
 import { map, ticket } from './support/fixtures.ts';
-import { GENERATED_OPEN } from '../src/storage/markdown/header-doc.ts';
 
 afterEach(cleanupFixtures);
+
+/** Same marker the driver writes — duplicated here so tests never import storage. */
+const GENERATED_OPEN =
+  '<!-- GENERATED: overwritten on every mutation through the server. Do not hand-edit. -->';
 
 function revisionOf(text: string, kind: 'map' | 'spec'): string {
   const match = text.match(new RegExp(`${kind} revision: (.+)`));
@@ -14,13 +17,7 @@ function revisionOf(text: string, kind: 'map' | 'spec'): string {
   return match[1]!.trim();
 }
 
-async function waitUntilContains(path: string, needle: string): Promise<void> {
-  const contents = await readFile(path, 'utf8');
-  if (contents.includes(needle)) return;
-  await new Promise(wait => setTimeout(wait, 10));
-  return waitUntilContains(path, needle);
-}
-
+/** A Map with GENERATED fences already in place; hand-ruled Out of scope sits outside them. */
 function fullMap(): string {
   return `---
 header: map
@@ -38,13 +35,50 @@ Consult ADR 0002. Keep sections typed.
 
 ## Decisions so far
 
-<!-- hand-typed stale content the server must ignore -->
+Hand note kept outside the cache.
+
+${GENERATED_OPEN}
 - [old](issues/old.md) — ignore me
+<!-- /GENERATED -->
 
 ## Not yet specified
 
 - How Spec put preserves frontmatter style
 - Whether fog graduates leave orphan bullets
+
+## Out of scope
+
+- Rewriting CONTEXT.md through this tool
+
+${GENERATED_OPEN}
+<!-- /GENERATED -->
+`;
+}
+
+/** Legacy shape: Decisions / Out of scope exist but have no GENERATED fences. */
+function unfencedMap(): string {
+  return `---
+header: map
+---
+
+# Map
+
+## Destination
+
+Ship the header docs.
+
+## Notes
+
+Consult ADR 0002. Keep sections typed.
+
+## Decisions so far
+
+<!-- hand-typed stale content the server must clean up -->
+- [old](issues/old.md) — ignore me
+
+## Not yet specified
+
+- How Spec put preserves frontmatter style
 
 ## Out of scope
 
@@ -137,7 +171,12 @@ describe('edit_map', () => {
     const onDisk = await readFile(join(root, '.scratch/alpha/map.md'), 'utf8');
     expect(onDisk).toContain('- A ninth tool');
     expect(onDisk).toContain(GENERATED_OPEN);
-    expect(onDisk).toContain('<!-- hand-typed stale content the server must ignore -->');
+    // Decisions stays derived — the rule_out never lands there.
+    const decisions = onDisk.slice(
+      onDisk.indexOf('## Decisions so far'),
+      onDisk.indexOf('## Not yet specified'),
+    );
+    expect(decisions).not.toContain('A ninth tool');
   });
 
   it('writes Decisions-so-far from resolved Tickets between overwrite markers', async () => {
@@ -163,8 +202,45 @@ describe('edit_map', () => {
     expect(onDisk).toContain(GENERATED_OPEN);
     expect(onDisk).toContain('- [T1 — First](issues/01-T1-first.md) — Landed the read path');
     expect(onDisk).not.toContain('T2 — Second');
-    expect(onDisk).toContain('<!-- hand-typed stale content the server must ignore -->');
-    expect(onDisk).not.toMatch(/<!-- GENERATED[\s\S]*ignore me[\s\S]*<!-- \/GENERATED -->/);
+    // Stale pointer inside the prior GENERATED block is gone; hand note outside stays.
+    expect(onDisk).toContain('Hand note kept outside the cache.');
+    expect(onDisk).not.toContain('ignore me');
+  });
+
+  it('normalizes unfenced Decisions into a GENERATED block on write', async () => {
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.scratch/alpha/map.md': unfencedMap(),
+      '.scratch/alpha/issues/01-T1-first.md': ticket('T1', 'First', {
+        status: 'resolved',
+        answer_gist: 'Landed the read path',
+      }),
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+    const rev = revisionOf(await frontier.call('edit_map', { effort: 'alpha' }), 'map');
+
+    await frontier.call('edit_map', {
+      effort: 'alpha',
+      notes: 'Normalize unfenced Decisions.',
+      expected_revision: rev,
+    });
+
+    const onDisk = await readFile(join(root, '.scratch/alpha/map.md'), 'utf8');
+    const decisions = onDisk.slice(
+      onDisk.indexOf('## Decisions so far'),
+      onDisk.indexOf('## Not yet specified'),
+    );
+    const outOfScope = onDisk.slice(onDisk.indexOf('## Out of scope'));
+
+    // Unfenced stale Decisions must not remain on disk lying to humans.
+    expect(decisions).toContain(GENERATED_OPEN);
+    expect(decisions).toContain('- [T1 — First](issues/01-T1-first.md) — Landed the read path');
+    expect(decisions).not.toContain('ignore me');
+    expect(decisions).not.toContain('hand-typed stale content');
+
+    // Out of scope without fences keeps hand-ruled bullets outside a new GENERATED block.
+    expect(outOfScope).toContain('- Rewriting CONTEXT.md through this tool');
+    expect(outOfScope).toContain(GENERATED_OPEN);
   });
 
   it('renders dropped Tickets into Out of scope, never Decisions-so-far', async () => {
@@ -203,6 +279,7 @@ describe('edit_map', () => {
   });
 
   it('omits the gist em dash when a resolved Ticket has no answer_gist', async () => {
+    // T6: "gist plus link". Empty gist → link-only line, no trailing " —", no invented prose.
     const root = await makeFixtureTree({
       '.git/HEAD': 'ref: refs/heads/main\n',
       '.scratch/alpha/map.md': fullMap(),
@@ -301,7 +378,9 @@ Keep slim.
     );
   });
 
-  it('retries Map derived refresh when another session holds the Map guard', async () => {
+  it('retries Map derived refresh when a concurrent edit_map holds the Map', async () => {
+    // Two Frontier instances → two write queues → real filesystem guard races,
+    // still entered only through the MCP harness (no guard-path or storage imports).
     const root = await makeFixtureTree({
       '.git/HEAD': 'ref: refs/heads/main\n',
       '.scratch/alpha/map.md': fullMap(),
@@ -311,27 +390,26 @@ Keep slim.
         claimed_at: '2026-01-01T00:00:00.000Z',
       }),
     });
-    const frontier = await connectFrontier({ cwd: root, env: {} });
-    const mapPath = join(root, '.scratch/alpha/map.md');
-    const rev = revisionOf(await frontier.call('edit_map', { effort: 'alpha' }), 'map');
-    const guard = join(
-      dirname(mapPath),
-      `.${basename(mapPath)}.${rev.replace(/[^\w.-]/g, '_')}.guard`,
-    );
+    const editor = await connectFrontier({ cwd: root, env: {} });
+    const resolver = await connectFrontier({ cwd: root, env: {} });
+    const rev = revisionOf(await editor.call('edit_map', { effort: 'alpha' }), 'map');
 
-    // Hold the Map's revision-keyed guard the way a racing edit_map would, then
-    // release it after the Ticket write so a retrying refresh still lands.
-    await writeFile(guard, `${String(process.pid)}\n`, { flag: 'wx' });
-    const ticketPath = join(root, '.scratch/alpha/issues/01-T1-first.md');
-    const resolve = frontier.call('update_ticket', {
-      id: 'T1',
-      resolve: { answer_gist: 'Won the refresh race' },
-    });
-    await waitUntilContains(ticketPath, 'status: resolved');
-    await unlink(guard);
-    await resolve;
+    const results = await Promise.allSettled([
+      editor.call('edit_map', {
+        effort: 'alpha',
+        notes: 'Concurrent Map edit.',
+        expected_revision: rev,
+      }),
+      resolver.call('update_ticket', {
+        id: 'T1',
+        resolve: { answer_gist: 'Won the refresh race' },
+      }),
+    ]);
 
-    const onDisk = await readFile(mapPath, 'utf8');
+    const resolveOutcome = results[1];
+    expect(resolveOutcome.status).toBe('fulfilled');
+
+    const onDisk = await readFile(join(root, '.scratch/alpha/map.md'), 'utf8');
     expect(onDisk).toContain('- [T1 — First](issues/01-T1-first.md) — Won the refresh race');
   });
 
@@ -391,8 +469,10 @@ Keep slim.
     });
 
     const onDisk = await readFile(join(root, '.scratch/alpha/map.md'), 'utf8');
-    expect(onDisk).toContain('<!-- hand-typed stale content the server must ignore -->');
-    expect(onDisk).toContain('- [old](issues/old.md) — ignore me');
+    expect(onDisk).toContain('Hand note kept outside the cache.');
+    expect(onDisk).toContain('- Rewriting CONTEXT.md through this tool');
+    // Inside the fence is overwritten.
+    expect(onDisk).not.toContain('ignore me');
   });
 });
 
