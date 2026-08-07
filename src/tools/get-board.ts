@@ -16,6 +16,8 @@ export interface Board {
   readonly tickets: readonly TicketSummary[];
   /** The Tickets takeable right now. Computed repo-wide; never read from a file. */
   readonly frontier: ReadonlySet<TicketSummary>;
+  /** Every Ticket in the workspace, because Edges resolve repo-wide. */
+  readonly byId: ReadonlyMap<string, TicketSummary>;
 }
 
 /**
@@ -43,19 +45,61 @@ export function renderBoard(board: Board): string {
   );
 
   for (const ticket of tickets) {
-    lines.push(frontier.has(ticket) ? `> ${renderLine(ticket)}` : renderLine(ticket));
+    const line = renderLine(ticket, board);
+    lines.push(frontier.has(ticket) ? `> ${line}` : line);
   }
+
+  const warnings = collectWarnings(board);
+  if (warnings.length > 0) lines.push('', 'warnings:', ...warnings.map(entry => `  ${entry}`));
 
   return lines.join('\n');
 }
 
-function renderLine(ticket: TicketSummary): string {
+function renderLine(ticket: TicketSummary, board: Board): string {
   const parts = [
     ticket.id ?? '(no id)',
     ticket.title,
     `${ticket.kind}/${ticket.status}`,
-    ticket.blockedBy.length > 0 ? `blocked_by=${ticket.blockedBy.join(',')}` : undefined,
+    ticket.blockedBy.length > 0
+      ? `blocked_by=${ticket.blockedBy.map(id => renderEdge(id, ticket, board)).join(',')}`
+      : undefined,
   ].filter(part => part !== undefined);
 
   return parts.join('  ');
+}
+
+/**
+ * An Edge is a plain id. A blocker living in another Effort is annotated with
+ * its owning Effort so it stays followable — there is no compound reference
+ * form to carry that, and without it a foreign blocker is a dead end.
+ */
+function renderEdge(id: string, from: TicketSummary, board: Board): string {
+  const blocker = board.byId.get(id);
+  if (blocker === undefined) return `${id}?`;
+
+  return blocker.effort === from.effort ? id : `${id}@${blocker.effort}`;
+}
+
+/**
+ * Broken Edges surface here rather than through a separate validation tool,
+ * because a validation tool nobody calls is a validator that does not exist.
+ */
+function collectWarnings(board: Board): string[] {
+  const warnings: string[] = [];
+
+  for (const ticket of board.tickets) {
+    const id = ticket.id ?? '(no id)';
+
+    for (const edge of ticket.blockedBy) {
+      const blocker = board.byId.get(edge);
+
+      if (blocker === undefined) {
+        warnings.push(`${id} blocked_by ${edge} — no such Ticket`);
+      } else if (blocker.status === 'dropped') {
+        warnings.push(`${id} blocked_by ${edge} — which was dropped, so it never unblocks`);
+      }
+    }
+  }
+
+  return warnings;
 }

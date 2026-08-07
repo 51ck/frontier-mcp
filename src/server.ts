@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-import { frontierOf } from './frontier.ts';
+import { frontierOf, indexById } from './frontier.ts';
 import { createIndexRegistry } from './workspace-index.ts';
 import { createMarkdownDriver } from './storage/markdown/driver.ts';
 import type { StorageDriver } from './storage/driver.ts';
@@ -96,6 +96,7 @@ export function createFrontier(options: CreateServerOptions = {}): Frontier {
         effort,
         tickets: tickets.filter(ticket => ticket.effort === slug),
         frontier: frontierOf(tickets),
+        byId: indexById(tickets),
       };
 
       return { content: [{ type: 'text', text: renderBoard(board) }] };
