@@ -39,6 +39,32 @@ export interface Defaults {
 }
 
 /**
+ * Normalize a Ticket file to schema frontmatter. A Legacy file with no fence
+ * gets a full block from {@link defaults}; a file that already has frontmatter
+ * keeps key order and only gains a missing id plus an updated Edge list (so a
+ * bare sort-order Edge can become the id migration just minted). Body prose is
+ * kept verbatim either way.
+ */
+export function normalizeTicket(contents: string, defaults: Defaults): string {
+  const split = splitFrontmatter(contents);
+  if (!split.hasFence) return applyEdit(contents, {}, defaults);
+
+  const document = existingDocument(split.raw);
+  if (document === undefined) return applyEdit(contents, {}, defaults);
+
+  if (defaults.id !== undefined) {
+    const existing = document.get('id');
+    if (existing === undefined || existing === null || String(existing).trim() === '') {
+      document.set('id', defaults.id);
+    }
+  }
+  setEdges(document, defaults.blockedBy);
+
+  const body = split.body.replace(/^\s+/, '').replace(/\n+$/, '');
+  return `---\n${render(document)}\n---\n\n${body}\n`;
+}
+
+/**
  * Apply an edit to a Ticket file, returning the new contents.
  *
  * Per ADR 0003 the frontmatter is mutated as a parsed YAML document rather than

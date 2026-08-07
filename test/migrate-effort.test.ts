@@ -219,9 +219,16 @@ blocked_by: []
   });
 
   it('preview reports every change and writes nothing', async () => {
+    // No dangling Depends-on:T31 here — colour mints as T31 (max+1 after T30),
+    // and a prose Edge naming T31 would make the report ambiguous.
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
-      '.scratch/alpha/issues/01-grammy-group-boot.md': LEGACY_WITH_ID,
+      '.scratch/alpha/issues/01-grammy-group-boot.md': `# T30 — Grammy group boot
+
+Status: open
+
+**Problem:** Without a running group bot entry, no Telegram MVP path is real.
+`,
       '.scratch/alpha/issues/02-colour.md': LEGACY_NO_ID,
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });

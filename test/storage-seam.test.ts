@@ -47,6 +47,9 @@ function fixedDriver(
       putSpec() {
         throw new Error('this driver is read-only');
       },
+      migrateEffort() {
+        throw new Error('this driver is read-only');
+      },
     }),
     scans: () => scans,
   };
@@ -123,6 +126,9 @@ describe('the storage driver seam', () => {
         throw new Error('this driver is read-only');
       },
       putSpec() {
+        throw new Error('this driver is read-only');
+      },
+      migrateEffort() {
         throw new Error('this driver is read-only');
       },
     });

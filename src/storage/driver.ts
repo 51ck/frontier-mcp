@@ -2,13 +2,23 @@ import type {
   Effort,
   MapDocument,
   MapEdit,
+  MigrateOptions,
+  MigrationReport,
   SpecDocument,
   Ticket,
   TicketDraft,
   TicketEdit,
 } from '../domain.ts';
 
-export type { MapDocument, MapEdit, SpecDocument, TicketDraft, TicketEdit };
+export type {
+  MapDocument,
+  MapEdit,
+  MigrateOptions,
+  MigrationReport,
+  SpecDocument,
+  TicketDraft,
+  TicketEdit,
+};
 
 export interface CreateOptions {
   /**
@@ -121,6 +131,13 @@ export interface StorageDriver {
     expectedRevision: string | undefined,
     options: HeaderDocOptions,
   ): Promise<SpecDocument>;
+
+  /**
+   * Normalize every Legacy Ticket in one Effort, mint ids for Tickets that have
+   * none, and optionally rename files to the schema convention. Preview writes
+   * nothing. Unrecognized files in the Effort directory are ignored.
+   */
+  migrateEffort(effort: string, options: MigrateOptions): Promise<MigrationReport>;
 }
 
 /** Thrown when the stored Ticket moved on since the caller read it. */

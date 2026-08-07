@@ -29,6 +29,11 @@ import {
   listEffortsInputSchema,
   renderEfforts,
 } from './tools/list-efforts.ts';
+import {
+  migrateEffortDescription,
+  migrateEffortInputSchema,
+  renderMigration,
+} from './tools/migrate-effort.ts';
 import { renderSpec, specDescription, specInputSchema } from './tools/spec.ts';
 import {
   editFor,
@@ -279,6 +284,26 @@ export function createFrontier(options: CreateServerOptions = {}): Frontier {
             });
 
       return { content: [{ type: 'text', text: renderSpec(effort, document) }] };
+    },
+  );
+
+  server.registerTool(
+    'migrate_effort',
+    {
+      title: 'Migrate Effort',
+      description: migrateEffortDescription,
+      inputSchema: migrateEffortInputSchema,
+      annotations: { readOnlyHint: false, idempotentHint: false },
+    },
+    async ({ effort, preview, rename, root }) => {
+      const workspace = resolveWorkspace(root, context);
+      const index = registry.forWorkspace(workspace);
+      const report = await index.migrate(effort, {
+        preview: preview === true,
+        rename: rename === true,
+      });
+
+      return { content: [{ type: 'text', text: renderMigration(report) }] };
     },
   );
 

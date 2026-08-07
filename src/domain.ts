@@ -207,3 +207,38 @@ export interface SpecDocument {
   readonly body: string;
   readonly revision: string;
 }
+
+/** How a migration call may rewrite filenames. */
+export interface MigrateOptions {
+  /**
+   * Report every change and write nothing. Planned mint ids come from the
+   * current scan (`max + 1`) without taking allocation guards.
+   */
+  readonly preview: boolean;
+  /**
+   * Rename Ticket files to `<NN>-T<n>-<slug>.md`. Off by default so relative
+   * links in Maps and Tickets keep resolving.
+   */
+  readonly rename: boolean;
+}
+
+/** One Ticket a migration would touch, or did. */
+export interface MigrationChange {
+  /** Handle before the call — the id when it had one, else `<effort>#<order>`. */
+  readonly beforeHandle: string;
+  /** Id after migration — preserved or newly minted. */
+  readonly id: string;
+  readonly title: string;
+  /** True when this call (or preview) assigns a fresh id. */
+  readonly minted: boolean;
+  /** True when the file was Legacy and gains schema frontmatter. */
+  readonly normalized: boolean;
+}
+
+/** The result of migrating one Effort — enough for the tool to render a report. */
+export interface MigrationReport {
+  readonly effort: string;
+  readonly preview: boolean;
+  readonly renamed: boolean;
+  readonly changes: readonly MigrationChange[];
+}
