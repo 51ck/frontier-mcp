@@ -182,8 +182,9 @@ Source layout:
 | Path | Holds |
 | --- | --- |
 | `src/domain.ts` | The CONTEXT.md vocabulary as types. Naming here is bound by the glossary, including its `_Avoid_` lines. |
+| `src/frontier.ts` | The Frontier computation. Takes every Ticket in the workspace, because Edges resolve repo-wide. |
 | `src/storage/driver.ts` | The ADR 0001 seam. |
-| `src/storage/markdown/` | The only driver. Knows the `.scratch/` layout; nothing else does. |
+| `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout — `frontmatter.ts` splits the fence, `ticket.ts` parses a Ticket, `legacy.ts` infers one from prose, `header-doc.ts` reads the Map's sections. |
 | `src/workspace.ts` | Workspace resolution — the one place above the driver that reads the filesystem, and only to locate a repository root. |
 | `src/workspace-index.ts` | The in-memory index, one per resolved workspace. |
 | `src/tools/` | One module per tool: its input schema, its description, and how its result renders. |
@@ -192,6 +193,18 @@ Source layout:
 | `src/bin.ts` | The stdio entry point. |
 
 Nothing under `src/tools/` may import from `src/storage/`.
+
+Rendering rules that are load-bearing, not cosmetic:
+
+- **A Board never carries a body.** Bodies come from `get_tickets`, by id, only for the Tickets
+  actually being worked.
+- **Warnings are grouped, never itemized per Ticket.** An unmigrated Effort carries a dangling Edge
+  on nearly every Ticket; itemizing produced a warnings block longer than the Board it annotated,
+  which undoes the saving the Board exists to deliver.
+- **A foreign blocker renders `T9@beta`, a local one bare.** There is no compound cross-Effort
+  reference form, so the Board is the only thing that can make a foreign Edge followable.
+- **An unresolvable Edge renders `T9?`** and is counted in the warnings block. It never silently
+  makes a Ticket look takeable.
 
 ## Verification
 
@@ -221,6 +234,15 @@ Tests enter through `test/support/harness.ts` — a real MCP client speaking to 
 over a linked transport pair, against a temporary fixture tree. That is the only test seam, per the
 spec's testing decisions. Nothing below the tool layer gets a test entry point of its own, and a test
 that would need one is a design signal, not a reason to add a seam.
+
+`test/fixtures/legacy/` holds two Efforts copied **verbatim** out of sobrina and tag-customizer.
+Never tidy them: they are the real input, and every awkward shape in them is a case the parser has to
+survive — `T31` ids in headings, tag-customizer Tickets with no id at all, `Blocked by: —`, bare
+`Blocked by: 01, 02` sort orders, struck-through `~~T61~~`, `Status:` lines with trailing prose, and
+a `research/` directory the schema does not recognize. Refresh them by re-copying, not by editing.
+
+`test/read-path-cost.test.ts` asserts the spec's token measurements. They are the argument for the
+project existing, so they are checked rather than restated.
 
 ## Agent skills
 
