@@ -16,11 +16,16 @@ export interface TicketFile {
  * everything else falls through to the Legacy parser and is flagged, because a
  * server that is useless until its repo is migrated never gets installed.
  */
-export function parseTicket(effort: string, file: TicketFile, fallbackOrder: number): Ticket {
+export function parseTicket(
+  effort: string,
+  file: TicketFile,
+  fallbackOrder: number,
+  revision: string,
+): Ticket {
   const { fields, body } = splitFrontmatter(file.contents);
   const order = readOrder(file.filename) ?? fallbackOrder;
 
-  if (fields === undefined) return parseLegacy(effort, order, file.contents);
+  if (fields === undefined) return parseLegacy(effort, order, file.contents, revision);
 
   const id = text(fields['id']);
 
@@ -42,11 +47,12 @@ export function parseTicket(effort: string, file: TicketFile, fallbackOrder: num
     legacy: false,
     unrecognizedStatus: undefined,
     collapsedRefs: [],
+    revision,
     body: body.trim(),
   };
 }
 
-function parseLegacy(effort: string, order: number, contents: string): Ticket {
+function parseLegacy(effort: string, order: number, contents: string, revision: string): Ticket {
   const inferred = parseLegacyBody(contents);
 
   return {
@@ -68,6 +74,7 @@ function parseLegacy(effort: string, order: number, contents: string): Ticket {
     legacy: true,
     unrecognizedStatus: inferred.unrecognizedStatus,
     collapsedRefs: inferred.collapsedRefs,
+    revision,
     body: contents.trim(),
   };
 }

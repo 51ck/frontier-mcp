@@ -62,6 +62,13 @@ export interface TicketSummary {
   readonly unrecognizedStatus: string | undefined;
   /** Sub-slice references (`T38.1`) coarsened to the Ticket that exists. */
   readonly collapsedRefs: readonly string[];
+  /**
+   * An opaque token for what was read. A write passes back the one it read and
+   * is refused if the stored Ticket has moved on. The markdown driver builds it
+   * from the file's modification time and size; another driver would use
+   * whatever its store offers, so nothing above the seam may parse it.
+   */
+  readonly revision: string;
 }
 
 /** A Ticket with its prose. */

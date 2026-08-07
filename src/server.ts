@@ -20,6 +20,12 @@ import {
   listEffortsInputSchema,
   renderEfforts,
 } from './tools/list-efforts.ts';
+import {
+  editFor,
+  renderUpdate,
+  updateTicketDescription,
+  updateTicketInputSchema,
+} from './tools/update-ticket.ts';
 import { resolveWorkspace, type WorkspaceContext } from './workspace.ts';
 
 export const SERVER_NAME = 'frontier';
@@ -44,6 +50,11 @@ export interface Frontier {
    * warm start.
    */
   warmUp(): Promise<void>;
+}
+
+/** Injectable so a test can pin the moment a claim was taken. */
+function now(): string {
+  return new Date().toISOString();
 }
 
 export function createFrontier(options: CreateServerOptions = {}): Frontier {
@@ -128,6 +139,29 @@ export function createFrontier(options: CreateServerOptions = {}): Frontier {
           },
         ],
       };
+    },
+  );
+
+  server.registerTool(
+    'update_ticket',
+    {
+      title: 'Update Ticket',
+      description: updateTicketDescription,
+      inputSchema: updateTicketInputSchema,
+      annotations: { readOnlyHint: false, idempotentHint: false },
+    },
+    async ({ id, claim, resolve, drop, root }) => {
+      const workspace = resolveWorkspace(root, context);
+      const index = registry.forWorkspace(workspace);
+      const tickets = await index.tickets();
+
+      const ticket = tickets.find(entry => entry.id === id || entry.handle === id);
+      if (ticket === undefined) throw new Error(`No Ticket '${id}' in ${workspace}.`);
+
+      const edit = editFor(ticket, { claim, resolve, drop }, now());
+      const written = await index.update(ticket.handle, edit, ticket.revision);
+
+      return { content: [{ type: 'text', text: renderUpdate(written) }] };
     },
   );
 
