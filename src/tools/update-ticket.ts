@@ -46,7 +46,11 @@ export const updateTicketInputSchema = {
   tick: z
     .array(z.string().min(1))
     .optional()
-    .describe('Acceptance criteria to check off, matched on their text.'),
+    .describe(
+      'Acceptance criteria to check off, matched on their text. Wrapped criteria match both ' +
+        'as get_tickets returns them and re-joined onto one line. All references resolve before ' +
+        'anything is written — one unmatched name fails the whole call and leaves the file untouched.',
+    ),
   root: z.string().optional().describe('Workspace directory. Defaults to the session workspace.'),
 };
 
@@ -197,7 +201,7 @@ function claimEdit(ticket: Ticket, by: string, now: string): TicketEdit {
   return { status: 'claimed', claimedBy: by, claimedAt: now };
 }
 
-export function renderUpdate(ticket: Ticket): string {
+export function renderUpdate(ticket: Ticket, warnings: readonly string[] = []): string {
   const fields = [
     `status=${ticket.status}`,
     ticket.claimedBy === undefined ? undefined : `claimed_by=${ticket.claimedBy}`,
@@ -206,5 +210,7 @@ export function renderUpdate(ticket: Ticket): string {
     ticket.droppedReason === undefined ? undefined : `dropped_reason=${ticket.droppedReason}`,
   ].filter(field => field !== undefined);
 
-  return `${ticket.handle} updated\n${fields.join('  ')}`;
+  const body = `${ticket.handle} updated\n${fields.join('  ')}`;
+  if (warnings.length === 0) return body;
+  return `${body}\nwarnings:\n${warnings.map(warning => `- ${warning}`).join('\n')}`;
 }

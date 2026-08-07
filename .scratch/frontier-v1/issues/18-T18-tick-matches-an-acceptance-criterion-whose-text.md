@@ -2,10 +2,12 @@
 id: T18
 title: tick matches an acceptance criterion whose text wraps across lines
 kind: build
-status: open
-triage: needs-triage
+status: resolved
+triage: ready-for-agent
 blocked_by: []
+answer_gist: tick collapses whitespace so wrapped criteria match get_tickets form and single-line rejoin; only the checkbox marker changes
 ---
+
 # T18 — tick matches an acceptance criterion whose text wraps across lines
 
 **What to build:** `update_ticket` `tick` ticks a criterion whose text is wrapped over more than one
@@ -38,12 +40,16 @@ Worth checking whether the same line-joining assumption affects any other text m
 
 ## Done when
 
-- [ ] `tick` matches a criterion whose text wraps across lines, given the text as `get_tickets`
+- [x] `tick` matches a criterion whose text wraps across lines, given the text as `get_tickets`
       returns it
-- [ ] `tick` also matches that same text re-joined onto one line, so a caller need not reproduce the
+- [x] `tick` also matches that same text re-joined onto one line, so a caller need not reproduce the
       wrapping
-- [ ] Ticking a wrapped criterion changes only its checkbox; its wrapping, indentation and wording
+- [x] Ticking a wrapped criterion changes only its checkbox; its wrapping, indentation and wording
       stay byte-identical, per the annotation rules in AGENTS.md
-- [ ] A `tick` list containing one unmatched criterion still reports which one failed, and the
+- [x] A `tick` list containing one unmatched criterion still reports which one failed, and the
       existing all-or-nothing behaviour is either kept deliberately or documented in the tool
       description
+
+## Answer
+
+findCriteria folds indented continuation lines into the criterion text. Matching collapses whitespace, so both the get_tickets form (newline + indent) and a single-line rejoin hit the same criterion. Mutation still rewrites only the checkbox on the first line — wrapping, indentation and wording stay byte-identical. All-or-nothing resolve-before-write kept and documented on the tick argument. Checked fog graduate matching: single-line list items only, no wrap fold needed.

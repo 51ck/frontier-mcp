@@ -256,6 +256,10 @@ Write rules, equally load-bearing:
   somebody's hand edit, and overwriting that is what the check exists to prevent.
 - **Writes are serialized per workspace.** Otherwise two calls racing on one Ticket both pass the
   revision check before either renames, and the loser's edit is lost rather than refused.
+- **Resolve/drop Map refresh is best-effort.** After the Ticket write lands, regenerating
+  Decisions-so-far / dropped Out-of-scope must not make a completed lifecycle change look like a
+  failure. The tool returns success with a warning that those blocks may be stale; a later
+  successful refresh or Map mutation catches them up.
 - **A write normalizes the Legacy file it touches**, and keeps the prose it inferred from verbatim.
 - **Claims are flagged when stale, never released.** 24h; auto-expiry is out of scope.
 - **A batch creation is all or none.** Every reference resolves before anything is written, so an
@@ -274,7 +278,9 @@ in the graph:
 - **Nothing is injected into content an agent wrote.** A comment is stored byte-for-byte, including
   `/triage`'s mandatory disclaimer, which is the skill's own to write.
 - **Ticking a criterion changes only its checkbox.** Every other line of the body stays
-  byte-identical, and the criterion keeps its own indentation and wording.
+  byte-identical, and the criterion keeps its own indentation and wording. Wrapped criteria
+  match both as `get_tickets` returns them and re-joined onto one line — comparison collapses
+  whitespace, so house-style continuations are not a silent miss.
 - **Naming a criterion that does not exist fails**, rather than writing nothing and reporting success.
 - **A Triage role never moves the Frontier.** Only Status and Edges decide what is takeable, so
   `/triage` and the graph never compete for one field. A `wontfix` Ticket stays takeable and is named

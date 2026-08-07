@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -87,6 +87,48 @@ Consult ADR 0002. Keep sections typed.
 }
 
 describe('edit_map', () => {
+  it('create with no section fields reads an existing Map without a revision', async () => {
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.scratch/alpha/map.md': fullMap(),
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+    const before = await readFile(join(root, '.scratch/alpha/map.md'), 'utf8');
+
+    const text = await frontier.call('edit_map', { effort: 'alpha', create: true });
+
+    expect(text).toContain('destination: Ship the header docs.');
+    expect(text).toContain('notes: Consult ADR 0002. Keep sections typed.');
+    expect(text).toMatch(/map revision:/);
+    expect(await readFile(join(root, '.scratch/alpha/map.md'), 'utf8')).toBe(before);
+  });
+
+  it('create with no section fields still starts a missing Effort and Map', async () => {
+    const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const text = await frontier.call('edit_map', { effort: 'fresh', create: true });
+
+    expect(text).toContain('effort: fresh');
+    expect(text).toMatch(/map revision:/);
+    expect(await readFile(join(root, '.scratch/fresh/map.md'), 'utf8')).toContain('header: map');
+  });
+
+  it('create with section fields on an existing Map still requires expected_revision', async () => {
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.scratch/alpha/map.md': fullMap(),
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const error = await frontier.callExpectingError('edit_map', {
+      effort: 'alpha',
+      create: true,
+      notes: 'Must not skip the revision check.',
+    });
+    expect(error).toMatch(/changed on disk|Nothing was written/i);
+  });
+
   it('reads Destination and Notes without returning the whole Map body', async () => {
     const root = await makeFixtureTree({
       '.git/HEAD': 'ref: refs/heads/main\n',
@@ -452,6 +494,86 @@ Keep slim.
     );
     expect(onDisk).toContain('## Destination\n\nShip slim.\n');
     expect(onDisk).toContain('## Notes\n\nKeep slim.\n');
+  });
+
+  it('resolve succeeds with a warning when Map derived refresh fails', async () => {
+    // A directory at map.md lets the Ticket write land, then makes the Map
+    // refresh fail on read — chmod on the file cannot, because rename over a
+    // read-only target still succeeds when the directory is writable.
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.scratch/alpha/map.md': fullMap(),
+      '.scratch/alpha/issues/01-T1-first.md': ticket('T1', 'First', {
+        status: 'claimed',
+        claimed_by: 'a',
+        claimed_at: '2026-01-01T00:00:00.000Z',
+      }),
+      '.scratch/alpha/issues/02-T2-second.md': ticket('T2', 'Second', {
+        status: 'claimed',
+        claimed_by: 'a',
+        claimed_at: '2026-01-01T00:00:00.000Z',
+      }),
+    });
+    const mapPath = join(root, '.scratch/alpha/map.md');
+    await rm(mapPath);
+    await mkdir(mapPath);
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const result = await frontier.call('update_ticket', {
+      id: 'T1',
+      resolve: { answer_gist: 'Ticket landed; Map refresh could not' },
+    });
+
+    expect(result).toMatch(/status=resolved/);
+    expect(result).toMatch(/warnings:/i);
+    expect(result).toMatch(/Decisions-so-far|Out-of-scope|stale/i);
+
+    const ticketOnDisk = await readFile(join(root, '.scratch/alpha/issues/01-T1-first.md'), 'utf8');
+    expect(ticketOnDisk).toMatch(/status: resolved/);
+    expect(ticketOnDisk).toContain('Ticket landed; Map refresh could not');
+
+    await rm(mapPath, { recursive: true });
+    await writeFile(mapPath, fullMap(), 'utf8');
+    await frontier.call('update_ticket', {
+      id: 'T2',
+      resolve: { answer_gist: 'Second resolve refreshes the Map' },
+    });
+
+    const mapOnDisk = await readFile(mapPath, 'utf8');
+    expect(mapOnDisk).toContain(
+      '- [T1 — First](issues/01-T1-first.md) — Ticket landed; Map refresh could not',
+    );
+    expect(mapOnDisk).toContain(
+      '- [T2 — Second](issues/02-T2-second.md) — Second resolve refreshes the Map',
+    );
+  });
+
+  it('drop succeeds with a warning when Map derived refresh fails', async () => {
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.scratch/alpha/map.md': fullMap(),
+      '.scratch/alpha/issues/01-T1-first.md': ticket('T1', 'First', {
+        status: 'claimed',
+        claimed_by: 'a',
+        claimed_at: '2026-01-01T00:00:00.000Z',
+      }),
+    });
+    const mapPath = join(root, '.scratch/alpha/map.md');
+    await rm(mapPath);
+    await mkdir(mapPath);
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const result = await frontier.call('update_ticket', {
+      id: 'T1',
+      drop: { reason: 'Beyond the destination' },
+    });
+
+    expect(result).toMatch(/status=dropped/);
+    expect(result).toMatch(/warnings:/i);
+    expect(result).toMatch(/stale/i);
+    expect(await readFile(join(root, '.scratch/alpha/issues/01-T1-first.md'), 'utf8')).toMatch(
+      /status: dropped/,
+    );
   });
 
   it('leaves content outside the GENERATED markers untouched', async () => {

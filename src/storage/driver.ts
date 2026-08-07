@@ -82,8 +82,16 @@ export interface StorageDriver {
    * read. The driver refuses the write if the stored Ticket has moved on since,
    * so a concurrent edit fails loudly instead of being clobbered. The write is
    * atomic: it either lands whole or not at all.
+   *
+   * Resolving or dropping also refreshes the Map's derived blocks. That refresh
+   * is best-effort: a failure after the Ticket write still returns success, with
+   * a warning that Decisions-so-far / dropped Out-of-scope may be stale.
    */
-  updateTicket(handle: string, edit: TicketEdit, expectedRevision: string): Promise<Ticket>;
+  updateTicket(
+    handle: string,
+    edit: TicketEdit,
+    expectedRevision: string,
+  ): Promise<TicketWriteResult>;
 
   /**
    * Create a whole set of Tickets in one Effort and return them as written, in
@@ -138,6 +146,12 @@ export interface StorageDriver {
    * nothing. Unrecognized files in the Effort directory are ignored.
    */
   migrateEffort(effort: string, options: MigrateOptions): Promise<MigrationReport>;
+}
+
+/** A Ticket write, plus any non-fatal warnings that rode along. */
+export interface TicketWriteResult {
+  readonly ticket: Ticket;
+  readonly warnings: readonly string[];
 }
 
 /** Thrown when the stored Ticket moved on since the caller read it. */
