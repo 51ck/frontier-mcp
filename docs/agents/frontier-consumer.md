@@ -1,6 +1,6 @@
-# Frontier consumer
+# FrontierMCP consumer
 
-You are a **consumer** of Frontier MCP while you work. When a tool call is awkward, slow, or fails
+You are a **consumer** of FrontierMCP while you work. When a tool call is awkward, slow, or fails
 the job, that is **friction** — treat it as product signal, not something to work around in silence.
 
 ## Goals
