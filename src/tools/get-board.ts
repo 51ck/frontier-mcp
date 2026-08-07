@@ -213,16 +213,22 @@ function collectWarnings(board: Board): string[] {
 
   const legacy = board.tickets.filter(ticket => ticket.legacy);
   if (legacy.length > 0) {
-    const unidentified = legacy.filter(ticket => ticket.id === undefined).length;
-    const idNote =
-      unidentified === 0
-        ? ''
-        : ` ${String(unidentified)} carry no id — fetch those by the <effort>#<order> handle shown, ` +
-          'and note nothing can declare an Edge on them until migration mints one.';
-
     warnings.push(
       `${String(legacy.length)}/${String(board.tickets.length)} Tickets are Legacy — title, ` +
-        `status and Edges are inferred from prose.${idNote} Run migrate_effort to normalize.`,
+        'status and Edges are inferred from prose. Run migrate_effort to normalize.',
+    );
+  }
+
+  // Tracked separately from Legacy, because normalizing a Legacy file gives it
+  // frontmatter without giving it an id. It would otherwise leave the Legacy
+  // count and take its need for migration silently with it, while still being
+  // unaddressable by anything but its handle.
+  const unidentified = board.tickets.filter(ticket => ticket.id === undefined);
+  if (unidentified.length > 0) {
+    warnings.push(
+      `no id (${String(unidentified.length)}): ` +
+        `${unidentified.map(ticket => ticket.handle).join(' ')} — fetch by the handle shown; ` +
+        'nothing can declare an Edge on them until migrate_effort mints one.',
     );
   }
 

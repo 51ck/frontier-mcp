@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
-import type { Ticket } from '../domain.ts';
-import type { TicketEdit } from '../storage/driver.ts';
+import type { Ticket, TicketEdit } from '../domain.ts';
 
 export const updateTicketInputSchema = {
   id: z.string().describe('Ticket id, or the <effort>#<order> handle of a Legacy Ticket.'),

@@ -1,4 +1,6 @@
-import type { Effort, Status, Ticket } from '../domain.ts';
+import type { Effort, Ticket, TicketEdit } from '../domain.ts';
+
+export type { TicketEdit };
 
 /**
  * The seam from ADR 0001. Every read and write reaches storage through this
@@ -33,22 +35,6 @@ export interface StorageDriver {
    * atomic: it either lands whole or not at all.
    */
   updateTicket(handle: string, edit: TicketEdit, expectedRevision: string): Promise<Ticket>;
-}
-
-/**
- * The mutation points on a Ticket, in the vocabulary rather than the storage
- * format. A field left out is left alone; `null` clears one that was set.
- *
- * `answer` is a body mutation point rather than a field — a Ticket body is
- * opaque apart from the three places the schema says are edited.
- */
-export interface TicketEdit {
-  readonly status?: Status;
-  readonly claimedBy?: string | null;
-  readonly claimedAt?: string | null;
-  readonly answerGist?: string | null;
-  readonly droppedReason?: string | null;
-  readonly answer?: string;
 }
 
 /** Thrown when the stored Ticket moved on since the caller read it. */

@@ -2,10 +2,11 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { Effort, HeaderDoc, Ticket } from '../../domain.ts';
-import type { StorageDriver, TicketEdit } from '../driver.ts';
+import type { StorageDriver } from '../driver.ts';
+import type { TicketEdit } from '../../domain.ts';
 import { NoSuchTicket, RevisionMismatch } from '../driver.ts';
 import { applyEdit, type Defaults } from './serialize.ts';
-import { currentRevision, writeAtomically } from './write.ts';
+import { currentRevision, GuardHeld, withGuard, writeAtomically } from './write.ts';
 import { readDestination, readSpecOpening } from './header-doc.ts';
 import { parseTicket } from './ticket.ts';
 
@@ -79,11 +80,14 @@ export function createMarkdownDriver(root: string): StorageDriver {
      * and dies with the process — no lock file can outlive a crash.
      */
     updateTicket(handle, edit, expectedRevision) {
-      writes = writes.then(
+      // Queue behind whatever is in flight, and keep queueing after a failure —
+      // one refused write must not stop the next.
+      const next = writes.then(
         () => write(scratch, handle, edit, expectedRevision),
         () => write(scratch, handle, edit, expectedRevision),
       );
-      return writes as Promise<Ticket>;
+      writes = next.catch(() => undefined);
+      return next;
     },
   };
 }
@@ -105,7 +109,21 @@ async function write(
   if ((await currentRevision(path)) !== expectedRevision) throw new RevisionMismatch(handle);
 
   const contents = await readFile(path, 'utf8');
-  await writeAtomically(path, applyEdit(contents, edit, defaultsFor(ticket)));
+  const updated = applyEdit(contents, edit, defaultsFor(ticket));
+
+  try {
+    await withGuard(path, expectedRevision, async () => {
+      // Re-check inside the guard: holding it means nobody else can be writing
+      // this revision, so a mismatch now is a genuinely earlier write.
+      if ((await currentRevision(path)) !== expectedRevision) throw new RevisionMismatch(handle);
+      await writeAtomically(path, updated);
+    });
+  } catch (error) {
+    // Losing the guard and losing the revision race mean the same thing to a
+    // caller: somebody else got there first, and nothing of theirs was touched.
+    if (error instanceof GuardHeld) throw new RevisionMismatch(handle);
+    throw error;
+  }
 
   const written = (await readTicketFiles(dir, effort)).find(
     entry => entry.filename === filename,
@@ -194,13 +212,7 @@ async function readTicketFiles(dir: string, effort: string): Promise<TicketFileE
     }),
   );
 
-  const ordered = parsed.toSorted((a, b) => a.ticket.order - b.ticket.order);
-  const unique = withUniqueHandles(ordered.map(entry => entry.ticket));
-
-  return ordered.map((entry, index) => ({
-    filename: entry.filename,
-    ticket: unique[index] ?? entry.ticket,
-  }));
+  return withUniqueHandles(parsed.toSorted((a, b) => a.ticket.order - b.ticket.order));
 }
 
 /** Every Ticket in one Effort, in sort order. A missing `issues/` yields none. */
@@ -213,13 +225,14 @@ async function readTickets(dir: string, effort: string): Promise<Ticket[]> {
  * same `<effort>#<order>` handle and make one of them unfetchable. Later
  * collisions get a suffix, so every Ticket stays individually addressable.
  */
-function withUniqueHandles(tickets: readonly Ticket[]): Ticket[] {
+function withUniqueHandles(entries: readonly TicketFileEntry[]): TicketFileEntry[] {
   const seen = new Set<string>();
 
-  return tickets.map(ticket => {
+  return entries.map(entry => {
+    const { ticket } = entry;
     if (!seen.has(ticket.handle)) {
       seen.add(ticket.handle);
-      return ticket;
+      return entry;
     }
 
     let suffix = 2;
@@ -227,7 +240,7 @@ function withUniqueHandles(tickets: readonly Ticket[]): Ticket[] {
     const handle = `${ticket.handle}.${String(suffix)}`;
     seen.add(handle);
 
-    return { ...ticket, handle };
+    return { filename: entry.filename, ticket: { ...ticket, handle } };
   });
 }
 

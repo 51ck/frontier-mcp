@@ -217,10 +217,13 @@ Write rules, equally load-bearing:
 
 - **Atomic or not at all.** Write a temporary file in the same directory, rename over the target.
   No lock files, ever — a crashed session must never be able to wedge the tracker.
+- **Claims are guarded by a revision-keyed exclusive create**, per [ADR 0004](./docs/adr/0004-claims-are-guarded-by-a-revision-keyed-exclusive-create.md). An optimistic check alone is not compare-and-set across processes — measured, four sessions claiming one Ticket produced three false winners.
 - **Every write carries the revision it read.** `TicketSummary.revision` is opaque above the seam;
   the markdown driver builds it from modification time and size, a SQLite driver would use a
   rowversion. The check runs against the file immediately before the write, not against the index,
   because the index may be stale.
+- **A write never reorders frontmatter.** New fields are appended; only a block this driver creates is in schema order. `flowCollectionPadding: false` matters — without it an untouched `[a, b]` comes back `[ a, b ]`.
+- **A write never touches a body section it does not own.** The answer replaces up to the next `##`, so the comment log survives.
 - **A mismatch is never retried.** It is re-read only to produce a better message — usually
   "already claimed by X" — and then the original failure is raised. A mismatch may equally be
   somebody's hand edit, and overwriting that is what the check exists to prevent.

@@ -82,6 +82,26 @@ describe('writing to a Legacy Ticket', () => {
   });
 });
 
+describe('a Legacy Ticket with no id', () => {
+  it('stays flagged for migration after a write gives it frontmatter', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      '.scratch/alpha/issues/01-no-id.md': '# 01 — A question with no id\n\nStatus: open\n',
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    await frontier.call('update_ticket', { id: 'alpha#1', claim: { by: 'agent-7' } });
+
+    const board = await frontier.call('get_board', { effort: 'alpha' });
+
+    // Normalizing gave it frontmatter but not an id — minting one is T7's job.
+    // It must not drop out of the migration set on the way.
+    expect(board).not.toContain('are Legacy');
+    expect(board).toContain('no id (1)');
+    expect(board).toContain('alpha#1');
+  });
+});
+
 describe('a stale claim', () => {
   it('is flagged on the Board', async () => {
     const root = await makeFixtureTree({
