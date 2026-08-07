@@ -4,6 +4,11 @@ import { createIndexRegistry } from './workspace-index.ts';
 import { createMarkdownDriver } from './storage/markdown/driver.ts';
 import type { StorageDriver } from './storage/driver.ts';
 import {
+  getTicketsDescription,
+  getTicketsInputSchema,
+  renderTickets,
+} from './tools/get-tickets.ts';
+import {
   listEffortsDescription,
   listEffortsInputSchema,
   renderEfforts,
@@ -59,6 +64,33 @@ export function createFrontier(options: CreateServerOptions = {}): Frontier {
       const efforts = await registry.forWorkspace(workspace).efforts();
 
       return { content: [{ type: 'text', text: renderEfforts(workspace, efforts) }] };
+    },
+  );
+
+  server.registerTool(
+    'get_tickets',
+    {
+      title: 'Get Tickets',
+      description: getTicketsDescription,
+      inputSchema: getTicketsInputSchema,
+      annotations: { readOnlyHint: true },
+    },
+    async ({ ids, root }) => {
+      const workspace = resolveWorkspace(root, context);
+      const tickets = await registry.forWorkspace(workspace).tickets();
+      const wanted = new Set(ids);
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: renderTickets(
+              ids,
+              tickets.filter(ticket => ticket.id !== undefined && wanted.has(ticket.id)),
+            ),
+          },
+        ],
+      };
     },
   );
 

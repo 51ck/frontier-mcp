@@ -12,6 +12,44 @@
  */
 export type HeaderDoc = 'map' | 'spec';
 
+/** Which of the two shapes a Ticket is. */
+export type Kind = 'build' | 'decision';
+
+/** A Ticket's position in the graph's lifecycle. Owned by the server. */
+export type Status = 'open' | 'claimed' | 'resolved' | 'dropped';
+
+export const STATUSES: readonly Status[] = ['open', 'claimed', 'resolved', 'dropped'];
+
+/**
+ * A Ticket without its body — everything a Board line needs. Bodies are fetched
+ * separately, so a Board never pays for prose it does not show.
+ */
+export interface TicketSummary {
+  /** `T<n>`, unique repo-wide. Absent on a Legacy Ticket that carries no id. */
+  readonly id: string | undefined;
+  readonly title: string;
+  readonly kind: Kind;
+  readonly status: Status;
+  /** A `/triage` label. A separate field from {@link status}. */
+  readonly triage: string | undefined;
+  /** Edges: the Tickets that must finish first, as plain ids resolved repo-wide. */
+  readonly blockedBy: readonly string[];
+  /** The slug of the Effort that owns this Ticket. */
+  readonly effort: string;
+  /** Sort order within its Effort. Order only — never identity. */
+  readonly order: number;
+  /**
+   * A Ticket predating the schema, parsed best-effort. Its title, status, and
+   * Edges are inferences an agent should distrust.
+   */
+  readonly legacy: boolean;
+}
+
+/** A Ticket with its prose. */
+export interface Ticket extends TicketSummary {
+  readonly body: string;
+}
+
 /**
  * One Effort, as much of it as T1 knows: enough to choose an Effort without
  * opening it. Frontier size joins this in T2, when Tickets are parsed.

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import type { Effort } from '../src/domain.ts';
+import type { Effort, Ticket } from '../src/domain.ts';
 import type { StorageDriver } from '../src/storage/driver.ts';
 import { spec } from './support/fixtures.ts';
 import { cleanupFixtures, connectFrontier, makeFixtureTree } from './support/harness.ts';
@@ -12,7 +12,10 @@ afterEach(cleanupFixtures);
  * of Efforts. Anything the tool layer needed that this could not supply would
  * be a markdown concept leaking across the seam.
  */
-function fixedDriver(efforts: readonly Effort[]): {
+function fixedDriver(
+  efforts: readonly Effort[],
+  tickets: readonly Ticket[] = [],
+): {
   createDriver: () => StorageDriver;
   scans: () => number;
 } {
@@ -22,6 +25,9 @@ function fixedDriver(efforts: readonly Effort[]): {
       async listEfforts() {
         scans += 1;
         return efforts;
+      },
+      async listTickets() {
+        return tickets;
       },
     }),
     scans: () => scans,
@@ -59,6 +65,9 @@ describe('the storage driver seam', () => {
         // Startup takes the first attempt, the first tool call the second.
         if (attempts <= 2) throw new Error('scan blew up');
         return [{ slug: 'recovered', headerDocs: [], ticketCount: 0 }];
+      },
+      async listTickets() {
+        return [];
       },
     });
 

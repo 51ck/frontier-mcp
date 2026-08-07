@@ -1,4 +1,4 @@
-import type { Effort } from './domain.ts';
+import type { Effort, Ticket } from './domain.ts';
 import type { StorageDriver } from './storage/driver.ts';
 
 /**
@@ -12,22 +12,29 @@ import type { StorageDriver } from './storage/driver.ts';
  */
 export interface WorkspaceIndex {
   efforts(): Promise<readonly Effort[]>;
+  tickets(): Promise<readonly Ticket[]>;
 }
 
 export function createWorkspaceIndex(driver: StorageDriver): WorkspaceIndex {
-  // The in-flight scan is cached, not just its result, so that concurrent
-  // callers share one scan instead of racing several.
-  let scan: Promise<readonly Effort[]> | undefined;
-
   return {
-    efforts() {
-      scan ??= driver.listEfforts().catch(error => {
-        // A failed scan must not become the cached answer.
-        scan = undefined;
-        throw error;
-      });
-      return scan;
-    },
+    efforts: cache(() => driver.listEfforts()),
+    tickets: cache(() => driver.listTickets()),
+  };
+}
+
+/**
+ * Hold the in-flight scan, not just its result, so concurrent callers share one
+ * scan instead of racing several. A failed scan is never cached as the answer.
+ */
+function cache<T>(scan: () => Promise<T>): () => Promise<T> {
+  let pending: Promise<T> | undefined;
+
+  return () => {
+    pending ??= scan().catch((error: unknown) => {
+      pending = undefined;
+      throw error;
+    });
+    return pending;
   };
 }
 

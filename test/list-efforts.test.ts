@@ -15,13 +15,18 @@ describe('the server', () => {
     expect(SERVER_NAME).toBe('frontier');
   });
 
-  it('exposes list_efforts and nothing else yet', async () => {
+  it('never exposes more than the eight tools the surface is capped at', async () => {
     const root = await makeFixtureTree(MIXED_WORKSPACE);
     const { client } = await connectFrontier({ cwd: root, env: {} });
 
     const { tools } = await client.listTools();
+    const names = tools.map(tool => tool.name);
 
-    expect(tools.map(tool => tool.name)).toEqual(['list_efforts']);
+    // The cap is a design constraint, not an outcome — every tool schema is
+    // context in every session. See AGENTS.md, Local Contracts.
+    expect(names.length).toBeLessThanOrEqual(8);
+    expect(names).toContain('list_efforts');
+    expect(names).toContain('get_tickets');
   });
 });
 

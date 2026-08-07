@@ -1,8 +1,9 @@
-import { readdir } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { Effort, HeaderDoc } from '../../domain.ts';
+import type { Effort, HeaderDoc, Ticket } from '../../domain.ts';
 import type { StorageDriver } from '../driver.ts';
+import { parseTicket } from './ticket.ts';
 
 /**
  * The layout this driver serves, per AGENTS.md:
@@ -41,7 +42,32 @@ export function createMarkdownDriver(root: string): StorageDriver {
         .filter((effort): effort is Effort => effort !== undefined)
         .toSorted((a, b) => a.slug.localeCompare(b.slug));
     },
+
+    async listTickets(): Promise<readonly Ticket[]> {
+      const slugs = await readDirectories(scratch);
+      const perEffort = await Promise.all(slugs.map(slug => readTickets(scratch, slug)));
+
+      return perEffort
+        .flat()
+        .toSorted((a, b) => a.effort.localeCompare(b.effort) || a.order - b.order);
+    },
   };
+}
+
+/** Every Ticket in one Effort. A missing or unreadable `issues/` yields none. */
+async function readTickets(scratch: string, effort: string): Promise<Ticket[]> {
+  const issues = join(scratch, effort, ISSUES_DIR);
+  const entries = await readDir(issues);
+  const filenames = entries
+    .filter(entry => entry.isFile() && entry.name.endsWith('.md'))
+    .map(entry => entry.name);
+
+  return Promise.all(
+    filenames.map(async filename => {
+      const contents = await readFile(join(issues, filename), 'utf8');
+      return parseTicket(effort, { filename, contents });
+    }),
+  );
 }
 
 /**
