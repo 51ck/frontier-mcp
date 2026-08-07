@@ -43,6 +43,8 @@ export interface TicketSummary {
    * Edges are inferences an agent should distrust.
    */
   readonly legacy: boolean;
+  /** The raw `Status:` text of a Legacy Ticket whose value did not map. */
+  readonly unrecognizedStatus: string | undefined;
 }
 
 /** A Ticket with its prose. */

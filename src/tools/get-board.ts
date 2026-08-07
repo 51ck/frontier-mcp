@@ -84,21 +84,57 @@ function renderEdge(id: string, from: TicketSummary, board: Board): string {
  * Broken Edges surface here rather than through a separate validation tool,
  * because a validation tool nobody calls is a validator that does not exist.
  */
+/**
+ * Warnings are grouped, not itemized. An unmigrated Effort can carry a dangling
+ * Edge on nearly every Ticket, and a warnings block longer than the Board it
+ * annotates would undo the saving the Board exists to deliver.
+ */
 function collectWarnings(board: Board): string[] {
   const warnings: string[] = [];
+  const dangling = new Set<string>();
+  const orphaned: string[] = [];
+  const unrecognized: string[] = [];
 
   for (const ticket of board.tickets) {
-    const id = ticket.id ?? '(no id)';
+    const id = ticket.id ?? `#${String(ticket.order)}`;
 
     for (const edge of ticket.blockedBy) {
       const blocker = board.byId.get(edge);
 
-      if (blocker === undefined) {
-        warnings.push(`${id} blocked_by ${edge} — no such Ticket`);
-      } else if (blocker.status === 'dropped') {
-        warnings.push(`${id} blocked_by ${edge} — which was dropped, so it never unblocks`);
-      }
+      if (blocker === undefined) dangling.add(edge);
+      else if (blocker.status === 'dropped') orphaned.push(`${id} blocked_by ${edge}`);
     }
+
+    if (ticket.unrecognizedStatus !== undefined) {
+      unrecognized.push(`${id} "${ticket.unrecognizedStatus}"`);
+    }
+  }
+
+  if (dangling.size > 0) {
+    warnings.push(
+      `dangling Edges (${String(dangling.size)}), pointing at no Ticket in this workspace: ` +
+        [...dangling].toSorted().join(' '),
+    );
+  }
+  if (orphaned.length > 0) {
+    warnings.push(`blocked by a dropped Ticket, which never unblocks: ${orphaned.join(', ')}`);
+  }
+  if (unrecognized.length > 0) {
+    warnings.push(`unrecognized status, read as open: ${unrecognized.join(', ')}`);
+  }
+
+  const legacy = board.tickets.filter(ticket => ticket.legacy);
+  if (legacy.length > 0) {
+    const unidentified = legacy.filter(ticket => ticket.id === undefined).length;
+    const idNote =
+      unidentified === 0
+        ? ''
+        : ` ${String(unidentified)} carry no id and cannot be fetched or blocked on until one is minted.`;
+
+    warnings.push(
+      `${String(legacy.length)}/${String(board.tickets.length)} Tickets are Legacy — title, ` +
+        `status and Edges are inferred from prose.${idNote} Run migrate_effort to normalize.`,
+    );
   }
 
   return warnings;

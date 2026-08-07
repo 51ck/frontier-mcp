@@ -1,6 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -23,6 +23,32 @@ export async function makeFixtureTree(tree: FixtureTree): Promise<string> {
       await mkdir(dirname(target), { recursive: true });
       await writeFile(target, contents, 'utf8');
     }),
+  );
+
+  return root;
+}
+
+/**
+ * A workspace built from Efforts copied verbatim out of the real repos, keyed
+ * slug -> directory name under `test/fixtures/legacy/`. These files are the
+ * actual input Frontier has to survive; hand-written fixtures would be more
+ * polite than the real thing.
+ */
+export async function makeLegacyWorkspace(efforts: Record<string, string>): Promise<string> {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'frontier-')));
+  cleanups.push(() => rm(root, { recursive: true, force: true }));
+
+  await mkdir(join(root, '.git'), { recursive: true });
+  await Promise.all(
+    Object.entries(efforts).map(async ([slug, fixture]) =>
+      cp(
+        join(import.meta.dirname, '..', 'fixtures', 'legacy', fixture),
+        join(root, '.scratch', slug),
+        {
+          recursive: true,
+        },
+      ),
+    ),
   );
 
   return root;

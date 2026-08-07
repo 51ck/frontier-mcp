@@ -1,5 +1,6 @@
 import type { Kind, Status, Ticket } from '../../domain.ts';
 import { STATUSES } from '../../domain.ts';
+import { parseLegacyBody } from './legacy.ts';
 import { splitFrontmatter } from './frontmatter.ts';
 
 /** `<NN>-<rest>.md` — `NN` carries sort order and nothing else. */
@@ -31,22 +32,26 @@ export function parseTicket(effort: string, file: TicketFile): Ticket {
     effort,
     order,
     legacy: false,
+    unrecognizedStatus: undefined,
     body: body.trim(),
   };
 }
 
 function parseLegacy(effort: string, order: number, contents: string): Ticket {
+  const inferred = parseLegacyBody(contents);
+
   return {
-    id: undefined,
-    title: '(untitled)',
-    kind: 'build',
-    status: 'open',
-    triage: undefined,
-    blockedBy: [],
+    id: inferred.id,
+    title: inferred.title,
+    kind: inferred.kind,
+    status: inferred.status,
+    triage: inferred.triage,
+    blockedBy: inferred.blockedBy,
     effort,
     order,
     legacy: true,
-    body: contents,
+    unrecognizedStatus: inferred.unrecognizedStatus,
+    body: contents.trim(),
   };
 }
 
