@@ -167,3 +167,42 @@ export const TRIAGE_ROLES = [
 ] as const;
 
 export type TriageRole = (typeof TRIAGE_ROLES)[number];
+
+/**
+ * A Map's typed sections, without Decisions-so-far — that section is derived
+ * from resolved Tickets and never read from the file.
+ */
+export interface MapDocument {
+  readonly destination: string | undefined;
+  readonly notes: string | undefined;
+  /** Fog patches under Not yet specified, in file order. */
+  readonly notYetSpecified: readonly string[];
+  /** Hand-ruled Out-of-scope items. Dropped Tickets are not here — they render. */
+  readonly outOfScope: readonly string[];
+  readonly revision: string;
+}
+
+/**
+ * A section mutation on a Map. A field left out is left alone. Decisions-so-far
+ * is never a field — it is regenerated from Tickets on every write.
+ */
+export interface MapEdit {
+  readonly destination?: string;
+  readonly notes?: string;
+  /** Append a fog patch to Not yet specified. */
+  readonly addFog?: string;
+  /** Remove a fog patch matched on its text. Fails when none match. */
+  readonly graduateFog?: string;
+  /** Append a hand-ruled item to Out of scope. */
+  readonly ruleOut?: string;
+}
+
+/**
+ * A Spec as a whole document. Opaque body with frontmatter — nothing edits it
+ * section by section.
+ */
+export interface SpecDocument {
+  /** The whole file, frontmatter and body. */
+  readonly content: string;
+  readonly revision: string;
+}

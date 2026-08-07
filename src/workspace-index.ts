@@ -1,5 +1,10 @@
-import type { Effort, Ticket, TicketDraft } from './domain.ts';
-import type { CreateOptions, StorageDriver, TicketEdit } from './storage/driver.ts';
+import type { Effort, MapDocument, MapEdit, SpecDocument, Ticket, TicketDraft } from './domain.ts';
+import type {
+  CreateOptions,
+  HeaderDocOptions,
+  StorageDriver,
+  TicketEdit,
+} from './storage/driver.ts';
 
 /**
  * The in-memory index: a derived, rebuildable view of one workspace, built by a
@@ -21,6 +26,20 @@ export interface WorkspaceIndex {
     drafts: readonly TicketDraft[],
     options: CreateOptions,
   ): Promise<readonly Ticket[]>;
+  readMap(effort: string): Promise<MapDocument>;
+  editMap(
+    effort: string,
+    edit: MapEdit,
+    expectedRevision: string | undefined,
+    options: HeaderDocOptions,
+  ): Promise<MapDocument>;
+  readSpec(effort: string): Promise<SpecDocument>;
+  putSpec(
+    effort: string,
+    content: string,
+    expectedRevision: string | undefined,
+    options: HeaderDocOptions,
+  ): Promise<SpecDocument>;
 }
 
 export function createWorkspaceIndex(driver: StorageDriver): WorkspaceIndex {
@@ -35,6 +54,14 @@ export function createWorkspaceIndex(driver: StorageDriver): WorkspaceIndex {
     },
     async create(effort, drafts, options) {
       return moved(() => driver.createTickets(effort, drafts, options));
+    },
+    readMap: effort => driver.readMap(effort),
+    async editMap(effort, edit, expectedRevision, options) {
+      return moved(() => driver.editMap(effort, edit, expectedRevision, options));
+    },
+    readSpec: effort => driver.readSpec(effort),
+    async putSpec(effort, content, expectedRevision, options) {
+      return moved(() => driver.putSpec(effort, content, expectedRevision, options));
     },
   };
 

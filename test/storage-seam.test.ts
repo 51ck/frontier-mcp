@@ -35,6 +35,18 @@ function fixedDriver(
       createTickets() {
         throw new Error('this driver is read-only');
       },
+      readMap() {
+        throw new Error('this driver is read-only');
+      },
+      editMap() {
+        throw new Error('this driver is read-only');
+      },
+      readSpec() {
+        throw new Error('this driver is read-only');
+      },
+      putSpec() {
+        throw new Error('this driver is read-only');
+      },
     }),
     scans: () => scans,
   };
@@ -99,6 +111,18 @@ describe('the storage driver seam', () => {
         throw new Error('this driver is read-only');
       },
       createTickets() {
+        throw new Error('this driver is read-only');
+      },
+      readMap() {
+        throw new Error('this driver is read-only');
+      },
+      editMap() {
+        throw new Error('this driver is read-only');
+      },
+      readSpec() {
+        throw new Error('this driver is read-only');
+      },
+      putSpec() {
         throw new Error('this driver is read-only');
       },
     });

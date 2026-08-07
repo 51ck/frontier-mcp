@@ -1,14 +1,29 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { Effort, HeaderDoc, Ticket, TicketDraft } from '../../domain.ts';
-import type { CreateOptions, StorageDriver } from '../driver.ts';
+import type {
+  Effort,
+  HeaderDoc,
+  MapDocument,
+  MapEdit,
+  SpecDocument,
+  Ticket,
+  TicketDraft,
+} from '../../domain.ts';
+import type { CreateOptions, HeaderDocOptions, StorageDriver } from '../driver.ts';
 import type { TicketEdit } from '../../domain.ts';
-import { NoSuchEffort, NoSuchTicket, RevisionMismatch } from '../driver.ts';
+import { NoSuchEffort, NoSuchMap, NoSuchSpec, NoSuchTicket, RevisionMismatch } from '../driver.ts';
 import { createTicketFiles } from './create.ts';
 import { applyEdit, type Defaults } from './serialize.ts';
 import { currentRevision, GuardHeld, withGuard, writeAtomically } from './write.ts';
-import { readDestination, readSpecOpening } from './header-doc.ts';
+import {
+  applyMapEdit,
+  type DerivedPointer,
+  readDestination,
+  readMapDocument,
+  readSpecOpening,
+  scaffoldMap,
+} from './header-doc.ts';
 import { parseTicket } from './ticket.ts';
 
 /**
@@ -24,9 +39,11 @@ import { parseTicket } from './ticket.ts';
  */
 const SCRATCH_DIR = '.scratch';
 const ISSUES_DIR = 'issues';
+const MAP_FILE = 'map.md';
+const SPEC_FILE = 'spec.md';
 const HEADER_DOCS: ReadonlyArray<readonly [HeaderDoc, string]> = [
-  ['map', 'map.md'],
-  ['spec', 'spec.md'],
+  ['map', MAP_FILE],
+  ['spec', SPEC_FILE],
 ];
 
 /**
@@ -83,6 +100,22 @@ export function createMarkdownDriver(root: string): StorageDriver {
       // its own guards, and an in-flight walk started before them would defeat
       // the check it exists to make.
       return serialized(() => create(scratch, effort, drafts, options, walk));
+    },
+
+    readMap(effort) {
+      return serialized(() => loadMap(scratch, effort));
+    },
+
+    editMap(effort, edit, expectedRevision, options) {
+      return serialized(() => saveMap(scratch, effort, edit, expectedRevision, options));
+    },
+
+    readSpec(effort) {
+      return serialized(() => loadSpec(scratch, effort));
+    },
+
+    putSpec(effort, content, expectedRevision, options) {
+      return serialized(() => saveSpec(scratch, effort, content, expectedRevision, options));
     },
   };
 
@@ -174,7 +207,192 @@ async function write(
   )?.ticket;
   if (written === undefined) throw new NoSuchTicket(handle);
 
+  // Resolving or dropping moves what the Map's derived blocks must show. Refresh
+  // them here so a session that never touches edit_map still leaves the file
+  // truthful for a human reading it on GitHub.
+  if (edit.status === 'resolved' || edit.status === 'dropped') {
+    await refreshMapDerived(scratch, effort);
+  }
+
   return written;
+}
+
+async function loadMap(scratch: string, effort: string): Promise<MapDocument> {
+  const path = join(scratch, effort, MAP_FILE);
+  const revision = await currentRevision(path);
+  if (revision === undefined) throw new NoSuchMap(effort);
+  return readMapDocument(await readFile(path, 'utf8'), revision);
+}
+
+async function saveMap(
+  scratch: string,
+  effort: string,
+  edit: MapEdit,
+  expectedRevision: string | undefined,
+  options: HeaderDocOptions,
+): Promise<MapDocument> {
+  const dir = join(scratch, effort);
+  const path = join(dir, MAP_FILE);
+  const current = await currentRevision(path);
+
+  if (current === undefined) {
+    // createEffort only guards starting a new Effort. An Effort that already
+    // holds a Spec or issues/ must be able to gain a Map without that flag —
+    // that is wayfinder's handoff, not a mistyped slug.
+    if ((await readEffort(scratch, effort)) === undefined && !options.createEffort) {
+      throw new NoSuchEffort(effort);
+    }
+
+    await mkdir(join(dir, ISSUES_DIR), { recursive: true });
+    const entries = await readTicketFiles(dir, effort);
+    const seeded = applyMapEdit(
+      scaffoldMap(edit),
+      {},
+      decisionPointers(entries),
+      droppedPointers(entries),
+    );
+    await writeAtomically(path, seeded);
+    return readMapDocument(seeded, (await currentRevision(path)) ?? '');
+  }
+
+  if (expectedRevision !== undefined && current !== expectedRevision) {
+    throw new RevisionMismatch(`map:${effort}`);
+  }
+
+  const contents = await readFile(path, 'utf8');
+  const entries = await readTicketFiles(dir, effort);
+  const updated = applyMapEdit(contents, edit, decisionPointers(entries), droppedPointers(entries));
+
+  try {
+    await withGuard(path, current, async () => {
+      if ((await currentRevision(path)) !== current) throw new RevisionMismatch(`map:${effort}`);
+      await writeAtomically(path, updated);
+    });
+  } catch (error) {
+    if (error instanceof GuardHeld) throw new RevisionMismatch(`map:${effort}`);
+    throw error;
+  }
+
+  return readMapDocument(updated, (await currentRevision(path)) ?? '');
+}
+
+/**
+ * Rewrite the Map's generated blocks from the Effort's Tickets. No-op when the
+ * Effort has no Map — a Spec-only Effort has nowhere to put them.
+ */
+async function refreshMapDerived(scratch: string, effort: string): Promise<void> {
+  const path = join(scratch, effort, MAP_FILE);
+  const revision = await currentRevision(path);
+  if (revision === undefined) return;
+
+  const contents = await readFile(path, 'utf8');
+  const entries = await readTicketFiles(join(scratch, effort), effort);
+  const updated = applyMapEdit(contents, {}, decisionPointers(entries), droppedPointers(entries));
+  if (updated === contents) return;
+
+  try {
+    await withGuard(path, revision, async () => {
+      if ((await currentRevision(path)) !== revision) return;
+      await writeAtomically(path, updated);
+    });
+  } catch (error) {
+    // A parallel Map edit won the race — its write will regenerate from the
+    // Tickets it sees, including the one we just landed. Losing here is fine.
+    if (error instanceof GuardHeld) return;
+    throw error;
+  }
+}
+
+async function loadSpec(scratch: string, effort: string): Promise<SpecDocument> {
+  const path = join(scratch, effort, SPEC_FILE);
+  const revision = await currentRevision(path);
+  if (revision === undefined) throw new NoSuchSpec(effort);
+  return { content: await readFile(path, 'utf8'), revision };
+}
+
+async function saveSpec(
+  scratch: string,
+  effort: string,
+  content: string,
+  expectedRevision: string | undefined,
+  options: HeaderDocOptions,
+): Promise<SpecDocument> {
+  const dir = join(scratch, effort);
+  const path = join(dir, SPEC_FILE);
+  const current = await currentRevision(path);
+
+  if (current === undefined) {
+    // Same rule as Maps: createEffort starts an Effort; putting a Spec onto an
+    // Effort that already has a Map needs no flag.
+    if ((await readEffort(scratch, effort)) === undefined && !options.createEffort) {
+      throw new NoSuchEffort(effort);
+    }
+
+    await mkdir(join(dir, ISSUES_DIR), { recursive: true });
+    await writeAtomically(path, normalizeSpec(content));
+    return { content: normalizeSpec(content), revision: (await currentRevision(path)) ?? '' };
+  }
+
+  if (expectedRevision !== undefined && current !== expectedRevision) {
+    throw new RevisionMismatch(`spec:${effort}`);
+  }
+
+  const normalized = normalizeSpec(content);
+  try {
+    await withGuard(path, current, async () => {
+      if ((await currentRevision(path)) !== current) throw new RevisionMismatch(`spec:${effort}`);
+      await writeAtomically(path, normalized);
+    });
+  } catch (error) {
+    if (error instanceof GuardHeld) throw new RevisionMismatch(`spec:${effort}`);
+    throw error;
+  }
+
+  return { content: normalized, revision: (await currentRevision(path)) ?? '' };
+}
+
+/** Ensure a Spec written through the tool carries header: spec in frontmatter. */
+function normalizeSpec(content: string): string {
+  const trimmed = content.replace(/^\uFEFF/, '');
+  if (/^---\r?\n/.test(trimmed)) {
+    if (/^---\r?\n[\s\S]*?\bheader:\s*spec\b/m.test(trimmed)) return ensureTrailingNewline(trimmed);
+    return trimmed.replace(/^---\r?\n/, '---\nheader: spec\n');
+  }
+  return `---\nheader: spec\n---\n\n${trimmed.replace(/^\n+/, '')}`;
+}
+
+function ensureTrailingNewline(text: string): string {
+  return text.endsWith('\n') ? text : `${text}\n`;
+}
+
+function decisionPointers(entries: readonly TicketFileEntry[]): DerivedPointer[] {
+  return entries.flatMap(entry => {
+    const { ticket, filename } = entry;
+    if (ticket.status !== 'resolved' || ticket.id === undefined) return [];
+    return [
+      {
+        id: ticket.id,
+        title: ticket.title,
+        link: `${ISSUES_DIR}/${filename}`,
+        gist: ticket.answerGist ?? '',
+      },
+    ];
+  });
+}
+
+function droppedPointers(entries: readonly TicketFileEntry[]): DerivedPointer[] {
+  return entries.flatMap(entry => {
+    const { ticket, filename } = entry;
+    if (ticket.status !== 'dropped' || ticket.id === undefined) return [];
+    return [
+      {
+        id: ticket.id,
+        title: ticket.title,
+        link: `${ISSUES_DIR}/${filename}`,
+        gist: ticket.droppedReason ?? '',
+      },
+    ];
+  });
 }
 
 /** Find the file backing a Ticket, by id or by its `<effort>#<order>` handle. */

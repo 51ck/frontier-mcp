@@ -1,6 +1,14 @@
-import type { Effort, Ticket, TicketDraft, TicketEdit } from '../domain.ts';
+import type {
+  Effort,
+  MapDocument,
+  MapEdit,
+  SpecDocument,
+  Ticket,
+  TicketDraft,
+  TicketEdit,
+} from '../domain.ts';
 
-export type { TicketDraft, TicketEdit };
+export type { MapDocument, MapEdit, SpecDocument, TicketDraft, TicketEdit };
 
 export interface CreateOptions {
   /**
@@ -23,6 +31,14 @@ export interface CreateOptions {
    * next id will be.
    */
   readonly validate?: (ids: readonly string[], tickets: readonly Ticket[]) => void;
+}
+
+/**
+ * Whether a Header-doc write may start an Effort that does not yet exist.
+ * Off by default — same reason as {@link CreateOptions.createEffort}.
+ */
+export interface HeaderDocOptions {
+  readonly createEffort: boolean;
 }
 
 /**
@@ -76,6 +92,35 @@ export interface StorageDriver {
     drafts: readonly TicketDraft[],
     options: CreateOptions,
   ): Promise<readonly Ticket[]>;
+
+  /**
+   * The Map's typed sections for one Effort. Decisions-so-far is not here — it
+   * is derived from Tickets and never read from the file.
+   */
+  readMap(effort: string): Promise<MapDocument>;
+
+  /**
+   * Apply a section edit to a Map and regenerate its derived blocks. An empty
+   * edit is a no-op write that still refreshes Decisions-so-far and dropped
+   * Tickets into Out of scope.
+   */
+  editMap(
+    effort: string,
+    edit: MapEdit,
+    expectedRevision: string | undefined,
+    options: HeaderDocOptions,
+  ): Promise<MapDocument>;
+
+  /** A Spec as a whole document. Absent when the Effort has none. */
+  readSpec(effort: string): Promise<SpecDocument>;
+
+  /** Replace a Spec wholesale. */
+  putSpec(
+    effort: string,
+    content: string,
+    expectedRevision: string | undefined,
+    options: HeaderDocOptions,
+  ): Promise<SpecDocument>;
 }
 
 /** Thrown when the stored Ticket moved on since the caller read it. */
@@ -101,5 +146,29 @@ export class NoSuchEffort extends Error {
   constructor(slug: string) {
     super(`No Effort '${slug}' in this workspace. Pass create to start it.`);
     this.name = 'NoSuchEffort';
+  }
+}
+
+/** Thrown when a Map operation names an Effort that holds no Map. */
+export class NoSuchMap extends Error {
+  constructor(slug: string) {
+    super(`No Map for Effort '${slug}'.`);
+    this.name = 'NoSuchMap';
+  }
+}
+
+/** Thrown when a Spec operation names an Effort that holds no Spec. */
+export class NoSuchSpec extends Error {
+  constructor(slug: string) {
+    super(`No Spec for Effort '${slug}'.`);
+    this.name = 'NoSuchSpec';
+  }
+}
+
+/** Thrown when graduating a fog patch that the Map does not hold. */
+export class NoSuchFogPatch extends Error {
+  constructor(patch: string) {
+    super(`No fog patch matching '${patch}' under Not yet specified.`);
+    this.name = 'NoSuchFogPatch';
   }
 }

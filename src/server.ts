@@ -12,6 +12,7 @@ import {
   planBatch,
   renderCreated,
 } from './tools/create-tickets.ts';
+import { editMapDescription, editMapInputSchema, mapEditFor, renderMap } from './tools/edit-map.ts';
 import {
   boardFor,
   getBoardDescription,
@@ -28,6 +29,7 @@ import {
   listEffortsInputSchema,
   renderEfforts,
 } from './tools/list-efforts.ts';
+import { renderSpec, specDescription, specInputSchema } from './tools/spec.ts';
 import {
   editFor,
   renderUpdate,
@@ -219,6 +221,65 @@ export function createFrontier(options: CreateServerOptions = {}): Frontier {
       }
 
       return { content: [{ type: 'text', text: renderUpdate(written) }] };
+    },
+  );
+
+  server.registerTool(
+    'edit_map',
+    {
+      title: 'Edit Map',
+      description: editMapDescription,
+      inputSchema: editMapInputSchema,
+      annotations: { readOnlyHint: false, idempotentHint: false },
+    },
+    async ({ effort, create, destination, notes, add_fog, graduate_fog, rule_out, root }) => {
+      const workspace = resolveWorkspace(root, context);
+      const index = registry.forWorkspace(workspace);
+      const edit = mapEditFor({ destination, notes, add_fog, graduate_fog, rule_out });
+      const mutating =
+        destination !== undefined ||
+        notes !== undefined ||
+        add_fog !== undefined ||
+        graduate_fog !== undefined ||
+        rule_out !== undefined;
+
+      let document;
+      if (!mutating && create !== true) {
+        document = await index.readMap(effort);
+      } else {
+        const current = mutating ? await index.readMap(effort).catch(() => undefined) : undefined;
+        document = await index.editMap(effort, edit, current?.revision, {
+          createEffort: create === true,
+        });
+      }
+
+      return { content: [{ type: 'text', text: renderMap(effort, document) }] };
+    },
+  );
+
+  server.registerTool(
+    'spec',
+    {
+      title: 'Spec',
+      description: specDescription,
+      inputSchema: specInputSchema,
+      annotations: { readOnlyHint: false, idempotentHint: false },
+    },
+    async ({ effort, create, content, root }) => {
+      const workspace = resolveWorkspace(root, context);
+      const index = registry.forWorkspace(workspace);
+
+      let document;
+      if (content === undefined) {
+        document = await index.readSpec(effort);
+      } else {
+        const current = await index.readSpec(effort).catch(() => undefined);
+        document = await index.putSpec(effort, content, current?.revision, {
+          createEffort: create === true,
+        });
+      }
+
+      return { content: [{ type: 'text', text: renderSpec(effort, document) }] };
     },
   );
 
