@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
-import { createFrontier } from './server.ts';
+import { createFrontierMCP } from './server.ts';
 
-const frontier = createFrontier();
+const frontier = createFrontierMCP();
 
 // The index is built by a full scan before the transport connects, so the first
 // call is served warm. A workspace that cannot be scanned yet is not fatal:

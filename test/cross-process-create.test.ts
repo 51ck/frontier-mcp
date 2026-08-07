@@ -22,11 +22,11 @@ const PER_SESSION = 3;
  * has to rule out, and only real processes can.
  */
 const CREATOR = `
-import { createFrontier } from '%SRC%';
+import { createFrontierMCP } from '%SRC%';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 const [who, at, cwd] = [process.argv[2], Number(process.argv[3]), process.argv[4]];
-const frontier = createFrontier({ cwd, env: {} });
+const frontier = createFrontierMCP({ cwd, env: {} });
 const client = new Client({ name: who, version: '0' });
 const [a, b] = InMemoryTransport.createLinkedPair();
 await Promise.all([frontier.server.connect(b), client.connect(a)]);

@@ -1,4 +1,4 @@
-# Frontier
+# FrontierMCP
 
 An MCP server giving agents deterministic, low-token access to the markdown issue tracker that the
 engineering skills (`/to-tickets`, `/wayfinder`, `/triage`, `/to-spec`, `/implement`) read and write
@@ -81,10 +81,15 @@ resolved repo-wide — an Edge across Efforts looks no different from a local on
 _Avoid_: dependency, link, relation
 
 **Frontier**:
-The tickets takeable right now — open, unblocked, unclaimed. Computed, never stored. Also the name of
-this server, which exists to answer exactly this query — say "the frontier" for the set, "Frontier"
-for the product.
-_Avoid_: backlog, queue, ready list
+The tickets takeable right now — open, unblocked, unclaimed. Computed, never stored. Always the set,
+never the product.
+_Avoid_: backlog, queue, ready list; using "Frontier" for the server
+
+**FrontierMCP**:
+This product — the MCP server that computes the Frontier and serves the Board. `FrontierMCP` in prose
+and in code identifiers; `frontier-mcp` as the npm package and binary; `frontier` as the registered
+MCP server name, which is why the tools are `mcp__frontier__*`.
+_Avoid_: Frontier (that is the set), the frontier server, frontier-mcp in prose
 
 **Legacy ticket**:
 A ticket file predating the schema, with no frontmatter. Parsed best-effort on read, normalized on

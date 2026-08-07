@@ -3,8 +3,8 @@
 Issues and specs for this repo live as markdown files in `.scratch/`. Vocabulary is defined in
 [CONTEXT.md](../../CONTEXT.md) — Effort, Board, Header doc, Map, Spec, Ticket, Edge, Frontier.
 
-This repo builds Frontier, an MCP server over exactly this layout. Until it ships, the conventions
-below are followed by hand. They are written to Frontier's target schema deliberately, so the Tickets
+This repo builds FrontierMCP, an MCP server over exactly this layout. Until it ships, the conventions
+below are followed by hand. They are written to FrontierMCP's target schema deliberately, so the Tickets
 written now are schema-conformant and need no migration later.
 
 ## Conventions
@@ -76,7 +76,7 @@ Used by `/wayfinder`. The **Map** is a file with one **child** file per Ticket.
 - **Rule out of scope**: set `status: dropped` with a `dropped_reason`, and add the line to the Map's
   Out of scope. Do not put it in Decisions-so-far — that section records the route actually walked.
 
-## Once Frontier ships
+## Once FrontierMCP ships
 
 The conventions above stay true and become the fallback. The MCP tools replace hand-parsing: a Board
 query instead of reading every Ticket, batch creation instead of a file-writing loop, compare-and-set
