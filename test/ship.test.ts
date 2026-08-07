@@ -90,3 +90,27 @@ describe('the tracker configuration document', () => {
     expect(board).not.toContain('legacy');
   });
 });
+
+describe('packaging', () => {
+  it('publishes as frontier-mcp with a pinned-version entry point', async () => {
+    const { default: packageJson } = await import('../package.json', { with: { type: 'json' } });
+
+    expect(packageJson.name).toBe('frontier-mcp');
+    expect(packageJson.bin).toEqual({ 'frontier-mcp': './dist/bin.js' });
+    expect(packageJson.version).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(packageJson.files).toEqual(
+      expect.arrayContaining(['dist', 'docs/agents/issue-tracker.md']),
+    );
+  });
+
+  it('documents user-scope install with a pinned npx invocation', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const readme = readFileSync(join(import.meta.dirname, '..', 'README.md'), 'utf8');
+
+    expect(readme).toContain('user scope');
+    expect(readme).toContain('frontier-mcp@');
+    expect(readme).toContain('frontier://tracker-doc');
+    expect(readme).toContain('Pinning the version');
+  });
+});

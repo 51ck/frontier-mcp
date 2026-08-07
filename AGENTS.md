@@ -195,6 +195,7 @@ Source layout:
 | `src/workspace-watcher.ts` | Filesystem watcher — debounced index invalidation for `.scratch/` changes. |
 | `src/tools/` | One module per tool: its input schema, its description, and how its result renders. |
 | `src/server.ts` | Wires the above into an `McpServer`. |
+| `src/tracker-doc.ts` | Loads the shipped tracker configuration document for the `tracker-doc` MCP resource. |
 | `src/index.ts` | The package's library surface. Deliberately narrow — below-seam modules are not exported. |
 | `src/bin.ts` | The stdio entry point. |
 

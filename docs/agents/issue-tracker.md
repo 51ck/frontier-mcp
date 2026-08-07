@@ -133,3 +133,9 @@ Used by `/wayfinder`. The **Map** is a file with one **child** file per Ticket.
   Out of scope. Do not put it in Decisions-so-far — that section records the route actually walked.
 
 When Frontier is loaded, prefer the MCP calls in the table above over hand-editing these fields.
+
+### Hand publish (no Frontier)
+
+When a skill says "publish to the issue tracker" and Frontier is not loaded, create
+`.scratch/<effort-slug>/issues/<NN>-T<n>-<slug>.md` (creating directories as needed), assign the next
+repo-global `T<n>`, and write frontmatter matching the template above.
