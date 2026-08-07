@@ -2,9 +2,10 @@
 id: T8
 title: Filesystem watcher — index invalidation, never writes
 kind: build
-status: open
+status: resolved
 triage: ready-for-agent
 blocked_by: [T2]
+answer_gist: Debounced fs.watch invalidates index on .scratch changes; never writes; six harness tests
 ---
 
 # T8 — Filesystem watcher: index invalidation, never writes
@@ -18,9 +19,13 @@ unexplained diffs, and a branch switch touching forty files would fire forty of 
 Decisions-so-far block therefore stays stale until the next mutation through the server, which is the
 cheaper failure.
 
-- [ ] A Ticket edited on disk is reflected in the next Board without restarting the server
-- [ ] A file added or deleted on disk updates the index
-- [ ] A branch switch touching many files leaves the working tree byte-identical to what git produced
-- [ ] The watcher performs no writes under any circumstances
-- [ ] Watcher activity is confined to the resolved workspace
-- [ ] The index remains correct after a burst of rapid changes
+- [x] A Ticket edited on disk is reflected in the next Board without restarting the server
+- [x] A file added or deleted on disk updates the index
+- [x] A branch switch touching many files leaves the working tree byte-identical to what git produced
+- [x] The watcher performs no writes under any circumstances
+- [x] Watcher activity is confined to the resolved workspace
+- [x] The index remains correct after a burst of rapid changes
+
+## Answer
+
+Added `src/workspace-watcher.ts`: recursive `fs.watch` on `.scratch/` with debounced wholesale index invalidation. Root-level watch attaches when `.scratch/` appears later. Watcher never writes. Six MCP-layer tests in `test/watcher.test.ts` cover edit/add/delete, branch-switch byte identity, burst coalescing, no-write idle path, and confinement outside `.scratch/`. `Frontier.close()` tears down watchers.
