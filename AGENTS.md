@@ -123,6 +123,12 @@ Design decisions settled and binding until an ADR revises them:
   [ADR 0002](./docs/adr/0002-map-decisions-derived-from-tickets.md).
 - **Lenient on read, strict on write.** Legacy files parse best-effort and are flagged; a write
   normalizes them. Reads never mutate files.
+- **A write never reformats what it did not touch.** Frontmatter round-trips through the `yaml`
+  package's document API, not a frontmatter library that re-serializes the whole block. See
+  [ADR 0003](./docs/adr/0003-frontmatter-round-trips-through-a-yaml-document.md).
+- **Eight tools, permanently.** Every tool schema is context in every session, against a project
+  whose whole purpose is token cost. A ninth tool is not a trade-off to weigh; an optional argument
+  on an existing tool is the answer. The eight are named in the spec's Tool surface table.
 - **Scope stops at `.scratch/`.** `CONTEXT.md` and `docs/adr/` are out — they have no graph and low
   volume. Tickets reference ADRs as plain links.
 - **Never fork the engineering skills.** They update upstream. Adapt them through
@@ -142,11 +148,54 @@ Anything else in an effort directory is ignored, never an error.
 
 ## Work Guidance
 
-TypeScript, Node 24, stdio MCP server.
+TypeScript, Node 24, stdio MCP server. pnpm — never npm or yarn.
+
+Stack, settled:
+
+- **`@modelcontextprotocol/sdk`** for the server, **zod** for tool input schemas. No protocol
+  revision is pinned; the SDK negotiates. It currently tops out at `2025-11-25` while the published
+  spec is at `2026-07-28` — irrelevant here, because the only feature we cared about in that revision
+  is Roots, which we deliberately do not use.
+- **`yaml`** (`parseDocument`) for frontmatter, per ADR 0003. Not `gray-matter`.
+- **`node:fs.watch` with `{ recursive: true }`** for T8 — supported on macOS and Windows, and on
+  Linux since Node 19.1. A full scan is single-digit milliseconds at these volumes, so the watcher
+  debounces and rebuilds the index wholesale; per-file event granularity, which is what chokidar
+  actually buys, is worth nothing here.
+- **`tsc` alone** for the build, no bundler. The only heavy dependency is the SDK, and bundling it
+  would inline express and hono for a stdio server that needs neither.
+- Imports name `.ts` files and `rewriteRelativeImportExtensions` emits `.js`, so `node src/bin.ts`
+  runs under Node's native type stripping with no build step. `erasableSyntaxOnly` keeps it that way
+  — no enums, no namespaces, no parameter properties.
+- TypeScript 7 needs `"types": ["node"]` set explicitly; it does not pick up `@types/node` on its own.
+
+Source layout:
+
+| Path | Holds |
+| --- | --- |
+| `src/domain.ts` | The CONTEXT.md vocabulary as types. Naming here is bound by the glossary, including its `_Avoid_` lines. |
+| `src/storage/driver.ts` | The ADR 0001 seam. |
+| `src/storage/markdown/` | The only driver. Knows the `.scratch/` layout; nothing else does. |
+| `src/workspace.ts` | Workspace resolution — the one place above the driver that reads the filesystem, and only to locate a repository root. |
+| `src/workspace-index.ts` | The in-memory index, one per resolved workspace. |
+| `src/tools/` | One module per tool: its input schema, its description, and how its result renders. |
+| `src/server.ts` | Wires the above into an `McpServer`. |
+| `src/index.ts` | The package's library surface. Deliberately narrow — below-seam modules are not exported. |
+| `src/bin.ts` | The stdio entry point. |
+
+Nothing under `src/tools/` may import from `src/storage/`.
 
 ## Verification
 
-No verification framework yet.
+```
+pnpm run typecheck    # tsc over src and test
+pnpm test             # vitest, the MCP tool layer only
+pnpm run build        # tsc emit to dist/
+```
+
+Tests enter through `test/support/harness.ts` — a real MCP client speaking to the server in-process
+over a linked transport pair, against a temporary fixture tree. That is the only test seam, per the
+spec's testing decisions. Nothing below the tool layer gets a test entry point of its own, and a test
+that would need one is a design signal, not a reason to add a seam.
 
 ## Agent skills
 
@@ -168,7 +217,9 @@ When the user requests a durable behavior change, record it here or in the relev
 
 ## Child DOX Index
 
-- No child AGENTS.md files are needed for the current repository structure.
+- No child AGENTS.md files are needed for the current repository structure. `src/` and `test/` are
+  small enough that Work Guidance above covers them; `src/storage/` earns its own doc the day a second
+  driver lands.
 - Root-owned files: [CONTEXT.md](./CONTEXT.md) (glossary), [docs/adr/](./docs/adr/) (decision records),
   [docs/agents/](./docs/agents/) (skill configuration — tracker conventions, triage labels, domain docs).
 - `.scratch/` holds this repo's own Efforts, in the same layout Frontier serves — currently

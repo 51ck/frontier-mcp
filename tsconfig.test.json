@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+    // erasableSyntaxOnly is deliberately inherited, not relaxed: this config is
+    // what `pnpm run typecheck` runs, and relaxing it here would stop the
+    // typecheck from guarding src/ against syntax Node cannot strip.
+  },
+  "include": ["src", "test", "vitest.config.ts"]
+}
