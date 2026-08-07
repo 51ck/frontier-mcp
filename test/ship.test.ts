@@ -1,10 +1,26 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { readTrackerDoc, TRACKER_DOC_URI } from '../src/tracker-doc.ts';
 import { ticket } from './support/fixtures.ts';
 import { cleanupFixtures, connectFrontier, makeFixtureTree } from './support/harness.ts';
 
 afterEach(cleanupFixtures);
+
+/**
+ * The URI is written out rather than imported from src: asserting the server
+ * serves the same constant it exports proves nothing. This is the published
+ * contract, so the test states it independently.
+ */
+const TRACKER_DOC_URI = 'frontier://tracker-doc';
+
+/** The shipped document, read as a consumer would — not through src. */
+function shippedTrackerDoc(): string {
+  return readFileSync(
+    join(import.meta.dirname, '..', 'docs', 'agents', 'issue-tracker.md'),
+    'utf8',
+  );
+}
 
 describe('the shipped surface', () => {
   it('exposes exactly eight tools and no ninth', async () => {
@@ -53,7 +69,7 @@ describe('the shipped surface', () => {
     const { contents } = await client.readResource({ uri: TRACKER_DOC_URI });
     const text = contents.map(part => ('text' in part ? part.text : '')).join('\n');
 
-    expect(text).toBe(readTrackerDoc());
+    expect(text).toBe(shippedTrackerDoc());
     expect(text).toContain('list_efforts');
     expect(text).toContain('get_board');
     expect(text).toContain('update_ticket');
@@ -70,7 +86,7 @@ describe('the shipped surface', () => {
 
 describe('the tracker configuration document', () => {
   it('describes file conventions that produce readable Tickets without the server', async () => {
-    const doc = readTrackerDoc();
+    const doc = shippedTrackerDoc();
 
     // The doc names the fields a hand-written Ticket must carry.
     expect(doc).toContain('id: T');
@@ -103,9 +119,7 @@ describe('packaging', () => {
     );
   });
 
-  it('documents user-scope install with a pinned npx invocation', async () => {
-    const { readFileSync } = await import('node:fs');
-    const { join } = await import('node:path');
+  it('documents user-scope install with a pinned npx invocation', () => {
     const readme = readFileSync(join(import.meta.dirname, '..', 'README.md'), 'utf8');
 
     expect(readme).toContain('user scope');
