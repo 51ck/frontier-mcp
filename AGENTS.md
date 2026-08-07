@@ -232,19 +232,23 @@ Write rules, equally load-bearing:
 - **A write normalizes the Legacy file it touches**, and keeps the prose it inferred from verbatim.
 - **Claims are flagged when stale, never released.** 24h; auto-expiry is out of scope.
 
-Two inferences that are deliberately conservative, both for the same reason — a Ticket wrongly kept
-off the Frontier is a missed opportunity, one wrongly put on it is wasted work:
+Annotation rules — a comment, a ticked criterion, and a Triage role are records of work, not moves
+in the graph:
 
-- `superseded` and `deferred` read as closed.
-- `wontfix` is a **Triage role**, never a Status. It leaves the Ticket `open` (mapping it to
-  `dropped` would make it contagious and orphan every dependent) but excludes it from the Frontier,
-  because open is not the same as takeable. The exclusion is never silent — it is named in the
-  warnings block, since nothing on the Ticket's own line would otherwise explain the absence.
+- **Nothing is injected into content an agent wrote.** A comment is stored byte-for-byte, including
+  `/triage`'s mandatory disclaimer, which is the skill's own to write.
+- **Ticking a criterion changes only its checkbox.** Every other line of the body stays
+  byte-identical, and the criterion keeps its own indentation and wording.
+- **Naming a criterion that does not exist fails**, rather than writing nothing and reporting success.
+- **A Triage role never moves the Frontier.** Only Status and Edges decide what is takeable, so
+  `/triage` and the graph never compete for one field. A `wontfix` Ticket stays takeable and is named
+  in the warnings block instead, leaving the judgement to the reader.
 
-`superseded` and `deferred` **do** map to `dropped`, and so do orphan their dependents. That is the
-intended difference: `wontfix` is documented as a Triage role, so treating it as a Status would be
-wrong, whereas these two describe genuinely terminal work and the resulting "blocked by a dropped
-Ticket" warning is real signal rather than noise.
+`superseded` and `deferred` are a different matter: read from a Legacy `Status:` line they map to
+`dropped`, and so do orphan their dependents. That is not inconsistent with the rule above — they are
+Statuses being inferred, where `wontfix` is a Triage role being respected as one. Inference gets to
+lean conservative because it is guessing; a role the caller set explicitly does not, because it was
+never a guess.
 
 ## Verification
 

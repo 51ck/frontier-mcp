@@ -167,8 +167,9 @@ function collectWarnings(board: Board): string[] {
     if (ticket.unrecognizedStatus !== undefined) {
       unrecognized.add(`${ticket.handle} "${ticket.unrecognizedStatus}"`);
     }
-    // Held off the Frontier by a Triage role rather than by its Status, which
-    // is invisible on the line itself and so has to be said out loud.
+    // Still takeable as far as the graph is concerned — a Triage role never
+    // moves the Frontier — but somebody has declined it, which is worth saying
+    // before an agent picks it up.
     if (ticket.status === 'open' && ticket.triage === 'wontfix') declined.add(ticket.handle);
     for (const ref of ticket.collapsedRefs) collapsed.add(ref);
     if (isStaleClaim(ticket)) stale.add(`${ticket.handle} (${ticket.claimedBy ?? '?'})`);
@@ -200,7 +201,7 @@ function collectWarnings(board: Board): string[] {
   }
   if (declined.size > 0) {
     warnings.push(
-      `open but triaged wontfix, so held off the Frontier (${String(declined.size)}): ` +
+      `takeable but triaged wontfix — somebody declined these (${String(declined.size)}): ` +
         [...declined].toSorted().join(' '),
     );
   }

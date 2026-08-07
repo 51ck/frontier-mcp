@@ -52,8 +52,10 @@ describe('Legacy Status shapes', () => {
     // become a broken Edge over a label that never described a lifecycle.
     expect(line(board)).toContain('/open');
     expect(line(board)).toContain('triage=wontfix');
-    // Open, but declined: never offered as takeable.
-    expect(board.split('\n').filter(entry => entry.startsWith('> '))).toEqual([]);
+    // A Triage role never moves the Frontier: /triage and the graph must not
+    // compete for one field. The Board flags it and leaves the call to a reader.
+    expect(board.split('\n').filter(entry => entry.startsWith('> '))).toHaveLength(1);
+    expect(board).toContain('triaged wontfix');
   });
 
   it('keeps a Triage role out of the Status field without losing it', async () => {
