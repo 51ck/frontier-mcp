@@ -271,10 +271,16 @@ never a guess.
 pnpm run check        # typecheck + lint + format:check — what pre-commit runs
 pnpm test             # vitest, the MCP tool layer only
 pnpm run build        # tsc emit to dist/
+pnpm exec release-it --dry-run --increment=patch
 ```
 
+Releases are cut from GitHub Actions (`Release` workflow, `workflow_dispatch`). That job runs
+`release-it --ci`, which bumps the version, updates package `CHANGELOG.md`, tags, opens a GitHub
+Release, and publishes with `pnpm`. Do not treat that changelog as tracker vocabulary — see
+`CONTEXT.md`. MCP install pins in the README stay manual after each release.
+
 Individually: `typecheck` (tsc over src and test), `lint` / `lint:fix` (oxlint), `format` /
-`format:check` (oxfmt).
+`format:check` (oxfmt), `release` / `release:dry` (release-it wrappers in `package.json`).
 
 `.githooks/pre-commit` runs `check` — never `test`, which is slow enough to make people reach for
 `--no-verify` out of habit. The hook **checks and never rewrites**: a hook that reformats mid-commit

@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "description": "An MCP server exposing the markdown issue tracker under a repo's .scratch/ as a queryable graph",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/51ck/frontier-mcp.git"
+  },
   "bin": {
     "frontier-mcp": "./dist/bin.js"
   },
@@ -30,7 +34,9 @@
     "test:watch": "vitest",
     "start": "node src/bin.ts",
     "prepare": "git config core.hooksPath .githooks || exit 0",
-    "prepublishOnly": "pnpm run build"
+    "prepublishOnly": "pnpm run build",
+    "release": "release-it",
+    "release:dry": "release-it --dry-run"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
@@ -38,9 +44,11 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@release-it/conventional-changelog": "^12.0.0",
     "@types/node": "^24.10.1",
     "oxfmt": "^0.62.0",
     "oxlint": "^1.77.0",
+    "release-it": "^21.0.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   },

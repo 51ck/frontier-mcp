@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      increment:
+        description: Semver increment (or exact version like 0.2.0)
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+# Human starts the workflow; CI bumps, tags, publishes, and opens the GitHub Release.
+# Approving a version choice here is also approval to publish.
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+
+      # Trusted Publishing (OIDC) needs npm ≥ 11.5.1
+      - run: npm install -g npm@latest
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Release
+        run: pnpm exec release-it --ci --increment=${{ inputs.increment }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional fallback if Trusted Publishing is not configured on npm yet:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
