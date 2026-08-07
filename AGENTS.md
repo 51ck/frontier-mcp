@@ -192,6 +192,7 @@ Source layout:
 | `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout — `frontmatter.ts` splits the fence, `ticket.ts` parses a Ticket, `legacy.ts` infers one from prose, `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` allocates ids and writes a new batch, `migrate.ts` normalizes an Effort at once, `write.ts` renames it into place. |
 | `src/workspace.ts` | Workspace resolution — the one place above the driver that reads the filesystem, and only to locate a repository root. |
 | `src/workspace-index.ts` | The in-memory index, one per resolved workspace. |
+| `src/workspace-watcher.ts` | Filesystem watcher — debounced index invalidation for `.scratch/` changes. |
 | `src/tools/` | One module per tool: its input schema, its description, and how its result renders. |
 | `src/server.ts` | Wires the above into an `McpServer`. |
 | `src/index.ts` | The package's library surface. Deliberately narrow — below-seam modules are not exported. |

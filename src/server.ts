@@ -55,6 +55,8 @@ export interface CreateServerOptions {
    * so a SQLite driver can be swapped in without touching the tool layer.
    */
   readonly createDriver?: (root: string) => StorageDriver;
+  /** Debounce filesystem watcher events. Tests may shorten this. */
+  readonly watcherDebounceMs?: number;
 }
 
 export interface Frontier {
@@ -65,6 +67,8 @@ export interface Frontier {
    * warm start.
    */
   warmUp(): Promise<void>;
+  /** Stop watchers and close the transport. */
+  close(): Promise<void>;
 }
 
 /** Injectable so a test can pin the moment a claim was taken. */
@@ -77,7 +81,10 @@ export function createFrontier(options: CreateServerOptions = {}): Frontier {
     cwd: options.cwd ?? process.cwd(),
     env: options.env ?? process.env,
   };
-  const registry = createIndexRegistry(options.createDriver ?? createMarkdownDriver);
+  const registry = createIndexRegistry(
+    options.createDriver ?? createMarkdownDriver,
+    options.watcherDebounceMs === undefined ? {} : { watcherDebounceMs: options.watcherDebounceMs },
+  );
 
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
@@ -312,6 +319,10 @@ export function createFrontier(options: CreateServerOptions = {}): Frontier {
     async warmUp() {
       const workspace = resolveWorkspace(undefined, context);
       await registry.forWorkspace(workspace).efforts();
+    },
+    async close() {
+      registry.closeAll();
+      await server.close();
     },
   };
 }
