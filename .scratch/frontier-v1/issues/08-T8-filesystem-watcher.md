@@ -28,4 +28,4 @@ cheaper failure.
 
 ## Answer
 
-Added `src/workspace-watcher.ts`: recursive `fs.watch` on `.scratch/` with debounced wholesale index invalidation. Root-level watch attaches when `.scratch/` appears later. Watcher never writes. Six MCP-layer tests in `test/watcher.test.ts` cover edit/add/delete, branch-switch byte identity, burst coalescing, no-write idle path, and confinement outside `.scratch/`. `Frontier.close()` tears down watchers.
+Added `src/workspace-watcher.ts`: recursive `fs.watch` on `.scratch/` with debounced wholesale index invalidation. Root-level watch attaches when `.scratch/` appears later. Watcher never writes. Six MCP-layer tests in `test/watcher.test.ts` cover edit/add/delete, branch-switch byte identity, burst coalescing, no-write idle path, and confinement outside `.scratch/`. `FrontierMCP.close()` tears down watchers.

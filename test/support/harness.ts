@@ -4,7 +4,7 @@ import { cp, mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { createFrontier, type CreateServerOptions } from '../../src/server.ts';
+import { createFrontierMCP, type CreateServerOptions } from '../../src/server.ts';
 
 /** A fixture tree, written verbatim: each key is a file path, each value its contents. */
 export type FixtureTree = Record<string, string>;
@@ -75,7 +75,7 @@ export interface ConnectedFrontier {
 export async function connectFrontier(
   options: CreateServerOptions = {},
 ): Promise<ConnectedFrontier> {
-  const frontier = createFrontier(options);
+  const frontier = createFrontierMCP(options);
   // Mirrors bin.ts: a workspace that cannot be scanned yet forfeits the warm
   // start, and nothing more.
   await frontier.warmUp().catch(() => {});

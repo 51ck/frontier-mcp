@@ -111,7 +111,7 @@ describe('packaging', () => {
     expect(readme).toContain('user scope');
     expect(readme).toContain('frontier-mcp@');
     expect(readme).toContain('frontier://tracker-doc');
-    expect(readme).toContain('Pinning the version');
+    expect(readme).toContain('The pin is the version you get');
   });
 
   it('packs dist and the tracker document for npm publish', async () => {
@@ -137,7 +137,7 @@ describe('packaging', () => {
       expect(listing).toContain('package/dist/bin.js');
       expect(listing).toContain('package/docs/agents/issue-tracker.md');
       expect(readFileSync(join(import.meta.dirname, '..', 'dist', 'bin.js'), 'utf8')).toContain(
-        'createFrontier',
+        'createFrontierMCP',
       );
     } finally {
       rmSync(packDir, { recursive: true, force: true });

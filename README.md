@@ -6,56 +6,40 @@ stop re-parsing prose to learn what is open, blocked, or takeable.
 ## Requirements
 
 - Node 24 or later
-- npx (or pnpm for development of this package)
+- npx to run it; pnpm for development of this package
 
 ## Install once (user scope)
 
-Register Frontier once in your **user-level** MCP configuration. Every repository you open in Cursor
-then gets the server automatically — no per-repo `mcp.json` file and no registry fetch on every session
-start when you pin the version.
+Register FrontierMCP once in your **user-level** MCP config, pinned to a released version. Every
+repository you open then gets the server automatically — no per-repo `mcp.json` file.
 
-### Cursor
-
-Edit `~/.cursor/mcp.json` (create the file if it does not exist):
+In Cursor, edit `~/.cursor/mcp.json` (create the file if it does not exist); other MCP clients take the
+same command and arguments in their own user-scope server list:
 
 ```json
 {
   "mcpServers": {
     "frontier": {
       "command": "npx",
-      "args": ["-y", "frontier-mcp@0.1.0"]
+      "args": ["-y", "frontier-mcp@x.y.z"]
     }
   }
 }
 ```
 
-Replace `0.1.0` with the latest release you intend to run. Pinning the version avoids an npm registry
-round-trip deciding which build starts each session.
+Replace `x.y.z` with a published version — see the
+[releases](https://github.com/51ck/frontier-mcp/releases). The pin is the version you get; nothing
+bumps it for you.
 
-Restart Cursor after saving.
-
-### Claude Code and other MCP clients
-
-Use the same command and pinned package argument in your client's user-scope MCP server list:
-
-```json
-{
-  "mcpServers": {
-    "frontier": {
-      "command": "npx",
-      "args": ["-y", "frontier-mcp@0.1.0"]
-    }
-  }
-}
-```
+Restart your editor after saving.
 
 ## First use in a repository
 
-1. Open the repository in your editor. Frontier resolves the workspace from the session working
+1. Open the repository in your editor. FrontierMCP resolves the workspace from the session working
    directory — walking upward to the nearest `.scratch/` or `.git/` — so opening the project is the
    only setup step.
-2. Read the tracker configuration document once. In Cursor, fetch MCP resource `frontier://tracker-doc`,
-   or read [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md) in a repo that vendors it.
+2. Read the tracker configuration document once: fetch MCP resource `frontier://tracker-doc`, or read
+   [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md) in a repo that vendors it.
 3. Call `list_efforts` to see whether `.scratch/` exists yet.
 4. Call `get_board` on an Effort to see the Frontier, then `get_tickets` only for the ids you work.
 
@@ -83,6 +67,37 @@ pnpm run check
 pnpm run build
 node src/bin.ts
 ```
+
+## Releasing
+
+Publishing is CI-only via [release-it](https://github.com/release-it/release-it). There is no local
+publish script, and adding one would mean minting the long-lived npm token that the CI setup exists
+to avoid.
+
+1. Merge the work you want to ship to `master`.
+2. On GitHub: **Actions → Release → Run workflow**, pick `patch` / `minor` / `major`.
+3. The workflow runs checks + tests, bumps `package.json`, updates `CHANGELOG.md`, tags
+   `v*`, creates a GitHub Release, and publishes to npm with `pnpm`.
+4. Bump the pinned version in your user MCP config (`frontier-mcp@x.y.z`) when you want the
+   new build — pins stay manual on purpose.
+
+The workflow is dispatchable from any branch but refuses to run off `master`: release-it commits,
+tags and pushes before it publishes, so a release from a feature branch would rewrite that branch.
+
+Local dry-run (no tag, no publish). It needs a clean working tree and an upstream branch, so commit
+first:
+
+```bash
+pnpm run release:dry
+```
+
+npm publishing uses **Trusted Publishing** — GitHub Actions OIDC, configured for this repo on
+npmjs.com, so there is no `NPM_TOKEN` to rotate.
+
+Before changing `.release-it.json` or the workflow, read the release-it bullet in
+[AGENTS.md](./AGENTS.md) Work Guidance. Several settings there look removable and are not — the
+absent `registry-url`, `npm.skipChecks`, and the pnpm 10 pin each exist for a reason recorded in one
+place so it cannot drift.
 
 ## License
 

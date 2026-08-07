@@ -60,7 +60,7 @@ export interface CreateServerOptions {
   readonly watcherDebounceMs?: number;
 }
 
-export interface Frontier {
+export interface FrontierMCP {
   readonly server: McpServer;
   /**
    * Build the index for the session's own workspace. Calls resolve their own
@@ -77,7 +77,7 @@ function now(): string {
   return new Date().toISOString();
 }
 
-export function createFrontier(options: CreateServerOptions = {}): Frontier {
+export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMCP {
   const context: WorkspaceContext = {
     cwd: options.cwd ?? process.cwd(),
     env: options.env ?? process.env,
@@ -98,7 +98,7 @@ export function createFrontier(options: CreateServerOptions = {}): Frontier {
     {
       title: 'Issue tracker configuration',
       description:
-        'Tracker conventions and Frontier MCP tool mapping. Read once at setup; file conventions work as fallback without the server.',
+        'Tracker conventions and FrontierMCP tool mapping. Read once at setup; file conventions work as fallback without the server.',
       mimeType: 'text/markdown',
     },
     async () => ({

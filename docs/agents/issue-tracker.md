@@ -1,25 +1,25 @@
-# Issue tracker — Frontier MCP and file fallback
+# Issue tracker — FrontierMCP and file fallback
 
 Issues and specs live as markdown under `.scratch/`. Vocabulary is defined in the project's
 `CONTEXT.md` when present — Effort, Board, Header doc, Map, Spec, Ticket, Edge, Frontier.
 
-When the **Frontier** MCP server (`frontier`) is loaded in your session, use the tools below. They
+When **FrontierMCP** (server name `frontier`) is loaded in your session, use the tools below. They
 own the schema, compute the graph, and answer orientation questions for a fraction of the token cost
-of reading every Ticket file. When Frontier is **not** loaded, follow the [File conventions](#file-conventions)
+of reading every Ticket file. When it is **not** loaded, follow the [File conventions](#file-conventions)
 literally — the same files, the same fields, written by hand.
 
 Read this document once at setup. In Cursor it is also available as MCP resource `frontier://tracker-doc`.
 
 ## Workspace
 
-Frontier resolves which repository it serves on every call:
+FrontierMCP resolves which repository it serves on every call:
 
 1. An explicit `root` argument on the call.
 2. The `FRONTIER_ROOT` environment variable.
 3. The server process working directory, walked upward to the nearest directory containing `.scratch/`
    or `.git/`.
 
-Register Frontier once at user scope. Opening a project is the only per-repo setup step — no
+Register FrontierMCP once at user scope. Opening a project is the only per-repo setup step — no
 `.cursor/mcp.json` entry is required in each repository.
 
 A repo with no `.scratch/` yet is not an error. Create an Effort by writing to it with `create: true`
@@ -51,7 +51,7 @@ Eight tools permanently. Optional arguments extend an existing tool; there is no
 
 ### Skill mapping
 
-| Skill says | Frontier call |
+| Skill says | FrontierMCP call |
 | --- | --- |
 | publish to the issue tracker | `create_tickets` |
 | fetch the relevant ticket | `get_tickets` |
@@ -68,7 +68,7 @@ Claims are compare-and-set — a parallel session that already holds the Ticket 
 
 ## File conventions
 
-These conventions are canonical whether Frontier is loaded or not. Frontier reads and writes the same
+These conventions are canonical whether FrontierMCP is loaded or not. FrontierMCP reads and writes the same
 files; a session without the server still produces valid Tickets by following this section.
 
 ### Layout
@@ -132,10 +132,10 @@ Used by `/wayfinder`. The **Map** is a file with one **child** file per Ticket.
 - **Rule out of scope**: set `status: dropped` with a `dropped_reason`, and add the line to the Map's
   Out of scope. Do not put it in Decisions-so-far — that section records the route actually walked.
 
-When Frontier is loaded, prefer the MCP calls in the table above over hand-editing these fields.
+When FrontierMCP is loaded, prefer the MCP calls in the table above over hand-editing these fields.
 
-### Hand publish (no Frontier)
+### Hand publish (no FrontierMCP)
 
-When a skill says "publish to the issue tracker" and Frontier is not loaded, create
+When a skill says "publish to the issue tracker" and FrontierMCP is not loaded, create
 `.scratch/<effort-slug>/issues/<NN>-T<n>-<slug>.md` (creating directories as needed), assign the next
 repo-global `T<n>`, and write frontmatter matching the template above.
