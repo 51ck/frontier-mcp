@@ -6,6 +6,7 @@ status: open
 triage: needs-triage
 blocked_by: []
 ---
+# T18 — tick matches an acceptance criterion whose text wraps across lines
 
 **What to build:** `update_ticket` `tick` ticks a criterion whose text is wrapped over more than one
 line, the way every Ticket in this repo writes them. Today it only matches criteria that sit on a

@@ -7,6 +7,7 @@ triage: ready-for-agent
 blocked_by: []
 answer_gist: One auth path (OIDC, no NODE_AUTH_TOKEN), npm bootstrap dropped, master-only guard, CHANGELOG intro moved into the plugin header; skipChecks kept because OIDC has no whoami
 ---
+# T15 — Release workflow publishes through one auth path, from master only
 
 **What to build:** Dispatching the `Release` workflow actually publishes `frontier-mcp` to npm — it
 authenticates through exactly one path, refuses to run off `master`, and leaves the CHANGELOG intro

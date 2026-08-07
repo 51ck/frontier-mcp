@@ -7,6 +7,7 @@ triage: ready-for-agent
 blocked_by: [T15, T16]
 answer_gist: release script removed per T16; AGENTS.md Verification names release:dry with its clean-tree precondition, stack decision moved to Stack-settled, DOX index gains README and CHANGELOG, README gains the install snippet
 ---
+# T17 — Release docs tell one story
 
 **What to build:** A reader deciding how to cut a release gets the same answer from the README,
 AGENTS.md and `package.json`. Right now the release procedure lives in four places — the workflow,

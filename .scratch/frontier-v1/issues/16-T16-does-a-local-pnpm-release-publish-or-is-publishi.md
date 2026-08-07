@@ -8,6 +8,7 @@ triage: ready-for-agent
 blocked_by: []
 answer_gist: "Publishing is CI-only: the release script goes, release:dry stays; github.release and the before:init hooks both stay, and hooks do not run in a dry run"
 ---
+# T16 — Does a local pnpm release publish, or is publishing CI-only?
 
 ## Question
 
@@ -31,9 +32,9 @@ acceptance criteria:
 
 ## Acceptance criteria
 
-- [ ] One stated answer on whether a local `pnpm release` may publish
-- [ ] A decision on the `release` and `release:dry` scripts that follows from it
-- [ ] A keep-or-drop call on `github.release` and on the `before:init` hooks, with the reason
+- [x] One stated answer on whether a local `pnpm release` may publish
+- [x] A decision on the `release` and `release:dry` scripts that follows from it
+- [x] A keep-or-drop call on `github.release` and on the `before:init` hooks, with the reason
 
 ## Answer
 

@@ -17,13 +17,15 @@ Add it to your user MCP config, pinned to a released version:
   "mcpServers": {
     "frontier": {
       "command": "npx",
-      "args": ["-y", "frontier-mcp@0.1.0"]
+      "args": ["-y", "frontier-mcp@x.y.z"]
     }
   }
 }
 ```
 
-The pin is the version you get. Nothing bumps it for you — see [Releasing](#releasing).
+Replace `x.y.z` with a published version — see the
+[releases](https://github.com/51ck/frontier-mcp/releases). The pin is the version you get; nothing
+bumps it for you.
 
 ## Development
 
@@ -59,14 +61,12 @@ pnpm run release:dry
 ```
 
 npm publishing uses **Trusted Publishing** — GitHub Actions OIDC, configured for this repo on
-npmjs.com. The workflow therefore sets no `NPM_TOKEN`: a token wired to a secret that may not exist
-writes an empty credential and fails the publish outright rather than falling back to OIDC. Two
-consequences worth knowing before editing the release config:
+npmjs.com, so there is no `NPM_TOKEN` to rotate.
 
-- `npm.skipChecks` is on in `.release-it.json`. release-it's pre-publish checks shell out to
-  `npm whoami`, which has no answer under OIDC. Turning it off breaks releases.
-- pnpm is pinned to 10 in the workflow. pnpm 11 currently 404s on OIDC publish
-  ([pnpm/pnpm#11513](https://github.com/pnpm/pnpm/issues/11513)).
+Before changing `.release-it.json` or the workflow, read the release-it bullet in
+[AGENTS.md](./AGENTS.md) Work Guidance. Several settings there look removable and are not — the
+absent `registry-url`, `npm.skipChecks`, and the pnpm 10 pin each exist for a reason recorded in one
+place so it cannot drift.
 
 ## License
 

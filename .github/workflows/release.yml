@@ -44,10 +44,12 @@ jobs:
         with:
           version: 10
 
+      # No registry-url on purpose. It writes an .npmrc whose ${NODE_AUTH_TOKEN} placeholder pnpm
+      # cannot expand, and pnpm discards the whole file when that happens — so it buys nothing here
+      # and hides a warning. The default registry is the one we publish to anyway.
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
