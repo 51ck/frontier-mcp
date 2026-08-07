@@ -41,6 +41,7 @@ import {
   updateTicketDescription,
   updateTicketInputSchema,
 } from './tools/update-ticket.ts';
+import { readTrackerDoc, TRACKER_DOC_URI } from './tracker-doc.ts';
 import { resolveWorkspace, type WorkspaceContext } from './workspace.ts';
 
 export const SERVER_NAME = 'frontier';
@@ -88,7 +89,21 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
 
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
-    { capabilities: { tools: {} } },
+    { capabilities: { tools: {}, resources: {} } },
+  );
+
+  server.registerResource(
+    'tracker-doc',
+    TRACKER_DOC_URI,
+    {
+      title: 'Issue tracker configuration',
+      description:
+        'Tracker conventions and FrontierMCP tool mapping. Read once at setup; file conventions work as fallback without the server.',
+      mimeType: 'text/markdown',
+    },
+    async () => ({
+      contents: [{ uri: TRACKER_DOC_URI, mimeType: 'text/markdown', text: readTrackerDoc() }],
+    }),
   );
 
   server.registerTool(

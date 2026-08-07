@@ -10,14 +10,32 @@ afterEach(cleanupFixtures);
 const FILE = '.scratch/alpha/issues/01-T1-work.md';
 const DEBOUNCE_MS = 25;
 
-/** Poll until `probe` satisfies `ready`, or time out. */
+/**
+ * How long a watched change may take to surface. Test files run in parallel,
+ * and a debounced `fs.watch` is the first thing to lose the event loop under
+ * that load — this needs headroom well past the default 5s vitest allows a
+ * test, which is why the tests below pass TEST_TIMEOUT_MS to `it`.
+ */
+const WAIT_MS = 15_000;
+
+/** Comfortably above WAIT_MS, so waitFor's message wins the race to report. */
+const TEST_TIMEOUT_MS = 30_000;
+
+/**
+ * Poll until `probe` satisfies `ready`, or throw. Throwing beats returning
+ * the last value — a silent timeout used to surface as a puzzling content
+ * mismatch instead of the wait it actually was.
+ */
 async function waitFor<T>(
   probe: () => Promise<T>,
   ready: (value: T) => boolean,
-  deadline = Date.now() + 3_000,
+  deadline = Date.now() + WAIT_MS,
 ): Promise<T> {
   const value = await probe();
-  if (ready(value) || Date.now() >= deadline) return value;
+  if (ready(value)) return value;
+  if (Date.now() >= deadline) {
+    throw new Error(`waitFor timed out; last value was:\n${String(value)}`);
+  }
   await new Promise(resolve => setTimeout(resolve, DEBOUNCE_MS));
   return waitFor(probe, ready, deadline);
 }
@@ -32,7 +50,7 @@ async function snapshotScratch(root: string, paths: string[]): Promise<Map<strin
   return contents;
 }
 
-describe('filesystem watcher', () => {
+describe('filesystem watcher', { timeout: TEST_TIMEOUT_MS }, () => {
   it('reflects a Ticket edited on disk in the next Board without restarting', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),

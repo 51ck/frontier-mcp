@@ -6,11 +6,15 @@ stop re-parsing prose to learn what is open, blocked, or takeable.
 ## Requirements
 
 - Node 24 or later
-- pnpm for development
+- npx to run it; pnpm for development of this package
 
-## Install
+## Install once (user scope)
 
-Add it to your user MCP config, pinned to a released version:
+Register FrontierMCP once in your **user-level** MCP config, pinned to a released version. Every
+repository you open then gets the server automatically — no per-repo `mcp.json` file.
+
+In Cursor, edit `~/.cursor/mcp.json` (create the file if it does not exist); other MCP clients take the
+same command and arguments in their own user-scope server list:
 
 ```json
 {
@@ -26,6 +30,33 @@ Add it to your user MCP config, pinned to a released version:
 Replace `x.y.z` with a published version — see the
 [releases](https://github.com/51ck/frontier-mcp/releases). The pin is the version you get; nothing
 bumps it for you.
+
+Restart your editor after saving.
+
+## First use in a repository
+
+1. Open the repository in your editor. FrontierMCP resolves the workspace from the session working
+   directory — walking upward to the nearest `.scratch/` or `.git/` — so opening the project is the
+   only setup step.
+2. Read the tracker configuration document once: fetch MCP resource `frontier://tracker-doc`, or read
+   [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md) in a repo that vendors it.
+3. Call `list_efforts` to see whether `.scratch/` exists yet.
+4. Call `get_board` on an Effort to see the Frontier, then `get_tickets` only for the ids you work.
+
+A repository with no `.scratch/` directory is not an error. Create the first Effort with
+`create_tickets`, `edit_map`, or `spec` and `create: true`.
+
+## Override the workspace
+
+Optional, per call or per session:
+
+- Pass `root` on any tool call to read another directory.
+- Set `FRONTIER_ROOT` in the server environment for a non-standard layout.
+
+## Tools
+
+Eight tools: `list_efforts`, `get_board`, `get_tickets`, `create_tickets`, `update_ticket`,
+`edit_map`, `spec`, `migrate_effort`. See the tracker configuration document for when to use each.
 
 ## Development
 

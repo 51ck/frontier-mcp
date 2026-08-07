@@ -11,7 +11,8 @@
     "frontier-mcp": "./dist/bin.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "docs/agents/issue-tracker.md"
   ],
   "type": "module",
   "main": "./dist/index.js",
