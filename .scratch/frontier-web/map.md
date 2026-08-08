@@ -36,6 +36,7 @@ without foreclosing multi-repo later.
 ## Decisions so far
 
 <!-- GENERATED: overwritten on every mutation through the server. Do not hand-edit. -->
+- [T21 — How a browser talks to an MCP server in 2026](issues/03-T21-how-a-browser-talks-to-an-mcp-server-in-2026.md) — The browser should not speak MCP: serve a loopback HTTP+SSE read-only app off the ADR 0001 driver seam, beside the tool layer, keeping MCP stdio-only
 <!-- /GENERATED -->
 
 ## Not yet specified
@@ -45,6 +46,7 @@ without foreclosing multi-repo later.
 - Whether the UI shows live agent presence, or only what the files already record — `claimed_by` is in the files, "session X is connected" is not.
 - The shape of multi-repo aggregation, when it comes.
 - Whether `docs/agents/issue-tracker.md`, the shipped agent contract, must say anything about a second human-facing reader.
+- Whether the repo should migrate to the v2 scoped SDK family (`@modelcontextprotocol/server`/`client`/`node`@2.0.0, GA 2026-07-27) at all — T21 found the pinned `^1.30.0` tops out at protocol `2025-11-25`, which makes `AGENTS.md:161-163` accurate but now under-descriptive. Concerns the server itself, not the web UI, so it likely belongs on `frontier-v1`.
 - Whether a human reading a Board in a browser changes what `get_board` should return to agents.
 
 ## Out of scope
@@ -54,3 +56,4 @@ without foreclosing multi-repo later.
 - The SQLite driver and `md ↔ db` conversion — already deferred by ADR 0001.
 - A broker justified as a fix for write races — the race is closed and tested cross-process; centralization earns its place from the UI or not at all.
 - Auto-expiry of claims (`spec.md:397`) and writes triggered by the filesystem watcher (`spec.md:398`).
+- Rendering the tracker inside an MCP host via MCP Apps (SEP-1865) — weighed and set aside in T21: it renders inside a host chat client, which is not the standalone always-open board this Destination describes.
