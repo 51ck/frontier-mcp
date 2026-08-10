@@ -167,7 +167,11 @@ Stack, settled:
 - **`node:fs.watch` with `{ recursive: true }`** for T8 — supported on macOS and Windows, and on
   Linux since Node 19.1. A full scan is single-digit milliseconds at these volumes, so the watcher
   debounces and drops the driver's whole scan; per-file event granularity, which is what chokidar
-  actually buys, is worth nothing here.
+  actually buys, is worth nothing here. A watch is **not live when `watch()` returns** — on macOS
+  libuv registers the FSEvents stream off-thread, and a change landing in that window is dropped
+  outright rather than replayed. So every attach also schedules a few unconditional invalidations
+  on a settle schedule; without them a server started and hand-edited immediately serves a stale
+  Board until the next edit.
 - **`tsc` alone** for the build, no bundler. The only heavy dependency is the SDK, and bundling it
   would inline express and hono for a stdio server that needs neither.
 - **`oxlint`** for linting and **`oxfmt`** for formatting. No ESLint, no Prettier.

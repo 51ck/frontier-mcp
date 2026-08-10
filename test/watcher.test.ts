@@ -1,4 +1,4 @@
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -12,15 +12,26 @@ const FILE = '.scratch/alpha/issues/01-T1-work.md';
 const DEBOUNCE_MS = 25;
 
 /**
- * How long a watched change may take to surface. Test files run in parallel,
- * and a debounced `fs.watch` is the first thing to lose the event loop under
- * that load — this needs headroom well past the default 5s vitest allows a
- * test, which is why the tests below pass TEST_TIMEOUT_MS to `it`.
+ * How long a watched change may take to surface. This budget covers scheduling
+ * jitter on a loaded machine and nothing else: an event lost in a watch's
+ * warm-up window is not a slow event but a missing one, and no budget outlasts
+ * a missing event — recovering those is the watcher's settle, per
+ * {@link watchStorage}.
+ *
+ * The same twelve-process probe that measured that window (see
+ * `DEFAULT_SETTLE_MS`) also timed the events it did deliver: median 8-34ms,
+ * slowest 175ms. Five seconds is roughly 30x the slowest one. Even so it
+ * reaches the 5s default vitest allows a whole test, which is why the tests
+ * below pass TEST_TIMEOUT_MS to `it`.
  */
-const WAIT_MS = 15_000;
+const WAIT_MS = 5_000;
 
-/** Comfortably above WAIT_MS, so waitFor's message wins the race to report. */
-const TEST_TIMEOUT_MS = 30_000;
+/**
+ * Comfortably above WAIT_MS, so waitFor's message wins the race to report —
+ * three times it rather than two, because the tests that wait for a change and
+ * then for a second one spend two full budgets before anything else they do.
+ */
+const TEST_TIMEOUT_MS = 15_000;
 
 /**
  * Poll until `probe` satisfies `ready`, or throw. Throwing beats returning
@@ -251,5 +262,94 @@ describe('filesystem watcher', { timeout: TEST_TIMEOUT_MS }, () => {
       text => text.includes('After a hand edit'),
     );
     expect(board).toContain('After a hand edit');
+  });
+
+  /**
+   * An `fs.watch` is not delivering events the moment it is created, and a
+   * change landing in that window is dropped rather than delayed — so the
+   * watcher settles by dropping the scan a few times after it attaches, whether
+   * or not it saw anything.
+   *
+   * The debounce here is 60s, which is longer than the whole test: no event the
+   * watcher does receive can possibly reach `invalidate` before the assertion
+   * below. The settle is therefore the only thing that can have dropped the
+   * cache, which is what makes this a test of the settle and not a second test
+   * of the watch. The schedule is two entries so it also pins that the settle
+   * repeats — the first has fired well before the write, and only the second
+   * can be the one that sees it.
+   */
+  it('drops the cache after attaching, with no filesystem event in play', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      [FILE]: ticket('T1', 'Cached at startup'),
+    });
+    const frontier = await connectFrontier({
+      cwd: root,
+      env: {},
+      createDriver: driverRoot =>
+        createMarkdownDriver(driverRoot, {
+          watcherDebounceMs: 60_000,
+          watcherSettleMs: [25, 1000],
+        }),
+    });
+
+    expect(await frontier.call('get_board', { effort: 'alpha' })).toContain('Cached at startup');
+
+    await writeFile(join(root, FILE), ticket('T1', 'Written while warming up'), 'utf8');
+
+    const board = await waitFor(
+      () => frontier.call('get_board', { effort: 'alpha' }),
+      text => text.includes('Written while warming up'),
+    );
+    expect(board).toContain('Written while warming up');
+  });
+
+  /**
+   * A workspace whose storage directory does not exist yet is watched at its
+   * root until one appears, and the recursive watch takes over then. That
+   * handover is the branch with the most to lose: the event it waits for
+   * arrives exactly once, so a watcher that missed it would go on watching the
+   * root forever while every change inside the storage directory went unseen.
+   *
+   * The assertion is deliberately about a *second* change, made once the settle
+   * schedule is spent. Seeing the Effort appear proves nothing — dropping the
+   * scan alone does that, because a fresh walk reads whatever is on disk. Only
+   * a watch that actually handed over can carry the edit that comes after.
+   */
+  it('starts watching a storage directory that appeared after the driver did', async () => {
+    const settleMs = [10, 20];
+    const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
+    const frontier = await connectFrontier({
+      cwd: root,
+      env: {},
+      createDriver: driverRoot =>
+        createMarkdownDriver(driverRoot, {
+          watcherDebounceMs: DEBOUNCE_MS,
+          watcherSettleMs: settleMs,
+        }),
+    });
+
+    expect(await frontier.call('list_efforts')).not.toContain('alpha');
+
+    await mkdir(join(root, '.scratch', 'alpha', 'issues'), { recursive: true });
+    await writeFile(join(root, '.scratch/alpha/map.md'), map('Arrived later.'), 'utf8');
+    await writeFile(join(root, FILE), ticket('T1', 'Late arrival'), 'utf8');
+
+    await waitFor(
+      () => frontier.call('list_efforts'),
+      text => text.includes('alpha'),
+    );
+
+    // Past the last settle, so nothing but the recursive watch is left to
+    // notice anything.
+    await new Promise(resolve => setTimeout(resolve, Math.max(...settleMs) * 2));
+
+    await writeFile(join(root, FILE), ticket('T1', 'Edited once watched'), 'utf8');
+
+    const board = await waitFor(
+      () => frontier.call('get_board', { effort: 'alpha' }),
+      text => text.includes('Edited once watched'),
+    );
+    expect(board).toContain('Edited once watched');
   });
 });

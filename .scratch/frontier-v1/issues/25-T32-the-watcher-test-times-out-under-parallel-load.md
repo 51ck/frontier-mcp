@@ -2,9 +2,10 @@
 id: T32
 title: The watcher test times out under parallel load
 kind: build
-status: open
+status: resolved
 triage: ready-for-agent
 blocked_by: []
+answer_gist: A recursive fs.watch drops changes made while it is still warming up, so the watcher now settles after every attach.
 ---
 
 **The defect:** `test/watcher.test.ts` > "reflects a Ticket added or deleted on disk" fails roughly
@@ -23,9 +24,34 @@ Worth knowing before choosing a fix: `AGENTS.md` warns that a watcher must never
 [T28](21-T28-the-index-and-watcher-move-down-into-the-driver.md) moves the index and watcher down
 into the driver — if that lands first, this test moves with them and the fix may want to wait for it.
 
-- [ ] The cause is identified as a dropped event or a delayed one, with evidence
-- [ ] The test passes repeatedly under full-suite parallelism, without simply raising the budget
-- [ ] If the fault is in `src/workspace-watcher.ts` rather than the test, it is fixed there
+- [x] The cause is identified as a dropped event or a delayed one, with evidence
+- [x] The test passes repeatedly under full-suite parallelism, without simply raising the budget
+- [x] If the fault is in `src/workspace-watcher.ts` rather than the test, it is fixed there
+
+## Answer
+
+**The event was dropped, not delayed.** Instrumenting the watcher and the driver's cache through a failing full-suite run showed the second watcher test attaching its watch, then serving cache hits for the whole 15s budget with no filesystem event ever arriving. The scan was never invalidated because nothing ever told it to.
+
+**Why.** A recursive `fs.watch` is not delivering events the moment `watch()` returns. On macOS libuv registers the FSEvents stream off-thread and multiplexes every watch in the process onto one stream, which it tears down and rebuilds whenever a handle is added or removed. A change landing in that gap is dropped outright rather than replayed, so no amount of waiting recovers it — which is exactly why the failure was always a full-budget timeout and never a content mismatch.
+
+**Measured**, twelve concurrent probe processes on a 12-core machine, 180 samples per bucket:
+
+| write lands after `watch()` returns | events lost |
+| --- | --- |
+| 0ms | 25/180 (14%) |
+| 1ms | 12/180 (7%) |
+| 5ms | 2/180 (1%) |
+| 25ms, 100ms, 500ms | 0/180 |
+
+An established watcher lost nothing under the same load — 0/480 — unless another watcher opened or closed nearby, which cost it 41/480 (8.5%). The failing test writes about 5ms after its driver's watcher attaches, squarely inside the window; `afterEach` closing the previous test's watcher and the next test opening its own is the churn that widens it.
+
+This was never only a test defect: a server started and hand-edited immediately would have served a stale Board until the *next* edit.
+
+**The fix**, in `src/storage/markdown/watcher.ts` — the watcher stops trusting a window it cannot observe. Every successful attach schedules unconditional invalidations at `[50, 250, 1000]`ms, on the assumption that it missed something while warming up, and each pass retries the attach as well: the event a root watch stands to lose is "the storage directory appeared", and losing that one would leave the recursive watch never attached and every later change unseen forever. Two tests pin it, one for each path, both bite-checked in the failing direction.
+
+**Two things fell out.** The test file's 15s budget was built on the wrong theory — a debounced watch losing the event loop — so it came down to 5s, which is about thirty times the slowest delivery the probe measured. And `lifecycle.test.ts`'s optimistic-check test turned out to arrange its stale cache by outrunning the watcher, which the settle made it lose once in twenty runs; it now switches the watcher's recovery off and holds the view stale by construction.
+
+25 consecutive full-suite runs, 214 tests, no failures. The rate before was roughly two in five.
 
 ## Comments
 

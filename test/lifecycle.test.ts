@@ -2,6 +2,10 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import {
+  createMarkdownDriver,
+  type MarkdownDriverOptions,
+} from '../src/storage/markdown/driver.ts';
 import { map, ticket } from './support/fixtures.ts';
 import { cleanupFixtures, connectFrontier, makeFixtureTree } from './support/harness.ts';
 
@@ -9,12 +13,40 @@ afterEach(cleanupFixtures);
 
 const FILE = '.scratch/alpha/issues/01-T1-work.md';
 
-async function oneTicket(body?: string) {
+/**
+ * A driver whose watcher never refreshes the cached scan on its own: a debounce
+ * longer than any test here, so no filesystem event can reach `invalidate`, and
+ * an empty settle schedule, so the unconditional drops that follow an attach
+ * never happen either. Under these the only thing that can refresh the cache is
+ * a write through the server, which is what lets a test hold a stale view for
+ * as long as it needs one.
+ */
+const NO_STALENESS_RECOVERY: MarkdownDriverOptions = {
+  watcherDebounceMs: 60_000,
+  watcherSettleMs: [],
+};
+
+/**
+ * One Effort holding one Ticket, served over the harness. `driverOptions`
+ * constructs the markdown driver by hand instead of taking the server's
+ * default, which is how a test asks for watcher behaviour the default does not
+ * give it.
+ */
+async function oneTicket(body?: string, driverOptions?: MarkdownDriverOptions) {
   const root = await makeFixtureTree({
     '.scratch/alpha/map.md': map('Somewhere.'),
     [FILE]: ticket('T1', 'Work', body === undefined ? {} : { body }),
   });
-  return { root, frontier: await connectFrontier({ cwd: root, env: {} }) };
+  const frontier = await connectFrontier(
+    driverOptions === undefined
+      ? { cwd: root, env: {} }
+      : {
+          cwd: root,
+          env: {},
+          createDriver: driverRoot => createMarkdownDriver(driverRoot, driverOptions),
+        },
+  );
+  return { root, frontier };
 }
 
 describe('concurrent claims', () => {
@@ -137,9 +169,15 @@ describe('dropping a Ticket', () => {
 
 describe('the optimistic check', () => {
   it('fails loudly when the file changed since it was read, and writes nothing', async () => {
-    const { root, frontier } = await oneTicket();
+    // The subject here is what the server does with a view it has not
+    // refreshed, so the staleness is the fixture rather than a race to win: the
+    // watcher's recovery is switched off for this test, because a settle drop
+    // or a debounced event landing between the hand edit and the call would
+    // make `listTickets()` re-walk, the expected revision would then match the
+    // edited file, and the check under test would rightly never fire.
+    const { root, frontier } = await oneTicket(undefined, NO_STALENESS_RECOVERY);
 
-    // Warm the index, then edit the file behind the server's back.
+    // Warm the cached scan, then edit the file behind the server's back.
     await frontier.call('get_board', { effort: 'alpha' });
     const path = join(root, FILE);
     const edited = `${await readFile(path, 'utf8')}\nA hand edit.\n`;
