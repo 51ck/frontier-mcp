@@ -100,6 +100,15 @@ export function createMarkdownDriver(root: string): StorageDriver {
       return (await scan()).flatMap(entry => entry.tickets);
     },
 
+    async readTickets(handles): Promise<readonly Ticket[]> {
+      const wanted = new Set(handles);
+      return (await scan())
+        .flatMap(entry => entry.tickets)
+        .filter(
+          ticket => wanted.has(ticket.handle) || (ticket.id !== undefined && wanted.has(ticket.id)),
+        );
+    },
+
     updateTicket(handle, edit, expectedRevision) {
       return serialized(() => write(scratch, handle, edit, expectedRevision));
     },

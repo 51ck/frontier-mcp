@@ -28,6 +28,13 @@ import { createWatcherRegistry, type WatcherRegistry } from './workspace-watcher
 export interface WorkspaceIndex {
   efforts(): Promise<readonly Effort[]>;
   tickets(): Promise<readonly Ticket[]>;
+  /**
+   * Bodies for the named Tickets, read through to the driver every time. The
+   * index caches what a Board is built from and nothing else — a body is read
+   * for the few Tickets being worked, so caching it would buy a rare repeat call
+   * at the price of serving prose another process has already rewritten.
+   */
+  bodies(handles: readonly string[]): Promise<readonly Ticket[]>;
   /** Apply an edit and discard the scan, since the workspace has moved on. */
   update(handle: string, edit: TicketEdit, expectedRevision: string): Promise<TicketWriteResult>;
   /** Create a batch of Tickets and discard the scan, for the same reason. */
@@ -79,6 +86,7 @@ export function createWorkspaceIndex(driver: StorageDriver): WorkspaceIndex {
   return {
     efforts: efforts.get,
     tickets: tickets.get,
+    bodies: handles => driver.readTickets(handles),
     async update(handle, edit, expectedRevision) {
       return moved(() => driver.updateTicket(handle, edit, expectedRevision));
     },

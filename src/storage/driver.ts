@@ -76,6 +76,19 @@ export interface StorageDriver {
   listTickets(): Promise<readonly Ticket[]>;
 
   /**
+   * The named Tickets with their bodies, addressed by id or by the
+   * `<effort>#<order>` handle an id-less Legacy Ticket answers to. A name the
+   * workspace does not hold is simply absent: which names were asked for is the
+   * caller's knowledge, not the driver's.
+   *
+   * Separate from {@link listTickets} because a body is the one field almost
+   * nothing reads — Boards, the Frontier and Edge resolution all work from
+   * summary fields — so bodies are fetched for the few Tickets being worked
+   * rather than carried by every read of the workspace.
+   */
+  readTickets(handles: readonly string[]): Promise<readonly Ticket[]>;
+
+  /**
    * Apply an edit to one Ticket and return it as written.
    *
    * `expectedRevision` is the {@link TicketSummary.revision} the caller last

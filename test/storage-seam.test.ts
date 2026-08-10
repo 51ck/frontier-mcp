@@ -29,6 +29,12 @@ function fixedDriver(
       async listTickets() {
         return tickets;
       },
+      async readTickets(handles) {
+        const wanted = new Set(handles);
+        return tickets.filter(
+          ticket => wanted.has(ticket.handle) || (ticket.id !== undefined && wanted.has(ticket.id)),
+        );
+      },
       updateTicket() {
         throw new Error('this driver is read-only');
       },
@@ -108,6 +114,9 @@ describe('the storage driver seam', () => {
         ];
       },
       async listTickets() {
+        return [];
+      },
+      async readTickets() {
         return [];
       },
       updateTicket() {

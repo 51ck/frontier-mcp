@@ -160,23 +160,9 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
     },
     async ({ ids, root }) => {
       const workspace = resolveWorkspace(root, context);
-      const tickets = await registry.forWorkspace(workspace).tickets();
-      const wanted = new Set(ids);
+      const found = await registry.forWorkspace(workspace).bodies(ids);
 
-      return {
-        content: [
-          {
-            type: 'text',
-            text: renderTickets(
-              ids,
-              tickets.filter(
-                ticket =>
-                  wanted.has(ticket.handle) || (ticket.id !== undefined && wanted.has(ticket.id)),
-              ),
-            ),
-          },
-        ],
-      };
+      return { content: [{ type: 'text', text: renderTickets(ids, found) }] };
     },
   );
 
