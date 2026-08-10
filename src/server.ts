@@ -330,14 +330,11 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
               createEffort: create === true,
             });
 
+      const wrote = content !== undefined;
+
       const rendered = renderSpec(effort, document);
       return {
-        content: [
-          {
-            type: 'text',
-            text: content === undefined ? rendered : withWorkspace(workspace, rendered),
-          },
-        ],
+        content: [{ type: 'text', text: wrote ? withWorkspace(workspace, rendered) : rendered }],
       };
     },
   );
@@ -358,14 +355,14 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
         rename: rename === true,
       });
 
+      // A preview writes nothing, and neither does a run that finds nothing to
+      // normalize — an Effort already in schema reports no changes and leaves
+      // every file alone. Both are reads, whatever the flag said.
+      const wrote = preview !== true && report.changes.length > 0;
+
       const rendered = renderMigration(report);
       return {
-        content: [
-          {
-            type: 'text',
-            text: preview === true ? rendered : withWorkspace(workspace, rendered),
-          },
-        ],
+        content: [{ type: 'text', text: wrote ? withWorkspace(workspace, rendered) : rendered }],
       };
     },
   );

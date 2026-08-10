@@ -11,7 +11,7 @@ answer_gist: "`withWorkspace` prefixes `root: <path>` on the five write paths on
 **What to build:** every call that writes opens with `root: <path>`, in the form and position
 `list_efforts` already uses. Reads carry no such line.
 
-The build half of [T11](11-T11-should-a-mutating-call-report-the-workspace-it.md), which decided
+The build half of [T11](11-T11-should-a-mutating-call-report-the-workspace-it-r.md), which decided
 it. The rule is *whether the call wrote*, not whether the tool can write: `edit_map` with no section
 fields, `spec` with no `content`, and `migrate_effort` with `preview` are reads and pay nothing.
 
@@ -45,3 +45,11 @@ so +30% to +82% on the response, and less than one Board across a forty-write se
 number is what decides; the percentage is large only because a write response is small. The token
 helper moved to `test/support/tokens.ts` so every argument in this repo settled by a token count
 counts the same way.
+
+## Comments
+
+Correction to the Answer, from the review pass. It says `migrate_effort` is excluded on `preview` alone; that was the bug, not the rule. `migrateEffortFiles` returns early with `changes: []` when an Effort holds no Legacy or id-less Tickets, so a non-preview run against an Effort already in schema writes nothing and would have printed a `root:` line claiming a change that never happened — exactly what T11 forbids. The gate is now `preview !== true && report.changes.length > 0`.
+
+The test that covered this was also wrong and passed for the wrong reason: it migrated a modern fixture, so it asserted the line on the no-op branch and never exercised a real migration. It now uses the `sobrina-telegram` Legacy fixture, and a second test pins the no-op as a read.
+
+Two other review findings fixed: both new links to T11 dropped the trailing `-r` from its filename and were dead, and the cost test built its `root: ` prefix as a literal rather than calling `workspaceLine`, so it pinned nothing — changing the form would not have moved it. The representative path is now a stated-length synthetic one rather than a developer's home directory.

@@ -8,11 +8,15 @@
  * wrong repository as the right one. It is the one result a caller cannot check
  * from what it got back, which is how the T10 worktree escape stayed invisible.
  */
-export function workspaceLine(root: string): string {
-  return `root: ${root}`;
+/**
+ * Labelled `root:` after the argument that overrides it, so the line names the
+ * knob a caller would reach for to change it.
+ */
+export function workspaceLine(workspace: string): string {
+  return `root: ${workspace}`;
 }
 
 /** A result that names the workspace that produced it, above the result itself. */
-export function withWorkspace(root: string, body: string): string {
-  return `${workspaceLine(root)}\n${body}`;
+export function withWorkspace(workspace: string, body: string): string {
+  return `${workspaceLine(workspace)}\n${body}`;
 }

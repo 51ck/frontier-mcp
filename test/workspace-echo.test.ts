@@ -8,6 +8,7 @@ import {
   makeLegacyWorkspace,
 } from './support/harness.ts';
 import { tokens } from './support/tokens.ts';
+import { workspaceLine } from '../src/tools/workspace-line.ts';
 
 afterEach(cleanupFixtures);
 
@@ -89,11 +90,13 @@ describe('a write names the workspace it resolved', () => {
     expect(namesWorkspace(text, root)).toBe(true);
   });
 
-  it('on migrate_effort when it is not a preview', async () => {
-    const root = await makeFixtureTree(WORKSPACE);
+  it('on migrate_effort when it normalizes something', async () => {
+    // Real Legacy files, because an Effort already in schema is normalized by
+    // doing nothing — and doing nothing is a read.
+    const root = await makeLegacyWorkspace({ telegram: 'sobrina-telegram' });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    const text = await frontier.call('migrate_effort', { effort: 'demo' });
+    const text = await frontier.call('migrate_effort', { effort: 'telegram' });
 
     expect(namesWorkspace(text, root)).toBe(true);
   });
@@ -139,11 +142,22 @@ describe('a read does not, even through a tool that can write', () => {
   });
 
   it('migrate_effort in preview', async () => {
+    const root = await makeLegacyWorkspace({ telegram: 'sobrina-telegram' });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const text = await frontier.call('migrate_effort', { effort: 'telegram', preview: true });
+
+    expect(text).not.toContain('root: ');
+  });
+
+  it('migrate_effort on an Effort already in schema, which writes nothing', async () => {
     const root = await makeFixtureTree(WORKSPACE);
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    const text = await frontier.call('migrate_effort', { effort: 'demo', preview: true });
+    const text = await frontier.call('migrate_effort', { effort: 'demo' });
 
+    // Not a preview, so the flag says write. Nothing was written, so the line
+    // would be claiming a change that never happened.
     expect(text).not.toContain('root: ');
   });
 
@@ -169,14 +183,16 @@ describe('a read does not, even through a tool that can write', () => {
 /**
  * The cost of the line is the whole case against it, so T11 required it
  * measured rather than assumed, and it is pinned here rather than left in
- * prose. The path is a representative checkout rather than the test's own
- * temporary directory, whose length says nothing about anybody's repository.
+ * prose. A stated-length path, not the test's own temporary directory, whose
+ * length says nothing about anybody's repository — and it is measured through
+ * `workspaceLine`, so changing the form moves the number.
  */
-const REPRESENTATIVE_ROOT = '/Users/epee/Projects/frontier-mcp';
+const REPRESENTATIVE_ROOT = '/home/dev/code/repos/frontier-mcp';
 
 describe('what naming the workspace costs', () => {
   it('is about ten tokens on a typical checkout', () => {
-    expect(tokens(`root: ${REPRESENTATIVE_ROOT}\n`)).toBe(10);
+    expect(REPRESENTATIVE_ROOT).toHaveLength(33);
+    expect(tokens(`${workspaceLine(REPRESENTATIVE_ROOT)}\n`)).toBe(10);
   });
 
   it('buys the whole write path for less than one Board', async () => {
@@ -190,6 +206,6 @@ describe('what naming the workspace costs', () => {
     // extra Board read, which is the unit this server's frugality is measured
     // in. A write response is small, so the line is a large fraction of one —
     // it is the absolute number that decides, not the percentage.
-    expect(tokens(`root: ${REPRESENTATIVE_ROOT}\n`) * 40).toBeLessThan(board);
+    expect(tokens(`${workspaceLine(REPRESENTATIVE_ROOT)}\n`) * 40).toBeLessThan(board);
   });
 });

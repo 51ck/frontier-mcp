@@ -26,3 +26,9 @@ into the driver — if that lands first, this test moves with them and the fix m
 - [ ] The cause is identified as a dropped event or a delayed one, with evidence
 - [ ] The test passes repeatedly under full-suite parallelism, without simply raising the budget
 - [ ] If the fault is in `src/workspace-watcher.ts` rather than the test, it is fixed there
+
+## Comments
+
+Second failure mode observed in the same file, on a later run: "leaves the working tree byte-identical after many files change at once" timed out the same way, while "reflects a Ticket added or deleted on disk" passed. So it is the file, not one test — which points at the watcher or the harness rather than at a single assertion's budget.
+
+Rough rate across five full-suite runs during T11: three clean, two with one timeout each, never the same test twice. Both pass when `test/watcher.test.ts` runs alone.

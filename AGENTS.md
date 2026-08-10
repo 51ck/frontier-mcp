@@ -225,7 +225,7 @@ Rendering rules that are load-bearing, not cosmetic:
 
 - **A Board never carries a body.** Bodies come from `get_tickets`, by id, only for the Tickets
   actually being worked.
-- **A write names the workspace it resolved; a read does not** ([T11](./.scratch/frontier-v1/issues/11-T11-should-a-mutating-call-report-the-workspace-it.md)).
+- **A write names the workspace it resolved; a read does not** ([T11](./.scratch/frontier-v1/issues/11-T11-should-a-mutating-call-report-the-workspace-it-r.md)).
   Ticket ids are not repo-unique — every Effort numbers from T1 — so `T10 updated` is as plausible
   against the wrong repository as the right one, and it is the one result a caller cannot check from
   what it got back. A read needs no such line: the wrong repository returns visibly wrong content.
