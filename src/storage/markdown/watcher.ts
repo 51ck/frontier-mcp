@@ -1,8 +1,6 @@
 import { existsSync, watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
 
-const SCRATCH = '.scratch';
-
 export interface StorageWatcher {
   close(): void;
 }
@@ -14,26 +12,28 @@ export interface StorageWatcher {
 const DEFAULT_DEBOUNCE_MS = 50;
 
 /**
- * Watch this driver's storage directory under a resolved workspace and call
- * `invalidate` when it changes. Never writes — only schedules invalidation
- * after debouncing.
+ * Watch `storageDir` under a resolved workspace and call `invalidate` when it
+ * changes. Never writes — only schedules invalidation after debouncing.
  *
  * It lives below the seam because what it does is markdown-driver policy: it
  * watches a directory of files with `node:fs`, at a granularity chosen because
  * a full markdown scan is single-digit milliseconds. A driver over a database
- * would learn that its workspace moved some entirely different way.
+ * would learn that its workspace moved some entirely different way. It names no
+ * directory of its own for the same reason — which one to watch is the driver's
+ * answer, handed down.
  *
  * If the storage directory does not exist yet, the workspace root is watched
  * until it appears, then the recursive watch is attached.
  */
 export function watchStorage(
   root: string,
+  storageDir: string,
   invalidate: () => void,
   debounceMs: number = DEFAULT_DEBOUNCE_MS,
 ): StorageWatcher {
-  const scratchPath = join(root, SCRATCH);
+  const storagePath = join(root, storageDir);
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let scratchWatcher: FSWatcher | undefined;
+  let storageWatcher: FSWatcher | undefined;
   let rootWatcher: FSWatcher | undefined;
 
   const scheduleInvalidate = () => {
@@ -44,15 +44,15 @@ export function watchStorage(
     }, debounceMs);
   };
 
-  const attachScratchWatcher = () => {
-    if (scratchWatcher !== undefined || !existsSync(scratchPath)) return;
+  const attachStorageWatcher = () => {
+    if (storageWatcher !== undefined || !existsSync(storagePath)) return;
     try {
-      scratchWatcher = watch(scratchPath, { recursive: true }, () => {
+      storageWatcher = watch(storagePath, { recursive: true }, () => {
         scheduleInvalidate();
       });
-      scratchWatcher.on('error', () => {
-        scratchWatcher?.close();
-        scratchWatcher = undefined;
+      storageWatcher.on('error', () => {
+        storageWatcher?.close();
+        storageWatcher = undefined;
       });
       rootWatcher?.close();
       rootWatcher = undefined;
@@ -62,13 +62,13 @@ export function watchStorage(
     }
   };
 
-  attachScratchWatcher();
+  attachStorageWatcher();
 
-  if (scratchWatcher === undefined) {
+  if (storageWatcher === undefined) {
     try {
       rootWatcher = watch(root, (_event, filename) => {
-        if (filename !== SCRATCH) return;
-        attachScratchWatcher();
+        if (filename !== storageDir) return;
+        attachStorageWatcher();
         scheduleInvalidate();
       });
       rootWatcher.on('error', () => {
@@ -83,9 +83,9 @@ export function watchStorage(
   return {
     close() {
       if (timer !== undefined) clearTimeout(timer);
-      scratchWatcher?.close();
+      storageWatcher?.close();
       rootWatcher?.close();
-      scratchWatcher = undefined;
+      storageWatcher = undefined;
       rootWatcher = undefined;
     },
   };

@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import type { Effort, Ticket } from '../src/domain.ts';
 import type { StorageDriver } from '../src/storage/driver.ts';
-import { spec } from './support/fixtures.ts';
+import { createMarkdownDriver } from '../src/storage/markdown/driver.ts';
+import { map, spec, ticket } from './support/fixtures.ts';
 import { cleanupFixtures, connectFrontier, makeFixtureTree } from './support/harness.ts';
 
 afterEach(cleanupFixtures);
@@ -32,7 +33,7 @@ function fixedDriver(
       async readTickets(handles) {
         const wanted = new Set(handles);
         return tickets.filter(
-          ticket => wanted.has(ticket.handle) || (ticket.id !== undefined && wanted.has(ticket.id)),
+          entry => wanted.has(entry.handle) || (entry.id !== undefined && wanted.has(entry.id)),
         );
       },
       updateTicket() {
@@ -181,5 +182,38 @@ describe("the driver's cached workspace", () => {
     await connectFrontier({ cwd: root, env: {}, createDriver: driver.createDriver });
 
     expect(driver.scans()).toBe(1);
+  });
+});
+
+describe("the markdown driver's storage directory", () => {
+  /**
+   * `.scratch` is what this driver calls its storage, not something the server
+   * knows. Serving an Effort out of a directory by another name is the whole
+   * assertion: nothing above the driver had to be told.
+   */
+  it('is a construction parameter, not a module constant', async () => {
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.tracker/alpha/map.md': map('Somewhere else entirely.'),
+      '.tracker/alpha/issues/01-T1-work.md': ticket('T1', 'Filed under another name'),
+
+      // The default directory is present and holds something different, so a
+      // driver still reading `.scratch` fails loudly rather than by absence.
+      '.scratch/decoy/map.md': map('The directory this driver was not given.'),
+    });
+
+    const frontier = await connectFrontier({
+      cwd: root,
+      env: {},
+      createDriver: driverRoot => createMarkdownDriver(driverRoot, { storageDir: '.tracker' }),
+    });
+
+    const efforts = await frontier.call('list_efforts');
+    expect(efforts).toContain('alpha');
+    expect(efforts).not.toContain('decoy');
+
+    const board = await frontier.call('get_board', { effort: 'alpha' });
+    expect(board).toContain('Somewhere else entirely.');
+    expect(board).toContain('Filed under another name');
   });
 });

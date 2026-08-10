@@ -38,9 +38,10 @@ import { parseTicketSummary, ticketBody } from './ticket.ts';
 import { watchStorage, type StorageWatcher } from './watcher.ts';
 
 /**
- * The layout this driver serves, per AGENTS.md:
+ * The layout this driver serves, per AGENTS.md, under the storage directory it
+ * was constructed with:
  *
- *   .scratch/<effort>/
+ *   <storage>/<effort>/
  *   ├── map.md            # Header doc — wayfinder
  *   ├── spec.md           # Header doc — to-spec
  *   └── issues/
@@ -48,7 +49,7 @@ import { watchStorage, type StorageWatcher } from './watcher.ts';
  *
  * Anything else in an Effort directory is ignored, never an error.
  */
-const SCRATCH_DIR = '.scratch';
+const DEFAULT_STORAGE_DIR = '.scratch';
 const ISSUES_DIR = 'issues';
 const MAP_FILE = 'map.md';
 const SPEC_FILE = 'spec.md';
@@ -58,6 +59,17 @@ const HEADER_DOCS: ReadonlyArray<readonly [HeaderDoc, string]> = [
 ];
 
 export interface MarkdownDriverOptions {
+  /**
+   * The directory under `root` this driver keeps its Efforts in, relative to
+   * the workspace root and one segment deep. Defaults to `.scratch`.
+   *
+   * It is a parameter rather than a constant because it is this driver's answer
+   * to "what do you call your storage", which the seam exists to keep from
+   * being everybody's. `src/workspace.ts`'s `ROOT_MARKERS` is the other
+   * question — "is this a repo we serve" — and stays a constant, since it is
+   * asked before there is a driver to ask.
+   */
+  readonly storageDir?: string;
   /** Debounce filesystem watcher events before dropping the scan. */
   readonly watcherDebounceMs?: number;
 }
@@ -78,9 +90,9 @@ export interface MarkdownDriverOptions {
  */
 export function createMarkdownDriver(
   root: string,
-  { watcherDebounceMs }: MarkdownDriverOptions = {},
+  { storageDir = DEFAULT_STORAGE_DIR, watcherDebounceMs }: MarkdownDriverOptions = {},
 ): StorageDriver {
-  const scratch = join(root, SCRATCH_DIR);
+  const scratch = join(root, storageDir);
   let writes: Promise<unknown> = Promise.resolve();
 
   const walk = async (): Promise<ScannedEffort[]> => {
@@ -129,7 +141,7 @@ export function createMarkdownDriver(
     }
   };
 
-  const watcher: StorageWatcher = watchStorage(root, invalidate, watcherDebounceMs);
+  const watcher: StorageWatcher = watchStorage(root, storageDir, invalidate, watcherDebounceMs);
 
   return {
     async listEfforts(): Promise<readonly Effort[]> {
