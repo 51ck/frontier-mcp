@@ -63,3 +63,5 @@ It also answers one of the Map's fog patches — whether a human reading a Board
 ## Comments
 
 Resolving via a /research subagent on branch research/browser-transport, per /wayfinder step 5. Findings land at docs/research/browser-transport.md on that branch.
+
+Two frontier-web fog patches graduated on this answer. "Whether a human reading a Board in a browser changes what `get_board` should return to agents" is settled **no** — the browser reads the ADR 0001 driver seam, not the tool layer, so the tool payloads owe a browser nothing. "Whether the repo should migrate to the v2 scoped SDK family" left the Effort as frontier-v1 T30, since it concerns the server rather than anything a browser sees.

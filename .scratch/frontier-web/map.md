@@ -54,10 +54,7 @@ guards and need no new protocol.
 - Access model — localhost-only is assumed; binding beyond loopback makes auth a real question and changes much of the above.
 - What the browser shows for a workspace that has no `.scratch/` yet.
 - Whether the UI shows live agent presence, or only what the files already record — `claimed_by` is in the files, "session X is connected" is not.
-- The shape of multi-repo aggregation, when it comes.
 - Whether `docs/agents/issue-tracker.md`, the shipped agent contract, must say anything about a second human-facing reader.
-- Whether the repo should migrate to the v2 scoped SDK family (`@modelcontextprotocol/server`/`client`/`node`@2.0.0, GA 2026-07-27) at all — T21 found the pinned `^1.30.0` tops out at protocol `2025-11-25`, which makes `AGENTS.md:161-163` accurate but now under-descriptive. Concerns the server itself, not the web UI, so it likely belongs on `frontier-v1`.
-- Whether a human reading a Board in a browser changes what `get_board` should return to agents.
 
 ## Out of scope
 
