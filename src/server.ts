@@ -35,6 +35,7 @@ import {
   renderMigration,
 } from './tools/migrate-effort.ts';
 import { renderSpec, specDescription, specInputSchema } from './tools/spec.ts';
+import { withWorkspace } from './tools/workspace-line.ts';
 import {
   editFor,
   renderUpdate,
@@ -201,7 +202,9 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
         validate,
       });
 
-      return { content: [{ type: 'text', text: renderCreated(effort, created) }] };
+      return {
+        content: [{ type: 'text', text: withWorkspace(workspace, renderCreated(effort, created)) }],
+      };
     },
   );
 
@@ -248,7 +251,12 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       }
 
       return {
-        content: [{ type: 'text', text: renderUpdate(written.ticket, written.warnings) }],
+        content: [
+          {
+            type: 'text',
+            text: withWorkspace(workspace, renderUpdate(written.ticket, written.warnings)),
+          },
+        ],
       };
     },
   );
@@ -281,12 +289,14 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       // on every call. With no section fields, an existing Map is a plain read
       // (no expected_revision); only a missing Map takes the write path.
       let document;
+      let wrote = mutating;
       if (!mutating) {
         try {
           document = await index.readMap(effort);
         } catch (error) {
           if (!(create === true && error instanceof NoSuchMap)) throw error;
           document = await index.editMap(effort, edit, undefined, { createEffort: true });
+          wrote = true;
         }
       } else {
         document = await index.editMap(effort, edit, expected_revision, {
@@ -294,7 +304,10 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
         });
       }
 
-      return { content: [{ type: 'text', text: renderMap(effort, document) }] };
+      const rendered = renderMap(effort, document);
+      return {
+        content: [{ type: 'text', text: wrote ? withWorkspace(workspace, rendered) : rendered }],
+      };
     },
   );
 
@@ -317,7 +330,15 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
               createEffort: create === true,
             });
 
-      return { content: [{ type: 'text', text: renderSpec(effort, document) }] };
+      const rendered = renderSpec(effort, document);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: content === undefined ? rendered : withWorkspace(workspace, rendered),
+          },
+        ],
+      };
     },
   );
 
@@ -337,7 +358,15 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
         rename: rename === true,
       });
 
-      return { content: [{ type: 'text', text: renderMigration(report) }] };
+      const rendered = renderMigration(report);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: preview === true ? rendered : withWorkspace(workspace, rendered),
+          },
+        ],
+      };
     },
   );
 

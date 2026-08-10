@@ -118,6 +118,8 @@ describe('create_tickets', () => {
 
     expect(text).toBe(
       [
+        // A write names the workspace it resolved, per T11.
+        `root: ${root}`,
         'alpha: 3 created',
         'T8  Parse the frontmatter',
         'T9  Render the Board  blocked_by=T8',

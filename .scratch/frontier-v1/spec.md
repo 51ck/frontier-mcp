@@ -220,6 +220,9 @@ Resolved per call, first match wins:
 The working directory is the one the client launched the process in, fixed for the session. A
 mid-session worktree switch is retargeted with `root` or `FRONTIER_ROOT`, never followed.
 
+Every call that writes reports the workspace it resolved, as a `root:` line above its result, in the
+form `list_efforts` uses. Reads do not, including the read paths of the write-capable tools. T11.
+
 MCP Roots is deliberately not used: it is deprecated as of protocol revision `2026-07-28` (SEP-2577),
 which directs implementations to pass directories via tool parameters or server configuration instead.
 

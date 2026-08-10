@@ -213,7 +213,7 @@ Source layout:
 | `src/workspace.ts` | Workspace resolution — the only module above the driver that reads a *served* repository, and only to locate its root. `.scratch` is a marker only as a directory; `.git` counts as a file too, so a worktree or submodule resolves to itself rather than to the repository enclosing it. |
 | `src/workspace-index.ts` | The in-memory index, one per resolved workspace. |
 | `src/workspace-watcher.ts` | Filesystem watcher — debounced index invalidation for `.scratch/` changes. |
-| `src/tools/` | One module per tool: its input schema, its description, and how its result renders. |
+| `src/tools/` | One module per tool: its input schema, its description, and how its result renders. `workspace-line.ts` is the exception — the single rendering of which repository a call served, shared by `list_efforts` and every write. |
 | `src/server.ts` | Wires the above into an `McpServer`. |
 | `src/tracker-doc.ts` | Loads the shipped tracker configuration document for the `tracker-doc` MCP resource. Reads the filesystem, but only inside the installed package — never a served repository, which is why it does not go through the driver. |
 | `src/index.ts` | The package's library surface. Deliberately narrow — below-seam modules are not exported. |
@@ -225,6 +225,13 @@ Rendering rules that are load-bearing, not cosmetic:
 
 - **A Board never carries a body.** Bodies come from `get_tickets`, by id, only for the Tickets
   actually being worked.
+- **A write names the workspace it resolved; a read does not** ([T11](./.scratch/frontier-v1/issues/11-T11-should-a-mutating-call-report-the-workspace-it.md)).
+  Ticket ids are not repo-unique — every Effort numbers from T1 — so `T10 updated` is as plausible
+  against the wrong repository as the right one, and it is the one result a caller cannot check from
+  what it got back. A read needs no such line: the wrong repository returns visibly wrong content.
+  What decides is *whether the call wrote*, not whether the tool can — `edit_map` with no section
+  fields, `spec` with no content, and `migrate_effort` in preview are reads, and pay nothing.
+  Measured at ~10 tokens on a typical checkout; a forty-write session costs less than one Board.
 - **Warnings are grouped, never itemized per Ticket.** An Effort of Legacy Tickets carries a dangling Edge
   on nearly every Ticket; itemizing produced a warnings block longer than the Board it annotated,
   which undoes the saving the Board exists to deliver.

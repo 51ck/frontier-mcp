@@ -3,19 +3,9 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { cleanupFixtures, connectFrontier, makeLegacyWorkspace } from './support/harness.ts';
+import { tokens } from './support/tokens.ts';
 
 afterEach(cleanupFixtures);
-
-/**
- * The spec's measurements are `wc -c` over an Effort's Tickets converted at
- * roughly four bytes per token. They are the whole argument for the project, so
- * they belong here as assertions rather than only in prose.
- */
-const BYTES_PER_TOKEN = 4;
-
-function tokens(text: string): number {
-  return Math.round(Buffer.byteLength(text, 'utf8') / BYTES_PER_TOKEN);
-}
 
 /** Every file under a directory, recursively, as path -> contents. */
 async function snapshot(dir: string): Promise<Map<string, string>> {
