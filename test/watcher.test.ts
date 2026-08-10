@@ -12,15 +12,26 @@ const FILE = '.scratch/alpha/issues/01-T1-work.md';
 const DEBOUNCE_MS = 25;
 
 /**
- * How long a watched change may take to surface. Test files run in parallel,
- * and a debounced `fs.watch` is the first thing to lose the event loop under
- * that load — this needs headroom well past the default 5s vitest allows a
- * test, which is why the tests below pass TEST_TIMEOUT_MS to `it`.
+ * How long a watched change may take to surface. This budget covers scheduling
+ * jitter on a loaded machine and nothing else: an event lost in a watch's
+ * warm-up window is not a slow event but a missing one, and no budget outlasts
+ * a missing event — recovering those is the watcher's settle, per
+ * {@link watchStorage}.
+ *
+ * The same twelve-process probe that measured that window (see
+ * `DEFAULT_SETTLE_MS`) also timed the events it did deliver: median 8-34ms,
+ * slowest 175ms. Five seconds is roughly 30x the slowest one. Even so it
+ * reaches the 5s default vitest allows a whole test, which is why the tests
+ * below pass TEST_TIMEOUT_MS to `it`.
  */
-const WAIT_MS = 15_000;
+const WAIT_MS = 5_000;
 
-/** Comfortably above WAIT_MS, so waitFor's message wins the race to report. */
-const TEST_TIMEOUT_MS = 30_000;
+/**
+ * Comfortably above WAIT_MS, so waitFor's message wins the race to report —
+ * three times it rather than two, because the tests that wait for a change and
+ * then for a second one spend two full budgets before anything else they do.
+ */
+const TEST_TIMEOUT_MS = 15_000;
 
 /**
  * Poll until `probe` satisfies `ready`, or throw. Throwing beats returning
