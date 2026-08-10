@@ -28,6 +28,12 @@ session.** Moving to another worktree mid-session does not retarget it: pass `ro
 `FRONTIER_ROOT`, or restart the server. A worktree whose branch carries no `.scratch/` of its own
 reports no Efforts — that is the worktree being served correctly, not the tracker going missing.
 
+**Every call that writes opens with `root: <path>`**, naming the repository it just changed. Read it
+— a Ticket id is not repo-unique, so `T10 updated` looks the same whichever repository answered, and
+this line is the only part of the result that tells you. Reads do not carry it, and neither do the
+read paths of write-capable tools: `edit_map` with no section fields, `spec` with no `content`, and
+`migrate_effort` with `preview`.
+
 A repo with no `.scratch/` yet is not an error. Create an Effort by writing to it with `create: true`
 on `create_tickets`, `edit_map`, or `spec`.
 

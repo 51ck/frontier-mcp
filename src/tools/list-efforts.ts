@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import type { Effort, TicketSummary } from '../domain.ts';
+import { workspaceLine } from './workspace-line.ts';
 
 /**
  * `root` is the per-call workspace override. It is the only argument, and it is
@@ -27,7 +28,7 @@ export function renderEfforts(
   efforts: readonly Effort[],
   frontier: ReadonlySet<TicketSummary>,
 ): string {
-  const lines = [`root: ${root}`];
+  const lines = [workspaceLine(root)];
 
   if (efforts.length === 0) {
     lines.push('(no efforts)');
