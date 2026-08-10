@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { WORKSPACE_ENV_VAR } from '../src/workspace.ts';
@@ -24,14 +25,14 @@ function workspaceNamed(name: string): FixtureTree {
 }
 
 /**
- * A git worktree, and equally a submodule: `.git` is a *file* pointing at the
- * real git directory, never a directory of its own.
+ * What a git worktree, and equally a submodule, has where a plain repository
+ * has a `.git/` directory: a *file* naming the real git directory.
  */
+const GIT_FILE = { '.git': 'gitdir: /parent/.git/worktrees/feature\n' };
+
+/** A worktree carrying a tracker of its own. */
 function worktreeNamed(name: string): FixtureTree {
-  return {
-    '.git': 'gitdir: /parent/.git/worktrees/feature\n',
-    ...trackerNamed(name),
-  };
+  return { ...GIT_FILE, ...trackerNamed(name) };
 }
 
 function trackerNamed(name: string): FixtureTree {
@@ -80,9 +81,21 @@ describe('workspace resolution', () => {
   it('treats a directory holding a .git file as its own workspace', async () => {
     const outer = await makeFixtureTree({
       ...workspaceNamed('outer-repo'),
-      'vendor/lib/.git': 'gitdir: ../../.git/modules/lib\n',
+      ...nestedUnder('vendor/lib', GIT_FILE),
     });
     const submodule = join(outer, 'vendor/lib');
+    const frontier = await connectFrontier({ cwd: submodule, env: {} });
+
+    expect(await frontier.call('list_efforts')).toBe(`root: ${submodule}\n(no efforts)`);
+  });
+
+  it('treats a dangling .git symlink as a marker rather than walking past it', async () => {
+    const outer = await makeFixtureTree({
+      ...workspaceNamed('outer-repo'),
+      'vendor/lib/.keep': '',
+    });
+    const submodule = join(outer, 'vendor/lib');
+    await symlink('../../.git/modules/gone', join(submodule, '.git'));
     const frontier = await connectFrontier({ cwd: submodule, env: {} });
 
     expect(await frontier.call('list_efforts')).toBe(`root: ${submodule}\n(no efforts)`);
@@ -91,7 +104,7 @@ describe('workspace resolution', () => {
   it('serves no Efforts when a worktree branch carries no .scratch/ of its own', async () => {
     const parent = await makeFixtureTree({
       ...workspaceNamed('parent-repo'),
-      [`${WORKTREE}/.git`]: 'gitdir: /parent/.git/worktrees/feature\n',
+      ...nestedUnder(WORKTREE, GIT_FILE),
       [`${WORKTREE}/src/deep/.keep`]: '',
     });
     const worktree = join(parent, WORKTREE);

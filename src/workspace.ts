@@ -1,4 +1,4 @@
-import { statSync } from 'node:fs';
+import { lstatSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 /** The environment variable that overrides the workspace for a whole session. */
@@ -90,6 +90,7 @@ function requireDirectory(path: string, source: string): string {
   return path;
 }
 
+/** Follows symlinks: a `.scratch` pointed at shared storage is still the tracker. */
 function isDirectory(path: string): boolean {
   try {
     return statSync(path).isDirectory();
@@ -98,9 +99,14 @@ function isDirectory(path: string): boolean {
   }
 }
 
+/**
+ * Deliberately does not follow symlinks — the question is whether an entry is
+ * there at all, not what it leads to. A dangling `.git` symlink still marks a
+ * repository root, and reading it as absent would walk on into the parent.
+ */
 function exists(path: string): boolean {
   try {
-    statSync(path);
+    lstatSync(path);
     return true;
   } catch {
     return false;

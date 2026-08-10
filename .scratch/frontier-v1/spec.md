@@ -213,8 +213,12 @@ Resolved per call, first match wins:
 
 1. An explicit `root` argument on the call.
 2. The `FRONTIER_ROOT` environment variable.
-3. The server process's working directory, walked upward to the nearest directory containing
-   `.scratch/` or `.git/`.
+3. The server process's working directory, walked upward to the nearest directory containing a
+   `.scratch/` directory, or `.git` in either form. A git worktree and a submodule carry `.git` as a
+   file, and each is its own workspace rather than part of the repository enclosing it.
+
+The working directory is the one the client launched the process in, fixed for the session. A
+mid-session worktree switch is retargeted with `root` or `FRONTIER_ROOT`, never followed.
 
 MCP Roots is deliberately not used: it is deprecated as of protocol revision `2026-07-28` (SEP-2577),
 which directs implementations to pass directories via tool parameters or server configuration instead.
