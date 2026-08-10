@@ -211,7 +211,7 @@ Source layout:
 | `src/storage/driver.ts` | The ADR 0001 seam, its edit vocabulary, and its typed failures. |
 | `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout — `frontmatter.ts` splits the fence, `ticket.ts` parses a Ticket, `legacy.ts` infers one from prose, `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` allocates ids and writes a new batch, `migrate.ts` normalizes an Effort at once, `write.ts` renames it into place. |
 | `src/workspace.ts` | Workspace resolution — the only module above the driver that reads a *served* repository, and only to locate its root. `.scratch` is a marker only as a directory; `.git` counts as a file too, so a worktree or submodule resolves to itself rather than to the repository enclosing it. |
-| `src/workspace-index.ts` | The in-memory index, one per resolved workspace. |
+| `src/workspace-index.ts` | The in-memory index, one per resolved workspace. Caches Efforts and Ticket summaries; a body is read through to the driver on every call and never cached. |
 | `src/workspace-watcher.ts` | Filesystem watcher — debounced index invalidation for `.scratch/` changes. |
 | `src/tools/` | One module per tool: its input schema, its description, and how its result renders. `workspace-line.ts` is the exception — the single rendering of which repository a call served, shared by `list_efforts` and every write. |
 | `src/server.ts` | Wires the above into an `McpServer`. |
@@ -224,7 +224,11 @@ Nothing under `src/tools/` may import from `src/storage/`.
 Rendering rules that are load-bearing, not cosmetic:
 
 - **A Board never carries a body.** Bodies come from `get_tickets`, by id, only for the Tickets
-  actually being worked.
+  actually being worked. The read path is built that way and not merely rendered that way:
+  `listTickets` yields `TicketSummary`, so a scan parses frontmatter and keeps no prose, and the index
+  caches exactly what a Board is built from. `readTickets(handles)` opens the named files and is the
+  only route to a body — which also means `get_tickets` reads fresh, and can never serve prose another
+  process has already rewritten.
 - **A write names the workspace it resolved; a read does not** ([T11](./.scratch/frontier-v1/issues/11-T11-should-a-mutating-call-report-the-workspace-it-r.md)).
   Ticket ids are not repo-unique — every Effort numbers from T1 — so `T10 updated` is as plausible
   against the wrong repository as the right one, and it is the one result a caller cannot check from
