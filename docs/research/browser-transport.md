@@ -1,5 +1,12 @@
 # How a browser talks to an MCP server in 2026
 
+> **Dated snapshot — not a contract.** Researched **2026-08-08**, against a specification revision
+> that was three weeks old at the time. Unlike `docs/adr/` and `docs/agents/`, this document is not
+> current by construction and is never updated in place. It records what was true on its date, as
+> evidence for a decision already taken. Do not cite it as authority against a live source: re-fetch
+> and supersede it with a new dated document. The SDK and protocol facts in §1 and §2 are the parts
+> that expire first — `frontier-v1` **T30** owns them going forward.
+
 Research for **T21** (`.scratch/frontier-web/issues/03-T21-how-a-browser-talks-to-an-mcp-server-in-2026.md`),
 on the `frontier-web` Effort. Read-only web UI for one workspace, live-updating, `spec.md:399`
 currently rules HTTP transport out of scope.

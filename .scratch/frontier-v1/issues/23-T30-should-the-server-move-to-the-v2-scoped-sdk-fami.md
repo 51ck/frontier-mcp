@@ -56,3 +56,7 @@ Invoke `/research`. AFK — this is reading primary sources, not a conversation.
 - [ ] The effect on the `tsc`-alone build is stated, either way
 - [ ] A decision is recorded: migrate now, migrate on a named trigger, or stay pinned — and
       `AGENTS.md:160-163` is updated to say the scoped family exists, whichever way it goes
+
+## Comments
+
+Start from `docs/research/browser-transport.md`, T21's findings, dated 2026-08-08. Its §1 already tabulates the v1 monolith against the v2 scoped family with published dates and protocol ceilings, and §2 enumerates what revision `2026-07-28` changed. That is a head start on the first two criteria, not an answer to them — the doc is a dated snapshot and states so, and the maintenance-status question it does not cover at all. Re-fetch anything load-bearing before deciding.
