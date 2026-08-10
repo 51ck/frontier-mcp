@@ -8,6 +8,7 @@ import type {
   Ticket,
   TicketDraft,
   TicketEdit,
+  TicketSummary,
 } from '../domain.ts';
 
 export type {
@@ -40,7 +41,7 @@ export interface CreateOptions {
    * seam can see that coming, because nothing above the seam knows what the
    * next id will be.
    */
-  readonly validate?: (ids: readonly string[], tickets: readonly Ticket[]) => void;
+  readonly validate?: (ids: readonly string[], tickets: readonly TicketSummary[]) => void;
 }
 
 /**
@@ -69,11 +70,25 @@ export interface StorageDriver {
   listEfforts(): Promise<readonly Effort[]>;
 
   /**
-   * Every Ticket in the workspace, ordered by Effort then by sort order. Ids
-   * resolve repo-wide, so callers that need one Effort filter this rather than
-   * asking for a subset — at these volumes the whole set is the cheap answer.
+   * Every Ticket in the workspace without its body, ordered by Effort then by
+   * sort order. Ids resolve repo-wide, so callers that need one Effort filter
+   * this rather than asking for a subset — at these volumes the whole set is the
+   * cheap answer, and it stays cheap only because no body rides along.
    */
-  listTickets(): Promise<readonly Ticket[]>;
+  listTickets(): Promise<readonly TicketSummary[]>;
+
+  /**
+   * The named Tickets with their bodies, addressed by id or by the
+   * `<effort>#<order>` handle an id-less Legacy Ticket answers to. A name the
+   * workspace does not hold is simply absent: which names were asked for is the
+   * caller's knowledge, not the driver's.
+   *
+   * Separate from {@link listTickets} because a body is the one field almost
+   * nothing reads — Boards, the Frontier and Edge resolution all work from
+   * summary fields — so bodies are fetched for the few Tickets being worked
+   * rather than carried by every read of the workspace.
+   */
+  readTickets(handles: readonly string[]): Promise<readonly Ticket[]>;
 
   /**
    * Apply an edit to one Ticket and return it as written.
@@ -109,7 +124,7 @@ export interface StorageDriver {
     effort: string,
     drafts: readonly TicketDraft[],
     options: CreateOptions,
-  ): Promise<readonly Ticket[]>;
+  ): Promise<readonly TicketSummary[]>;
 
   /**
    * The Map's typed sections for one Effort. Decisions-so-far is not here — it
@@ -150,7 +165,7 @@ export interface StorageDriver {
 
 /** A Ticket write, plus any non-fatal warnings that rode along. */
 export interface TicketWriteResult {
-  readonly ticket: Ticket;
+  readonly ticket: TicketSummary;
   readonly warnings: readonly string[];
 }
 

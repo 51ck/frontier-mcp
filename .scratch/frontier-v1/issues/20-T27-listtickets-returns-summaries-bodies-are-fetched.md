@@ -38,11 +38,11 @@ have already decided to change, so this lands first.
 
 **Status:** ready-for-agent
 
-- [ ] `StorageDriver.listTickets` returns `TicketSummary`, and the markdown driver stops retaining
+- [x] `StorageDriver.listTickets` returns `TicketSummary`, and the markdown driver stops retaining
       bodies from its walk
-- [ ] A driver method fetches bodies for named ids, and `src/tools/get-tickets.ts` is its only caller
-- [ ] The index caches summaries; a body is never cached
-- [ ] Board, Frontier, Edge, create-validation and update paths are unchanged in behaviour, shown by
+- [x] A driver method fetches bodies for named ids, and `src/tools/get-tickets.ts` is its only caller
+- [x] The index caches summaries; a body is never cached
+- [x] Board, Frontier, Edge, create-validation and update paths are unchanged in behaviour, shown by
       the existing tests passing untouched
-- [ ] `get_tickets` returns a body written by another process without waiting for an invalidation
-- [ ] `spec.md` and `AGENTS.md` describe the read path as it now is
+- [x] `get_tickets` returns a body written by another process without waiting for an invalidation
+- [x] `spec.md` and `AGENTS.md` describe the read path as it now is

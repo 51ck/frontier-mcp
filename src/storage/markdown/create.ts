@@ -1,7 +1,7 @@
 import { mkdir, rename, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { Ticket, TicketDraft } from '../../domain.ts';
+import type { TicketDraft, TicketSummary } from '../../domain.ts';
 import { MINTED_ID } from '../../domain.ts';
 import { resolveDraftEdges } from '../../edges.ts';
 import { serializeNew } from './serialize.ts';
@@ -27,7 +27,7 @@ interface Reservation {
 }
 
 /** Every Ticket in the workspace, re-read rather than served from any cache. */
-export type Rescan = () => Promise<readonly Ticket[]>;
+export type Rescan = () => Promise<readonly TicketSummary[]>;
 
 export interface CreateRequest {
   /** Where the id guards live: one namespace for the whole workspace. */
@@ -43,7 +43,7 @@ export interface CreateRequest {
    * The last check, run with the reserved ids and the workspace as it looks
    * under the guards. Throwing abandons the batch before anything is written.
    */
-  readonly validate: (ids: readonly string[], tickets: readonly Ticket[]) => void;
+  readonly validate: (ids: readonly string[], tickets: readonly TicketSummary[]) => void;
   /** Whether the Effort's directory has to be made, and unmade if nothing lands. */
   readonly createEffort: boolean;
 }
@@ -163,7 +163,7 @@ function filesFor(
   effort: string,
   drafts: readonly TicketDraft[],
   ids: readonly string[],
-  tickets: readonly Ticket[],
+  tickets: readonly TicketSummary[],
 ): readonly NewFile[] {
   const resolve = resolveDraftEdges(drafts, ids);
   const firstOrder = nextOrder(tickets, effort);
@@ -242,7 +242,7 @@ async function writeAll(issues: string, files: readonly NewFile[]): Promise<void
 interface Reserved {
   readonly reservations: readonly Reservation[];
   /** The workspace as it looked under the guards — the state this batch appends to. */
-  readonly tickets: readonly Ticket[];
+  readonly tickets: readonly TicketSummary[];
 }
 
 async function reserve(
@@ -254,7 +254,7 @@ async function reserve(
   const used = idsOf(await rescan());
   const reservations = await claim(scratch, used, count, highestMinted(used) + 1, []);
 
-  let settled: readonly Ticket[];
+  let settled: readonly TicketSummary[];
   try {
     settled = await rescan();
   } catch (error) {
@@ -351,7 +351,7 @@ function guardFor(scratch: string, id: string): string {
   return join(scratch, `.frontier-id-${id}.guard`);
 }
 
-function idsOf(tickets: readonly Ticket[]): ReadonlySet<string> {
+function idsOf(tickets: readonly TicketSummary[]): ReadonlySet<string> {
   return new Set(tickets.map(entry => entry.id).filter(id => id !== undefined));
 }
 
@@ -371,7 +371,7 @@ function highestMinted(used: ReadonlySet<string>): number {
 }
 
 /** `NN` is sort order within the Effort and nothing else, so it simply continues. */
-function nextOrder(tickets: readonly Ticket[], effort: string): number {
+function nextOrder(tickets: readonly TicketSummary[], effort: string): number {
   const orders = tickets.filter(entry => entry.effort === effort).map(entry => entry.order);
   return orders.length === 0 ? 1 : Math.max(...orders) + 1;
 }

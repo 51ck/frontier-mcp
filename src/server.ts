@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
-import type { Ticket } from './domain.ts';
+import type { TicketSummary } from './domain.ts';
 import { frontierOf } from './frontier.ts';
 import { createIndexRegistry } from './workspace-index.ts';
 import { createMarkdownDriver } from './storage/markdown/driver.ts';
@@ -160,23 +160,9 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
     },
     async ({ ids, root }) => {
       const workspace = resolveWorkspace(root, context);
-      const tickets = await registry.forWorkspace(workspace).tickets();
-      const wanted = new Set(ids);
+      const found = await registry.forWorkspace(workspace).bodies(ids);
 
-      return {
-        content: [
-          {
-            type: 'text',
-            text: renderTickets(
-              ids,
-              tickets.filter(
-                ticket =>
-                  wanted.has(ticket.handle) || (ticket.id !== undefined && wanted.has(ticket.id)),
-              ),
-            ),
-          },
-        ],
-      };
+      return { content: [{ type: 'text', text: renderTickets(ids, found) }] };
     },
   );
 
@@ -222,7 +208,7 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       const tickets = await index.tickets();
 
       const request = { claim, resolve, drop, status, triage, blocked_by, comment, tick };
-      const find = (from: readonly Ticket[]): Ticket => {
+      const find = (from: readonly TicketSummary[]): TicketSummary => {
         const ticket = from.find(entry => entry.id === id || entry.handle === id);
         if (ticket === undefined) throw new Error(`No Ticket '${id}' in ${workspace}.`);
         return ticket;

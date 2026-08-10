@@ -11,6 +11,7 @@ import type {
   SpecDocument,
   Ticket,
   TicketDraft,
+  TicketSummary,
 } from '../../domain.ts';
 import type {
   CreateOptions,
@@ -33,7 +34,7 @@ import {
   scaffoldMap,
   SECTION_HEADINGS,
 } from './header-doc.ts';
-import { parseTicket } from './ticket.ts';
+import { parseTicketSummary, ticketBody } from './ticket.ts';
 
 /**
  * The layout this driver serves, per AGENTS.md:
@@ -96,8 +97,12 @@ export function createMarkdownDriver(root: string): StorageDriver {
       return (await scan()).map(entry => entry.effort);
     },
 
-    async listTickets(): Promise<readonly Ticket[]> {
-      return (await scan()).flatMap(entry => entry.tickets);
+    async listTickets(): Promise<readonly TicketSummary[]> {
+      return (await scan()).flatMap(entry => summariesOf(entry));
+    },
+
+    async readTickets(handles): Promise<readonly Ticket[]> {
+      return readBodies(scratch, await scan(), handles);
     },
 
     updateTicket(handle, edit, expectedRevision) {
@@ -157,7 +162,7 @@ async function migrate(
   if ((await readEffort(scratch, effort)) === undefined) throw new NoSuchEffort(effort);
 
   const entries = await readTicketFiles(dir, effort);
-  const allTickets = (await walk()).flatMap(entry => entry.tickets);
+  const allTickets = (await walk()).flatMap(summariesOf);
   const issues = join(dir, ISSUES_DIR);
 
   return migrateEffortFiles({
@@ -170,7 +175,7 @@ async function migrate(
     rename: options.rename,
     // Allocation must not share a walk started before the guards — same reason
     // createTickets builds its own rescan.
-    rescan: async () => (await walk()).flatMap(entry => entry.tickets),
+    rescan: async () => (await walk()).flatMap(summariesOf),
     readContents: filename => readFile(join(issues, filename), 'utf8'),
   });
 }
@@ -181,7 +186,7 @@ async function create(
   drafts: readonly TicketDraft[],
   options: CreateOptions,
   walk: () => Promise<ScannedEffort[]>,
-): Promise<readonly Ticket[]> {
+): Promise<readonly TicketSummary[]> {
   const dir = join(scratch, effort);
   const missing = (await readEffort(scratch, effort)) === undefined;
   if (missing && !options.createEffort) throw new NoSuchEffort(effort);
@@ -194,7 +199,7 @@ async function create(
     dir,
     issues: join(dir, ISSUES_DIR),
     drafts,
-    rescan: async () => (await walk()).flatMap(entry => entry.tickets),
+    rescan: async () => (await walk()).flatMap(summariesOf),
     validate: options.validate ?? (() => {}),
     createEffort: missing,
   });
@@ -481,7 +486,7 @@ function ticketPointers(
 async function locate(
   scratch: string,
   handle: string,
-): Promise<{ dir: string; effort: string; filename: string; ticket: Ticket } | undefined> {
+): Promise<{ dir: string; effort: string; filename: string; ticket: TicketSummary } | undefined> {
   const slugs = await readDirectories(scratch);
   const perEffort = await Promise.all(
     slugs.map(async slug => ({ slug, entries: await readTicketFiles(join(scratch, slug), slug) })),
@@ -505,7 +510,7 @@ async function locate(
   return undefined;
 }
 
-function defaultsFor(ticket: Ticket): Defaults {
+function defaultsFor(ticket: TicketSummary): Defaults {
   return {
     id: ticket.id,
     title: ticket.title,
@@ -519,18 +524,65 @@ function defaultsFor(ticket: Ticket): Defaults {
 
 interface ScannedEffort {
   readonly effort: Effort;
-  readonly tickets: readonly Ticket[];
+  /**
+   * The Effort's Ticket files in sort order. A scan keeps the filename beside
+   * each summary because that is what a body fetch opens — the pairing stays
+   * below the seam, where paths live.
+   */
+  readonly entries: readonly TicketFileEntry[];
 }
 
 interface TicketFileEntry {
   readonly filename: string;
-  readonly ticket: Ticket;
+  readonly ticket: TicketSummary;
+}
+
+/** The Tickets of one scanned Effort, without the files behind them. */
+function summariesOf(scanned: ScannedEffort): readonly TicketSummary[] {
+  return scanned.entries.map(entry => entry.ticket);
 }
 
 /**
- * Every Ticket in one Effort with the file behind it, in sort order. Paths never
- * cross the driver interface, so this pairing stays inside the driver — it is
- * how a write finds the file a Ticket came from.
+ * The named Tickets with their prose, read from disk now. The scan located the
+ * files; their bodies are read here rather than carried by every scan, so the
+ * cost is paid per Ticket worked instead of per Ticket in the workspace.
+ *
+ * A name matching nothing yields nothing — naming what was missing belongs to
+ * the caller, which is the only side that knows what it asked for.
+ */
+async function readBodies(
+  scratch: string,
+  scanned: readonly ScannedEffort[],
+  handles: readonly string[],
+): Promise<readonly Ticket[]> {
+  const wanted = new Set(handles);
+
+  const found = scanned.flatMap(entry =>
+    entry.entries
+      .filter(
+        ({ ticket }) =>
+          wanted.has(ticket.handle) || (ticket.id !== undefined && wanted.has(ticket.id)),
+      )
+      .map(({ filename, ticket }) => ({
+        ticket,
+        path: join(scratch, entry.effort.slug, ISSUES_DIR, filename),
+      })),
+  );
+
+  return Promise.all(
+    found.map(async ({ ticket, path }) => withBody(ticket, ticketBody(await readText(path)))),
+  );
+}
+
+function withBody(ticket: TicketSummary, body: string): Ticket {
+  return { ...ticket, body };
+}
+
+/**
+ * Every Ticket in one Effort with the file behind it, in sort order, each read
+ * for its fields and not for its prose. Paths never cross the driver interface,
+ * so this pairing stays inside the driver — it is how a write finds the file a
+ * Ticket came from, and how a body fetch finds the one it must open.
  */
 async function readTicketFiles(dir: string, effort: string): Promise<TicketFileEntry[]> {
   const issues = join(dir, ISSUES_DIR);
@@ -551,17 +603,12 @@ async function readTicketFiles(dir: string, effort: string): Promise<TicketFileE
       // sorted listing is the only order it has.
       return {
         filename,
-        ticket: parseTicket(effort, { filename, contents }, position + 1, revision ?? ''),
+        ticket: parseTicketSummary(effort, { filename, contents }, position + 1, revision ?? ''),
       };
     }),
   );
 
   return withUniqueHandles(parsed.toSorted((a, b) => a.ticket.order - b.ticket.order));
-}
-
-/** Every Ticket in one Effort, in sort order. A missing `issues/` yields none. */
-async function readTickets(dir: string, effort: string): Promise<Ticket[]> {
-  return (await readTicketFiles(dir, effort)).map(entry => entry.ticket);
 }
 
 /**
@@ -596,16 +643,16 @@ function withUniqueHandles(entries: readonly TicketFileEntry[]): TicketFileEntry
  */
 async function readEffort(scratch: string, slug: string): Promise<ScannedEffort | undefined> {
   const dir = join(scratch, slug);
-  const entries = await readDir(dir);
+  const listing = await readDir(dir);
 
-  const files = new Set(entries.filter(entry => entry.isFile()).map(entry => entry.name));
+  const files = new Set(listing.filter(entry => entry.isFile()).map(entry => entry.name));
   const headerDocs = HEADER_DOCS.filter(([, filename]) => files.has(filename)).map(([doc]) => doc);
 
-  const hasIssues = entries.some(entry => entry.isDirectory() && entry.name === ISSUES_DIR);
+  const hasIssues = listing.some(entry => entry.isDirectory() && entry.name === ISSUES_DIR);
   if (headerDocs.length === 0 && !hasIssues) return undefined;
 
-  const [tickets, destination, specOpening] = await Promise.all([
-    readTickets(dir, slug),
+  const [entries, destination, specOpening] = await Promise.all([
+    readTicketFiles(dir, slug),
     headerDocs.includes('map')
       ? readText(join(dir, 'map.md')).then(contents =>
           readSection(contents, SECTION_HEADINGS.destination),
@@ -615,8 +662,8 @@ async function readEffort(scratch: string, slug: string): Promise<ScannedEffort 
   ]);
 
   return {
-    effort: { slug, headerDocs, ticketCount: tickets.length, destination, specOpening },
-    tickets,
+    effort: { slug, headerDocs, ticketCount: entries.length, destination, specOpening },
+    entries,
   };
 }
 

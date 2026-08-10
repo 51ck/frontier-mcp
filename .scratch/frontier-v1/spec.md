@@ -237,6 +237,13 @@ Above the driver sits an in-memory index, built by a full scan at startup and in
 filesystem watcher. At ~50 Tickets per repo a full scan is single-digit milliseconds; SQLite as an
 index would add a migration story and a stale-database failure mode for no gain at this volume.
 
+**A scan reads fields, not prose.** `listTickets` yields Ticket summaries, and the index caches those
+— what a Board, the Frontier and Edge resolution are built from. Bodies are fetched by id through a
+separate driver call, which opens only the named files, so what a process retains for a workspace does
+not grow with the prose written into it. Scan cost is unaffected: every file is still opened and
+parsed for its frontmatter. The second consequence is freshness — nothing caches a body, so
+`get_tickets` cannot serve prose another process has already rewritten.
+
 **The watcher never writes.** It invalidates index entries and nothing else. Background writes to
 git-tracked files with no user action behind them would appear as unexplained diffs, and a branch
 switch touching forty files would fire forty of them.
