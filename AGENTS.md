@@ -166,7 +166,7 @@ Stack, settled:
 - **`yaml`** (`parseDocument`) for frontmatter, per ADR 0003. Not `gray-matter`.
 - **`node:fs.watch` with `{ recursive: true }`** for T8 — supported on macOS and Windows, and on
   Linux since Node 19.1. A full scan is single-digit milliseconds at these volumes, so the watcher
-  debounces and rebuilds the index wholesale; per-file event granularity, which is what chokidar
+  debounces and drops the driver's whole scan; per-file event granularity, which is what chokidar
   actually buys, is worth nothing here.
 - **`tsc` alone** for the build, no bundler. The only heavy dependency is the SDK, and bundling it
   would inline express and hono for a stdio server that needs neither.
@@ -231,10 +231,10 @@ Rendering rules that are load-bearing, not cosmetic:
 
 - **A Board never carries a body.** Bodies come from `get_tickets`, by id, only for the Tickets
   actually being worked. The read path is built that way and not merely rendered that way:
-  `listTickets` yields `TicketSummary`, so a scan parses frontmatter and keeps no prose, and the index
-  caches exactly what a Board is built from. `readTickets(handles)` opens the named files and is the
-  only route to a body — which also means `get_tickets` reads fresh, and can never serve prose another
-  process has already rewritten.
+  `listTickets` yields `TicketSummary`, so a scan parses frontmatter and keeps no prose, and the
+  driver caches exactly what a Board is built from. `readTickets(handles)` opens the named files and
+  is the only route to a body — it walks fresh rather than reading the cached scan, which is why
+  `get_tickets` can never serve prose another process has already rewritten.
 - **A write names the workspace it resolved; a read does not** ([T11](./.scratch/frontier-v1/issues/11-T11-should-a-mutating-call-report-the-workspace-it-r.md)).
   Ticket ids are not repo-unique — every Effort numbers from T1 — so `T10 updated` is as plausible
   against the wrong repository as the right one, and it is the one result a caller cannot check from
@@ -264,8 +264,8 @@ Write rules, equally load-bearing:
 - **Claims are guarded by a revision-keyed exclusive create**, per [ADR 0004](./docs/adr/0004-claims-are-guarded-by-a-revision-keyed-exclusive-create.md). An optimistic check alone is not compare-and-set across processes — measured, four sessions claiming one Ticket produced three false winners.
 - **Every write carries the revision it read.** `TicketSummary.revision` is opaque above the seam;
   the markdown driver builds it from modification time and size, a SQLite driver would use a
-  rowversion. The check runs against the file immediately before the write, not against the index,
-  because the index may be stale.
+  rowversion. The check runs against the file immediately before the write, not against the cached
+  scan, because the scan may be stale.
 - **A write never reorders frontmatter.** New fields are appended; only a block this driver creates is in schema order. `flowCollectionPadding: false` matters — without it an untouched `[a, b]` comes back `[ a, b ]`.
 - **A write never touches a body section it does not own.** The answer replaces up to the next `##`, so the comment log survives.
 - **A mismatch is never retried.** It is re-read only to produce a better message — usually
