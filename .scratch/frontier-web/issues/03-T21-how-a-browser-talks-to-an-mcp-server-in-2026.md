@@ -30,13 +30,13 @@ context pointer back to this Ticket.
 
 ## Acceptance criteria
 
-- [ ] Transport options are named with their current support status, sourced from primary docs
-- [ ] A recommendation on MCP-as-wire versus HTTP-app-beside-the-seam, with reasoning
-- [ ] Findings captured as a markdown file on the research branch and linked here
+- [x] Transport options are named with their current support status, sourced from primary docs
+- [x] A recommendation on MCP-as-wire versus HTTP-app-beside-the-seam, with reasoning
+- [x] Findings captured as a markdown file on the research branch and linked here
 
 ## Answer
 
-Findings: `docs/research/browser-transport.md` on branch `research/browser-transport` (commit `ce3cf13`), 510 lines with primary sources dated.
+Findings: [`docs/research/browser-transport.md`](../../../docs/research/browser-transport.md) — 510 lines, every claim sourced and dated 2026-08-08.
 
 **Recommendation — the browser does not speak MCP.** One long-lived process constructs the driver, index and watcher once, and serves two front doors over that single instance: the existing `StdioServerTransport`, unchanged, and a loopback HTTP listener serving the SPA, a small read-only JSON API, and one SSE endpoint fired when the watcher invalidates. The browser holds no MCP client — it fetches JSON and listens to one `EventSource`. Behind a separate entry point; the stdio path never grows a listening socket.
 
@@ -65,3 +65,7 @@ It also answers one of the Map's fog patches — whether a human reading a Board
 Resolving via a /research subagent on branch research/browser-transport, per /wayfinder step 5. Findings land at docs/research/browser-transport.md on that branch.
 
 Two frontier-web fog patches graduated on this answer. "Whether a human reading a Board in a browser changes what `get_board` should return to agents" is settled **no** — the browser reads the ADR 0001 driver seam, not the tool layer, so the tool payloads owe a browser nothing. "Whether the repo should migrate to the v2 scoped SDK family" left the Effort as frontier-v1 T30, since it concerns the server rather than anything a browser sees.
+
+Findings doc merged to the repo at `docs/research/browser-transport.md`. The Answer now cites it by path; the earlier reference named branch `research/browser-transport` at commit `ce3cf13`, which would have dangled once that branch was pruned. `AGENTS.md` gains `docs/research/` in the Child DOX Index with its rule: dated snapshots, never current by construction, never cited as authority against a live source.
+
+Third criterion ticked on substance, not on its wording: the findings are captured and linked, but they live in the repo at `docs/research/browser-transport.md` rather than on the research branch the criterion names. The branch was the plan at charting time; merging the doc is strictly better, since a Ticket resolved on master should not cite evidence that a branch prune would take with it.
