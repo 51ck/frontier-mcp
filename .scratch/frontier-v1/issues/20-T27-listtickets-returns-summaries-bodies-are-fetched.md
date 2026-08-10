@@ -2,9 +2,10 @@
 id: T27
 title: listTickets returns summaries; bodies are fetched by id
 kind: build
-status: open
+status: resolved
 triage: ready-for-agent
 blocked_by: []
+answer_gist: listTickets returns TicketSummary and bodies are fetched by id through readTickets; the index caches summaries only, so get_tickets reads fresh
 ---
 
 # `listTickets` returns summaries; bodies are fetched by id
