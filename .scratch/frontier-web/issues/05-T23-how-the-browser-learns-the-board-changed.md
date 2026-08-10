@@ -5,7 +5,7 @@ kind: decision
 type: grilling
 status: open
 triage: ready-for-agent
-blocked_by: [T22]
+blocked_by: [T22, T19]
 ---
 
 ## Question
@@ -28,3 +28,7 @@ Invoke `/grilling`. HITL.
 - [ ] The staleness a human can observe is stated as a number, not an adjective
 - [ ] Behaviour on a hand edit and on `git checkout` is specified — those are the common cases
 - [ ] Confirmed that nothing in the design writes on a watcher event
+
+## Comments
+
+T19 moved to frontier-v1 when the shared-driver question separated into frontier-hive. This Ticket still needs its staleness-window measurement — write in one process, until a second returns fresh data, including the 50ms debounce — so the Edge is now cross-Effort. T22 stays as a resolved blocker: it settled that the web process is a standalone peer reader holding its own driver, which is what this Ticket pushes from.
