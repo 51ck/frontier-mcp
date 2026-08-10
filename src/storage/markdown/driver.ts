@@ -70,6 +70,13 @@ export interface MarkdownDriverOptions {
   readonly storageDir?: string;
   /** Debounce filesystem watcher events before dropping the scan. */
   readonly watcherDebounceMs?: number;
+  /**
+   * When the watcher drops the scan unconditionally after attaching, to cover
+   * the events an `fs.watch` loses while it is still warming up — see
+   * {@link watchStorage}. It exists so a test can pin those moments and assert
+   * on them; the default schedule is the right one for real use.
+   */
+  readonly watcherSettleMs?: readonly number[];
 }
 
 /**
@@ -82,13 +89,21 @@ export interface MarkdownDriverOptions {
  * cheap enough to cache wholesale, and `node:fs.watch` is how this physical
  * model learns it moved. A driver over a database would cache and notice
  * neither the same way, which is why nothing above the seam does it for them.
+ * "Live" arrives slightly after construction, though: a watch is not delivering
+ * events the instant it is created, and what it misses in that window is gone
+ * rather than delayed, so the driver drops its scan a few times while the watch
+ * warms.
  *
  * Close it to stop the watcher; a process that keeps a workspace open forever
  * never needs to.
  */
 export function createMarkdownDriver(
   root: string,
-  { storageDir = DEFAULT_STORAGE_DIR, watcherDebounceMs }: MarkdownDriverOptions = {},
+  {
+    storageDir = DEFAULT_STORAGE_DIR,
+    watcherDebounceMs,
+    watcherSettleMs,
+  }: MarkdownDriverOptions = {},
 ): StorageDriver {
   const storage = join(root, storageDir);
   let writes: Promise<unknown> = Promise.resolve();
@@ -139,7 +154,10 @@ export function createMarkdownDriver(
     }
   };
 
-  const watcher: StorageWatcher = watchStorage(root, storageDir, invalidate, watcherDebounceMs);
+  const watcher: StorageWatcher = watchStorage(root, storageDir, invalidate, {
+    debounceMs: watcherDebounceMs,
+    settleMs: watcherSettleMs,
+  });
 
   return {
     async listEfforts(): Promise<readonly Effort[]> {
