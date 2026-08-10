@@ -1,4 +1,4 @@
-import type { Kind, Status, Ticket } from '../../domain.ts';
+import type { Kind, Status, TicketSummary } from '../../domain.ts';
 import { STATUSES } from '../../domain.ts';
 import { parseLegacyBody } from './legacy.ts';
 import { splitFrontmatter } from './frontmatter.ts';
@@ -12,17 +12,22 @@ export interface TicketFile {
 }
 
 /**
- * Parse one Ticket file. Schema-conformant files read from their frontmatter;
- * everything else falls through to the Legacy parser and is flagged, because a
- * server that is useless until its repo is migrated never gets installed.
+ * Parse one Ticket file into everything but its prose. Schema-conformant files
+ * read from their frontmatter; everything else falls through to the Legacy
+ * parser and is flagged, because a server that is useless until its repo is
+ * migrated never gets installed.
+ *
+ * The body is deliberately not returned: a scan reads every file in the
+ * workspace, and almost nothing above the seam reads prose. {@link ticketBody}
+ * takes it out of the same contents for the few Tickets actually being worked.
  */
-export function parseTicket(
+export function parseTicketSummary(
   effort: string,
   file: TicketFile,
   fallbackOrder: number,
   revision: string,
-): Ticket {
-  const { fields, body } = splitFrontmatter(file.contents);
+): TicketSummary {
+  const { fields } = splitFrontmatter(file.contents);
   const order = readOrder(file.filename) ?? fallbackOrder;
 
   if (fields === undefined) return parseLegacy(effort, order, file.contents, revision);
@@ -48,11 +53,25 @@ export function parseTicket(
     unrecognizedStatus: undefined,
     collapsedRefs: [],
     revision,
-    body: body.trim(),
   };
 }
 
-function parseLegacy(effort: string, order: number, contents: string, revision: string): Ticket {
+/**
+ * A Ticket's prose. A schema file's body is what sits below the frontmatter; a
+ * Legacy file has no fence, so its whole contents are the prose — the same
+ * split {@link parseTicketSummary} makes, taken from the other side.
+ */
+export function ticketBody(contents: string): string {
+  const { fields, body } = splitFrontmatter(contents);
+  return (fields === undefined ? contents : body).trim();
+}
+
+function parseLegacy(
+  effort: string,
+  order: number,
+  contents: string,
+  revision: string,
+): TicketSummary {
   const inferred = parseLegacyBody(contents);
 
   return {
@@ -75,7 +94,6 @@ function parseLegacy(effort: string, order: number, contents: string, revision: 
     unrecognizedStatus: inferred.unrecognizedStatus,
     collapsedRefs: inferred.collapsedRefs,
     revision,
-    body: contents.trim(),
   };
 }
 

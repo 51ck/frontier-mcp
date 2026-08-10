@@ -7,6 +7,7 @@ import type {
   SpecDocument,
   Ticket,
   TicketDraft,
+  TicketSummary,
 } from './domain.ts';
 import type {
   CreateOptions,
@@ -24,10 +25,14 @@ import { createWatcherRegistry, type WatcherRegistry } from './workspace-watcher
  *
  * A filesystem watcher invalidates the scan when `.scratch/` changes on disk,
  * so the next read rebuilds without restarting the process.
+ *
+ * What it holds is Efforts and Ticket summaries — what a Board is built from.
+ * Bodies are not part of the scan, so the memory a process retains for a
+ * workspace does not grow with the prose written into it.
  */
 export interface WorkspaceIndex {
   efforts(): Promise<readonly Effort[]>;
-  tickets(): Promise<readonly Ticket[]>;
+  tickets(): Promise<readonly TicketSummary[]>;
   /**
    * Bodies for the named Tickets, read through to the driver every time. The
    * index caches what a Board is built from and nothing else — a body is read
@@ -42,7 +47,7 @@ export interface WorkspaceIndex {
     effort: string,
     drafts: readonly TicketDraft[],
     options: CreateOptions,
-  ): Promise<readonly Ticket[]>;
+  ): Promise<readonly TicketSummary[]>;
   readMap(effort: string): Promise<MapDocument>;
   editMap(
     effort: string,

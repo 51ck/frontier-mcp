@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import type { Kind, Ticket, TicketDraft, TriageRole } from '../domain.ts';
+import type { Kind, TicketDraft, TicketSummary, TriageRole } from '../domain.ts';
 import { MINTED_ID, TRIAGE_ROLES } from '../domain.ts';
 import { cycleThrough, renderCycle, resolveDraftEdges, type EdgesOf } from '../edges.ts';
 import { indexById } from '../frontier.ts';
@@ -74,7 +74,7 @@ export interface PlannedBatch {
    * the read that produced those came before the reservations and may have
    * missed the very Ticket whose dangling Edge is about to close.
    */
-  readonly validate: (ids: readonly string[], tickets: readonly Ticket[]) => void;
+  readonly validate: (ids: readonly string[], tickets: readonly TicketSummary[]) => void;
 }
 
 /**
@@ -84,7 +84,7 @@ export interface PlannedBatch {
  */
 export function planBatch(
   requests: readonly DraftRequest[],
-  existing: readonly Ticket[],
+  existing: readonly TicketSummary[],
 ): PlannedBatch {
   const drafts = requests.map(request => toDraft(request));
   const keys = declaredKeys(drafts);
@@ -153,7 +153,7 @@ function declaredKeys(drafts: readonly TicketDraft[]): ReadonlySet<string> {
 function checkEdges(
   drafts: readonly TicketDraft[],
   keys: ReadonlySet<string>,
-  existing: readonly Ticket[],
+  existing: readonly TicketSummary[],
 ): void {
   const ids = indexById(existing);
 
@@ -180,7 +180,7 @@ function checkEdges(
 function checkCycles(
   drafts: readonly TicketDraft[],
   names: readonly string[],
-  existing: readonly Ticket[],
+  existing: readonly TicketSummary[],
   resolve: (edge: string) => string = edge => edge,
 ): void {
   const ids = indexById(existing);
@@ -218,7 +218,7 @@ function placeholderFor(index: number, keys: ReadonlySet<string>): string {
  * things a caller cannot work out for itself. The filename is deliberately not
  * here: it is cosmetic, and the id is what everything addresses a Ticket by.
  */
-export function renderCreated(effort: string, created: readonly Ticket[]): string {
+export function renderCreated(effort: string, created: readonly TicketSummary[]): string {
   const lines = [`${effort}: ${String(created.length)} created`];
 
   for (const ticket of created) {

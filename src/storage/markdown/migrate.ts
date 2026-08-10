@@ -1,14 +1,14 @@
 import { rename as renameFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { MigrationChange, MigrationReport, Ticket } from '../../domain.ts';
+import type { MigrationChange, MigrationReport, TicketSummary } from '../../domain.ts';
 import { peekMintedIds, ticketFilename, withIdReservations, type Rescan } from './create.ts';
 import { normalizeTicket, type Defaults } from './serialize.ts';
 import { stage, unstage, writeAtomically } from './write.ts';
 
 export interface TicketFileEntry {
   readonly filename: string;
-  readonly ticket: Ticket;
+  readonly ticket: TicketSummary;
 }
 
 export interface MigrateFilesRequest {
@@ -16,7 +16,7 @@ export interface MigrateFilesRequest {
   readonly effort: string;
   readonly issues: string;
   readonly entries: readonly TicketFileEntry[];
-  readonly allTickets: readonly Ticket[];
+  readonly allTickets: readonly TicketSummary[];
   readonly preview: boolean;
   readonly rename: boolean;
   readonly rescan: Rescan;
@@ -215,6 +215,6 @@ function remapEdges(edges: readonly string[], idByOrder: ReadonlyMap<number, str
   });
 }
 
-function idsOf(tickets: readonly Ticket[]): ReadonlySet<string> {
+function idsOf(tickets: readonly TicketSummary[]): ReadonlySet<string> {
   return new Set(tickets.map(entry => entry.id).filter(id => id !== undefined));
 }

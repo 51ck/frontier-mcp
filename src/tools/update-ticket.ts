@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import type { Ticket, TicketEdit } from '../domain.ts';
+import type { TicketEdit, TicketSummary } from '../domain.ts';
 import { STATUSES, TRIAGE_ROLES } from '../domain.ts';
 import type { TriageRole } from '../domain.ts';
 import { cycleThrough, renderCycle, type EdgesOf } from '../edges.ts';
@@ -80,8 +80,8 @@ export interface UpdateRequest {
  * cycle can run through an Effort this call never names.
  */
 export function editFor(
-  ticket: Ticket,
-  all: readonly Ticket[],
+  ticket: TicketSummary,
+  all: readonly TicketSummary[],
   request: UpdateRequest,
   now: string,
 ): TicketEdit {
@@ -159,8 +159,8 @@ export function editFor(
  * Ticket that has not been written yet is how a breakdown gets built up.
  */
 function edgesFor(
-  ticket: Ticket,
-  all: readonly Ticket[],
+  ticket: TicketSummary,
+  all: readonly TicketSummary[],
   request: UpdateRequest,
 ): readonly string[] {
   const blockedBy = request.blocked_by ?? [];
@@ -186,7 +186,7 @@ function edgesFor(
  * than taken, so two parallel sessions can never both believe they hold it.
  * Re-claiming your own is allowed — it refreshes the timestamp.
  */
-function claimEdit(ticket: Ticket, by: string, now: string): TicketEdit {
+function claimEdit(ticket: TicketSummary, by: string, now: string): TicketEdit {
   if (ticket.claimedBy !== undefined && ticket.claimedBy !== by) {
     throw new Error(
       `${ticket.handle} is already claimed by ${ticket.claimedBy}` +
@@ -201,7 +201,7 @@ function claimEdit(ticket: Ticket, by: string, now: string): TicketEdit {
   return { status: 'claimed', claimedBy: by, claimedAt: now };
 }
 
-export function renderUpdate(ticket: Ticket, warnings: readonly string[] = []): string {
+export function renderUpdate(ticket: TicketSummary, warnings: readonly string[] = []): string {
   const fields = [
     `status=${ticket.status}`,
     ticket.claimedBy === undefined ? undefined : `claimed_by=${ticket.claimedBy}`,
