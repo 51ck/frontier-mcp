@@ -61,6 +61,15 @@ export interface HeaderDocOptions {
  * markdown driver takes a directory, a SQLite driver would take a connection),
  * so no method ever takes or returns a location. The planned SQLite driver, and
  * the `md <-> db` conversion either side of it, are only writable if this holds.
+ *
+ * A driver is the workspace *cached and live*, not a bare set of queries.
+ * Whether to hold a scan, when it goes stale, and how it hears that another
+ * process wrote are all answers about one physical model — the markdown driver
+ * caches a full walk and watches a directory; a SQLite driver would query and
+ * let its own page cache do the work. A layer above the seam that decided any
+ * of this for both of them would be one model's policy wearing a generic
+ * interface, which is the defect T28 removed. Callers see none of it: every
+ * method answers as though it had just read.
  */
 export interface StorageDriver {
   /**
@@ -161,6 +170,14 @@ export interface StorageDriver {
    * nothing. Unrecognized files in the Effort directory are ignored.
    */
   migrateEffort(effort: string, options: MigrateOptions): Promise<MigrationReport>;
+
+  /**
+   * Release whatever this driver holds open to stay live — the markdown
+   * driver's filesystem watcher, a connection for a driver that has one. Reads
+   * and writes are not expected after it, and a driver that holds nothing may
+   * do nothing.
+   */
+  close(): void;
 }
 
 /** A Ticket write, plus any non-fatal warnings that rode along. */

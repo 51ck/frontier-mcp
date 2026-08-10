@@ -35,6 +35,7 @@ import {
   SECTION_HEADINGS,
 } from './header-doc.ts';
 import { parseTicketSummary, ticketBody } from './ticket.ts';
+import { watchStorage, type StorageWatcher } from './watcher.ts';
 
 /**
  * The layout this driver serves, per AGENTS.md:
@@ -56,11 +57,29 @@ const HEADER_DOCS: ReadonlyArray<readonly [HeaderDoc, string]> = [
   ['spec', SPEC_FILE],
 ];
 
+export interface MarkdownDriverOptions {
+  /** Debounce filesystem watcher events before dropping the scan. */
+  readonly watcherDebounceMs?: number;
+}
+
 /**
  * The markdown driver — the only driver in v1. Bound to `root`, the resolved
  * workspace, so that no path crosses the {@link StorageDriver} interface.
+ *
+ * It is the workspace *cached and live*: it holds the scan a Board is built
+ * from, drops it when it writes, and watches the storage directory so a change
+ * another process made drops it too. Both are markdown policy — a full scan is
+ * cheap enough to cache wholesale, and `node:fs.watch` is how this physical
+ * model learns it moved. A driver over a database would cache and notice
+ * neither the same way, which is why nothing above the seam does it for them.
+ *
+ * Close it to stop the watcher; a process that keeps a workspace open forever
+ * never needs to.
  */
-export function createMarkdownDriver(root: string): StorageDriver {
+export function createMarkdownDriver(
+  root: string,
+  { watcherDebounceMs }: MarkdownDriverOptions = {},
+): StorageDriver {
   const scratch = join(root, SCRATCH_DIR);
   let writes: Promise<unknown> = Promise.resolve();
 
@@ -76,21 +95,45 @@ export function createMarkdownDriver(root: string): StorageDriver {
   };
 
   /**
-   * Both methods are always called together to build one index, and each walk
-   * reads every `issues/` directory. Sharing the in-flight walk makes that one
-   * pass instead of two.
+   * Hold the in-flight walk, not just its result, so concurrent callers share
+   * one scan instead of racing several. A failed scan is never cached as the
+   * answer.
    *
-   * The share lasts only as long as the walk itself — the driver holds no
-   * results, because deciding when a scan is stale belongs to the index above
-   * it and to the watcher T8 attaches there.
+   * The whole scan is one cache rather than one per method: `listEfforts` and
+   * `listTickets` are two readings of a single walk, and every caller that
+   * wants a Board wants both.
    */
-  let inFlight: Promise<ScannedEffort[]> | undefined;
+  let scanned: Promise<ScannedEffort[]> | undefined;
   const scan = () => {
-    inFlight ??= walk().finally(() => {
-      inFlight = undefined;
+    scanned ??= walk().catch((error: unknown) => {
+      scanned = undefined;
+      throw error;
     });
-    return inFlight;
+    return scanned;
   };
+
+  /** Drop the scan, so the next read rebuilds from disk. */
+  const invalidate = () => {
+    scanned = undefined;
+  };
+
+  /**
+   * A write moves the workspace on whether or not it succeeded partway, so the
+   * next read rebuilds rather than trusting a scan taken before it.
+   */
+  const moved = async <T>(operation: () => Promise<T>): Promise<T> => {
+    try {
+      return await operation();
+    } finally {
+      invalidate();
+    }
+  };
+
+  const watcher: StorageWatcher = watchStorage(
+    root,
+    invalidate,
+    watcherDebounceMs === undefined ? {} : { debounceMs: watcherDebounceMs },
+  );
 
   return {
     async listEfforts(): Promise<readonly Effort[]> {
@@ -102,18 +145,22 @@ export function createMarkdownDriver(root: string): StorageDriver {
     },
 
     async readTickets(handles): Promise<readonly Ticket[]> {
-      return readBodies(scratch, await scan(), handles);
+      // Deliberately the fresh walk rather than the cached one. A body is read
+      // for the few Tickets being worked, and reading it against a scan taken
+      // before another process wrote is exactly the staleness `get_tickets`
+      // exists not to serve.
+      return readBodies(scratch, await walk(), handles);
     },
 
     updateTicket(handle, edit, expectedRevision) {
-      return serialized(() => write(scratch, handle, edit, expectedRevision));
+      return moved(() => serialized(() => write(scratch, handle, edit, expectedRevision)));
     },
 
     createTickets(effort, drafts, options) {
-      // The scan is deliberately not the shared one: allocation re-reads under
-      // its own guards, and an in-flight walk started before them would defeat
-      // the check it exists to make.
-      return serialized(() => create(scratch, effort, drafts, options, walk));
+      // The scan is deliberately not the cached one: allocation re-reads under
+      // its own guards, and a walk started before them would defeat the check
+      // it exists to make.
+      return moved(() => serialized(() => create(scratch, effort, drafts, options, walk)));
     },
 
     readMap(effort) {
@@ -121,7 +168,9 @@ export function createMarkdownDriver(root: string): StorageDriver {
     },
 
     editMap(effort, edit, expectedRevision, options) {
-      return serialized(() => saveMap(scratch, effort, edit, expectedRevision, options));
+      return moved(() =>
+        serialized(() => saveMap(scratch, effort, edit, expectedRevision, options)),
+      );
     },
 
     readSpec(effort) {
@@ -129,11 +178,18 @@ export function createMarkdownDriver(root: string): StorageDriver {
     },
 
     putSpec(effort, body, expectedRevision, options) {
-      return serialized(() => saveSpec(scratch, effort, body, expectedRevision, options));
+      return moved(() =>
+        serialized(() => saveSpec(scratch, effort, body, expectedRevision, options)),
+      );
     },
 
     migrateEffort(effort, options) {
-      return serialized(() => migrate(scratch, effort, options, walk));
+      return moved(() => serialized(() => migrate(scratch, effort, options, walk)));
+    },
+
+    close() {
+      watcher.close();
+      invalidate();
     },
   };
 

@@ -56,6 +56,9 @@ function fixedDriver(
       migrateEffort() {
         throw new Error('this driver is read-only');
       },
+      close() {
+        // Nothing held open: this driver answers from a literal list.
+      },
     }),
     scans: () => scans,
   };
@@ -95,6 +98,11 @@ describe('the storage driver seam', () => {
     );
   });
 
+  /**
+   * A driver that fails once and answers the next time must be seen to recover.
+   * Nothing above the seam may remember the failure, which is only true while
+   * nothing above the seam remembers anything — the point of T28.
+   */
   it('does not let a failed read poison the reads after it', async () => {
     const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
     let attempts = 0;
@@ -140,6 +148,9 @@ describe('the storage driver seam', () => {
       migrateEffort() {
         throw new Error('this driver is read-only');
       },
+      close() {
+        // Nothing held open: this driver answers from a literal list.
+      },
     });
 
     const frontier = await connectFrontier({ cwd: root, env: {}, createDriver });
@@ -149,11 +160,11 @@ describe('the storage driver seam', () => {
   });
 });
 
-describe('the in-memory index', () => {
+describe("the driver's cached workspace", () => {
   /**
    * The one structural assertion in the suite. "An in-memory index is built by
    * a full scan at startup" is a T1 acceptance criterion with no user-facing
-   * outcome to observe instead — a warm index and a cold one answer alike.
+   * outcome to observe instead — a warm cache and a cold one answer alike.
    */
   it('is built by a full scan at startup, before any tool call', async () => {
     const root = await makeFixtureTree({ '.scratch/only/spec.md': spec('Only') });

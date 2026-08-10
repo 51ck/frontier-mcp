@@ -3,27 +3,33 @@ import { join } from 'node:path';
 
 const SCRATCH = '.scratch';
 
-export interface WorkspaceWatcher {
+export interface StorageWatcher {
   close(): void;
 }
 
-export interface WorkspaceWatcherOptions {
+export interface StorageWatcherOptions {
   /** Debounce rapid events before invalidating. Defaults to 50ms. */
   readonly debounceMs?: number;
 }
 
 /**
- * Watch `.scratch/` under a resolved workspace and call `invalidate` when it
- * changes. Never writes — only schedules invalidation after debouncing.
+ * Watch this driver's storage directory under a resolved workspace and call
+ * `invalidate` when it changes. Never writes — only schedules invalidation
+ * after debouncing.
  *
- * If `.scratch/` does not exist yet, the workspace root is watched until the
- * directory appears, then the recursive scratch watch is attached.
+ * It lives below the seam because what it does is markdown-driver policy: it
+ * watches a directory of files with `node:fs`, at a granularity chosen because
+ * a full markdown scan is single-digit milliseconds. A driver over a database
+ * would learn that its workspace moved some entirely different way.
+ *
+ * If the storage directory does not exist yet, the workspace root is watched
+ * until it appears, then the recursive watch is attached.
  */
-export function watchWorkspace(
+export function watchStorage(
   root: string,
   invalidate: () => void,
-  options: WorkspaceWatcherOptions = {},
-): WorkspaceWatcher {
+  options: StorageWatcherOptions = {},
+): StorageWatcher {
   const debounceMs = options.debounceMs ?? 50;
   const scratchPath = join(root, SCRATCH);
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -51,7 +57,8 @@ export function watchWorkspace(
       rootWatcher?.close();
       rootWatcher = undefined;
     } catch {
-      // `.scratch/` may have disappeared between the exists check and watch.
+      // The storage directory may have disappeared between the exists check
+      // and the watch.
     }
   };
 
@@ -80,29 +87,6 @@ export function watchWorkspace(
       rootWatcher?.close();
       scratchWatcher = undefined;
       rootWatcher = undefined;
-    },
-  };
-}
-
-/**
- * One watcher per workspace root. Started when an index is first opened.
- */
-export interface WatcherRegistry {
-  attach(root: string, invalidate: () => void): void;
-  closeAll(): void;
-}
-
-export function createWatcherRegistry(options: WorkspaceWatcherOptions = {}): WatcherRegistry {
-  const watchers = new Map<string, WorkspaceWatcher>();
-
-  return {
-    attach(root, invalidate) {
-      if (watchers.has(root)) return;
-      watchers.set(root, watchWorkspace(root, invalidate, options));
-    },
-    closeAll() {
-      for (const watcher of watchers.values()) watcher.close();
-      watchers.clear();
     },
   };
 }

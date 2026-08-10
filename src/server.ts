@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { TicketSummary } from './domain.ts';
 import { frontierOf } from './frontier.ts';
-import { createIndexRegistry } from './workspace-index.ts';
+import { createDriverRegistry } from './driver-registry.ts';
 import { createMarkdownDriver } from './storage/markdown/driver.ts';
 import type { StorageDriver, TicketWriteResult } from './storage/driver.ts';
 import { NoSuchMap, RevisionMismatch } from './storage/driver.ts';
@@ -57,19 +57,23 @@ export interface CreateServerOptions {
    * so a SQLite driver can be swapped in without touching the tool layer.
    */
   readonly createDriver?: (root: string) => StorageDriver;
-  /** Debounce filesystem watcher events. Tests may shorten this. */
+  /**
+   * Debounce filesystem watcher events in the default markdown driver. Tests
+   * may shorten it, or push it past the test to pin what a read actually read.
+   * Ignored when `createDriver` is supplied — a driver constructs its own.
+   */
   readonly watcherDebounceMs?: number;
 }
 
 export interface FrontierMCP {
   readonly server: McpServer;
   /**
-   * Build the index for the session's own workspace. Calls resolve their own
+   * Warm the driver for the session's own workspace. Calls resolve their own
    * workspace anyway, so a failure here is not fatal — it only forfeits the
    * warm start.
    */
   warmUp(): Promise<void>;
-  /** Stop watchers and close the transport. */
+  /** Close every open driver and the transport. */
   close(): Promise<void>;
 }
 
@@ -83,9 +87,15 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
     cwd: options.cwd ?? process.cwd(),
     env: options.env ?? process.env,
   };
-  const registry = createIndexRegistry(
-    options.createDriver ?? createMarkdownDriver,
-    options.watcherDebounceMs === undefined ? {} : { watcherDebounceMs: options.watcherDebounceMs },
+  const registry = createDriverRegistry(
+    options.createDriver ??
+      (root =>
+        createMarkdownDriver(
+          root,
+          options.watcherDebounceMs === undefined
+            ? {}
+            : { watcherDebounceMs: options.watcherDebounceMs },
+        )),
   );
 
   const server = new McpServer(
@@ -117,8 +127,8 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
     },
     async ({ root }) => {
       const workspace = resolveWorkspace(root, context);
-      const index = registry.forWorkspace(workspace);
-      const [efforts, tickets] = await Promise.all([index.efforts(), index.tickets()]);
+      const driver = registry.forWorkspace(workspace);
+      const [efforts, tickets] = await Promise.all([driver.listEfforts(), driver.listTickets()]);
 
       return {
         content: [{ type: 'text', text: renderEfforts(workspace, efforts, frontierOf(tickets)) }],
@@ -136,8 +146,8 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
     },
     async ({ effort: slug, root }) => {
       const workspace = resolveWorkspace(root, context);
-      const index = registry.forWorkspace(workspace);
-      const [efforts, tickets] = await Promise.all([index.efforts(), index.tickets()]);
+      const driver = registry.forWorkspace(workspace);
+      const [efforts, tickets] = await Promise.all([driver.listEfforts(), driver.listTickets()]);
 
       const effort = efforts.find(candidate => candidate.slug === slug);
       if (effort === undefined) {
@@ -160,7 +170,7 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
     },
     async ({ ids, root }) => {
       const workspace = resolveWorkspace(root, context);
-      const found = await registry.forWorkspace(workspace).bodies(ids);
+      const found = await registry.forWorkspace(workspace).readTickets(ids);
 
       return { content: [{ type: 'text', text: renderTickets(ids, found) }] };
     },
@@ -176,14 +186,14 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
     },
     async ({ effort, create, tickets, root }) => {
       const workspace = resolveWorkspace(root, context);
-      const index = registry.forWorkspace(workspace);
+      const driver = registry.forWorkspace(workspace);
 
       // Every reference resolves before anything is written, so a refusal —
       // an unknown key, a cycle — leaves the workspace exactly as it was. The
       // one rule that needs real ids runs under the driver's reservations,
       // still before any file lands.
-      const { drafts, validate } = planBatch(tickets, await index.tickets());
-      const created = await index.create(effort, drafts, {
+      const { drafts, validate } = planBatch(tickets, await driver.listTickets());
+      const created = await driver.createTickets(effort, drafts, {
         createEffort: create === true,
         validate,
       });
@@ -204,8 +214,8 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
     },
     async ({ id, claim, resolve, drop, status, triage, blocked_by, comment, tick, root }) => {
       const workspace = resolveWorkspace(root, context);
-      const index = registry.forWorkspace(workspace);
-      const tickets = await index.tickets();
+      const driver = registry.forWorkspace(workspace);
+      const tickets = await driver.listTickets();
 
       const request = { claim, resolve, drop, status, triage, blocked_by, comment, tick };
       const find = (from: readonly TicketSummary[]): TicketSummary => {
@@ -218,7 +228,7 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
 
       let written: TicketWriteResult;
       try {
-        written = await index.update(
+        written = await driver.updateTicket(
           ticket.handle,
           editFor(ticket, tickets, request, now()),
           ticket.revision,
@@ -231,7 +241,7 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
         // claimed by agent-3" is the useful message. The write is never
         // retried — a mismatch may equally be somebody's hand edit, and
         // overwriting that is exactly what the check exists to prevent.
-        const fresh = await index.tickets();
+        const fresh = await driver.listTickets();
         editFor(find(fresh), fresh, request, now());
         throw error;
       }
@@ -267,7 +277,7 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       root,
     }) => {
       const workspace = resolveWorkspace(root, context);
-      const index = registry.forWorkspace(workspace);
+      const driver = registry.forWorkspace(workspace);
       const edit = mapEditFor({ destination, notes, add_fog, graduate_fog, rule_out });
       const mutating = Object.keys(edit).length > 0;
 
@@ -278,14 +288,14 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       let wrote = mutating;
       if (!mutating) {
         try {
-          document = await index.readMap(effort);
+          document = await driver.readMap(effort);
         } catch (error) {
           if (!(create === true && error instanceof NoSuchMap)) throw error;
-          document = await index.editMap(effort, edit, undefined, { createEffort: true });
+          document = await driver.editMap(effort, edit, undefined, { createEffort: true });
           wrote = true;
         }
       } else {
-        document = await index.editMap(effort, edit, expected_revision, {
+        document = await driver.editMap(effort, edit, expected_revision, {
           createEffort: create === true,
         });
       }
@@ -307,12 +317,12 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
     },
     async ({ effort, create, content, expected_revision, root }) => {
       const workspace = resolveWorkspace(root, context);
-      const index = registry.forWorkspace(workspace);
+      const driver = registry.forWorkspace(workspace);
 
       const document =
         content === undefined
-          ? await index.readSpec(effort)
-          : await index.putSpec(effort, content, expected_revision, {
+          ? await driver.readSpec(effort)
+          : await driver.putSpec(effort, content, expected_revision, {
               createEffort: create === true,
             });
 
@@ -335,8 +345,8 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
     },
     async ({ effort, preview, rename, root }) => {
       const workspace = resolveWorkspace(root, context);
-      const index = registry.forWorkspace(workspace);
-      const report = await index.migrate(effort, {
+      const driver = registry.forWorkspace(workspace);
+      const report = await driver.migrateEffort(effort, {
         preview: preview === true,
         rename: rename === true,
       });
@@ -357,7 +367,7 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
     server,
     async warmUp() {
       const workspace = resolveWorkspace(undefined, context);
-      await registry.forWorkspace(workspace).efforts();
+      await registry.forWorkspace(workspace).listEfforts();
     },
     async close() {
       registry.closeAll();
