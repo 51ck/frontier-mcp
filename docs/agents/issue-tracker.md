@@ -16,11 +16,17 @@ FrontierMCP resolves which repository it serves on every call:
 
 1. An explicit `root` argument on the call.
 2. The `FRONTIER_ROOT` environment variable.
-3. The server process working directory, walked upward to the nearest directory containing `.scratch/`
-   or `.git/`.
+3. The server process working directory, walked upward to the nearest directory containing a
+   `.scratch/` directory, or `.git` in either form — a git worktree and a submodule carry `.git` as a
+   file, and each is its own workspace rather than part of the repository enclosing it.
 
 Register FrontierMCP once at user scope. Opening a project is the only per-repo setup step — no
 `.cursor/mcp.json` entry is required in each repository.
+
+**The working directory is the one your client launched the server in, and it is fixed for the
+session.** Moving to another worktree mid-session does not retarget it: pass `root` on the call, set
+`FRONTIER_ROOT`, or restart the server. A worktree whose branch carries no `.scratch/` of its own
+reports no Efforts — that is the worktree being served correctly, not the tracker going missing.
 
 A repo with no `.scratch/` yet is not an error. Create an Effort by writing to it with `create: true`
 on `create_tickets`, `edit_map`, or `spec`.

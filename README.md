@@ -36,8 +36,9 @@ Restart your editor after saving.
 ## First use in a repository
 
 1. Open the repository in your editor. FrontierMCP resolves the workspace from the session working
-   directory — walking upward to the nearest `.scratch/` or `.git/` — so opening the project is the
-   only setup step.
+   directory — walking upward to the nearest `.scratch/`, or `.git` in either form — so opening the
+   project is the only setup step. A git worktree is its own workspace: it carries `.git` as a file,
+   and it is served instead of the repository it was made from.
 2. Read the tracker configuration document once: fetch MCP resource `frontier://tracker-doc`, or read
    [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md) in a repo that vendors it.
 3. Call `list_efforts` to see whether `.scratch/` exists yet.
@@ -52,6 +53,10 @@ Optional, per call or per session:
 
 - Pass `root` on any tool call to read another directory.
 - Set `FRONTIER_ROOT` in the server environment for a non-standard layout.
+
+The working directory is the one your client launched the server in, and it is fixed for the session.
+Moving to another worktree mid-session does not retarget it — use `root`, `FRONTIER_ROOT`, or restart
+the server.
 
 ## Tools
 

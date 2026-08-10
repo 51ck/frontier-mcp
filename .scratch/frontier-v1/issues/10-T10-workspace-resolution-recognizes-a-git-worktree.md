@@ -2,9 +2,11 @@
 id: T10
 title: Workspace resolution recognizes a git worktree
 kind: build
-status: open
+status: claimed
 triage: ready-for-agent
 blocked_by: []
+claimed_by: claude-opus-5 (session 01RjtNzb)
+claimed_at: 2026-08-10T08:50:35.694Z
 ---
 
 # T10 — Workspace resolution recognizes a git worktree
