@@ -67,6 +67,9 @@ export function watchStorage(
   if (storageWatcher === undefined) {
     try {
       rootWatcher = watch(root, (_event, filename) => {
+        // One segment deep, so the name a root watch reports can match it
+        // whole. A nested path would never match, and the watch would never
+        // hand over to the recursive one.
         if (filename !== storageDir) return;
         attachStorageWatcher();
         scheduleInvalidate();

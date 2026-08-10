@@ -31,7 +31,7 @@ export type Rescan = () => Promise<readonly TicketSummary[]>;
 
 export interface CreateRequest {
   /** Where the id guards live: one namespace for the whole workspace. */
-  readonly scratch: string;
+  readonly storage: string;
   readonly effort: string;
   /** The Effort's directory, and the directory its Tickets go in. Both owned by the driver. */
   readonly dir: string;
@@ -66,8 +66,8 @@ export interface CreateRequest {
  * write X. See ADR 0005.
  */
 export async function createTicketFiles(request: CreateRequest): Promise<readonly string[]> {
-  const { scratch, effort, dir, issues, drafts, rescan, validate, createEffort } = request;
-  const { reservations, tickets } = await reserve(scratch, drafts.length, rescan);
+  const { storage, effort, dir, issues, drafts, rescan, validate, createEffort } = request;
+  const { reservations, tickets } = await reserve(storage, drafts.length, rescan);
 
   try {
     const ids = reservations.map(entry => entry.id);
@@ -100,14 +100,14 @@ export async function createTicketFiles(request: CreateRequest): Promise<readonl
  * Migration mints through this so a parallel create_tickets cannot collide.
  */
 export async function withIdReservations<T>(
-  scratch: string,
+  storage: string,
   count: number,
   rescan: Rescan,
   use: (ids: readonly string[]) => Promise<T>,
 ): Promise<T> {
   if (count === 0) return use([]);
 
-  const { reservations } = await reserve(scratch, count, rescan);
+  const { reservations } = await reserve(storage, count, rescan);
   try {
     return await use(reservations.map(entry => entry.id));
   } finally {
@@ -246,13 +246,13 @@ interface Reserved {
 }
 
 async function reserve(
-  scratch: string,
+  storage: string,
   count: number,
   rescan: Rescan,
   attempt = 1,
 ): Promise<Reserved> {
   const used = idsOf(await rescan());
-  const reservations = await claim(scratch, used, count, highestMinted(used) + 1, []);
+  const reservations = await claim(storage, used, count, highestMinted(used) + 1, []);
 
   let settled: readonly TicketSummary[];
   try {
@@ -274,7 +274,7 @@ async function reserve(
     );
   }
 
-  return reserve(scratch, count, rescan, attempt + 1);
+  return reserve(storage, count, rescan, attempt + 1);
 }
 
 function release(reservations: readonly Reservation[]): Promise<unknown> {
@@ -287,7 +287,7 @@ function release(reservations: readonly Reservation[]): Promise<unknown> {
  * normal case rather than an error.
  */
 async function claim(
-  scratch: string,
+  storage: string,
   used: ReadonlySet<string>,
   count: number,
   candidate: number,
@@ -299,19 +299,19 @@ async function claim(
     await release(taken);
     throw new Error(
       `No free Ticket id within ${String(CANDIDATE_HEADROOM)} of the highest in use. ` +
-        'Sweep the abandoned .frontier-id-*.guard files under .scratch/.',
+        `Sweep the abandoned .frontier-id-*.guard files under ${storage}.`,
     );
   }
 
   const id = `T${String(candidate)}`;
-  if (used.has(id)) return claim(scratch, used, count, candidate + 1, taken);
+  if (used.has(id)) return claim(storage, used, count, candidate + 1, taken);
 
-  const guard = guardFor(scratch, id);
+  const guard = guardFor(storage, id);
   // A guard we cannot take belongs to a session that is still allocating. Bump
   // rather than wait: an id may be skipped, never reused.
-  if (!(await hold(guard))) return claim(scratch, used, count, candidate + 1, taken);
+  if (!(await hold(guard))) return claim(storage, used, count, candidate + 1, taken);
 
-  return claim(scratch, used, count, candidate + 1, [...taken, { id, guard }]);
+  return claim(storage, used, count, candidate + 1, [...taken, { id, guard }]);
 }
 
 /**
@@ -344,11 +344,11 @@ async function hold(guard: string): Promise<boolean> {
 /**
  * Beside the Efforts rather than inside one, because the counter is repo-global:
  * two sessions creating into different Efforts must still collide here. Hidden
- * and not `.md`, so no scan mistakes it for a Ticket, and `.scratch/` yields it
- * no Effort because it is not a directory.
+ * and not `.md`, so no scan mistakes it for a Ticket, and the storage scan
+ * yields it no Effort because it is not a directory.
  */
-function guardFor(scratch: string, id: string): string {
-  return join(scratch, `.frontier-id-${id}.guard`);
+function guardFor(storage: string, id: string): string {
+  return join(storage, `.frontier-id-${id}.guard`);
 }
 
 function idsOf(tickets: readonly TicketSummary[]): ReadonlySet<string> {

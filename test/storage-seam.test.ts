@@ -197,8 +197,10 @@ describe("the markdown driver's storage directory", () => {
       '.tracker/alpha/map.md': map('Somewhere else entirely.'),
       '.tracker/alpha/issues/01-T1-work.md': ticket('T1', 'Filed under another name'),
 
-      // The default directory is present and holds something different, so a
-      // driver still reading `.scratch` fails loudly rather than by absence.
+      // The default directory is present and holds a different Effort, so a
+      // driver reading both directories is caught listing one nobody asked
+      // for — not merely a driver reading the wrong one, which the assertions
+      // below would catch anyway.
       '.scratch/decoy/map.md': map('The directory this driver was not given.'),
     });
 
