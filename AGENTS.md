@@ -105,9 +105,11 @@ Default section order:
 Design decisions settled and binding until an ADR revises them:
 
 - **Markdown is canonical, behind a storage driver seam.** Files under `.scratch/` are the source of
-  truth and the only driver in v1. Any index the server keeps is derived and rebuildable, invalidated
-  by an fs watcher. A SQLite driver with `md ↔ db` conversion is planned; the seam exists in v1 so it
-  can land without touching the tool layer. See [ADR 0001](./docs/adr/0001-markdown-canonical-behind-a-storage-driver.md).
+  truth and the only driver in v1. A driver is the workspace *cached and live*: what it holds, when
+  that goes stale, and how it hears that another process wrote are answers about one physical model,
+  so a layer above the seam settling them for every driver would be one model's policy wearing a
+  generic interface. A SQLite driver with `md ↔ db` conversion is planned; the seam exists in v1 so
+  it can land without touching the tool layer. See [ADR 0001](./docs/adr/0001-markdown-canonical-behind-a-storage-driver.md).
 - **The server owns writes.** Full CRUD through tools; hand-editing stays legal but is what the
   schema drifts from.
 - **`.md` with YAML frontmatter.** Not `.mdc`.
@@ -208,18 +210,22 @@ Source layout:
 | `src/domain.ts` | The CONTEXT.md vocabulary as types. Naming here is bound by the glossary, including its `_Avoid_` lines. |
 | `src/frontier.ts` | The Frontier computation. Takes every Ticket in the workspace, because Edges resolve repo-wide. |
 | `src/edges.ts` | Cycle detection over the Edge graph. Above the seam, because a cycle is a rule about the domain rather than about storage — the same reason the Status model is checked in the tool layer. |
-| `src/storage/driver.ts` | The ADR 0001 seam, its edit vocabulary, and its typed failures. |
-| `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout — `frontmatter.ts` splits the fence, `ticket.ts` parses a Ticket, `legacy.ts` infers one from prose, `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` allocates ids and writes a new batch, `migrate.ts` normalizes an Effort at once, `write.ts` renames it into place. |
+| `src/storage/driver.ts` | The ADR 0001 seam, its edit vocabulary, and its typed failures. A driver is the workspace cached and live, so `close()` sits here beside the reads and writes. |
+| `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout, which it takes as a construction parameter — `frontmatter.ts` splits the fence, `ticket.ts` parses a Ticket, `legacy.ts` infers one from prose, `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` allocates ids and writes a new batch, `migrate.ts` normalizes an Effort at once, `write.ts` renames it into place, `watcher.ts` tells the driver another process moved the workspace under it. |
 | `src/workspace.ts` | Workspace resolution — the only module above the driver that reads a *served* repository, and only to locate its root. `.scratch` is a marker only as a directory; `.git` counts as a file too, so a worktree or submodule resolves to itself rather than to the repository enclosing it. |
-| `src/workspace-index.ts` | The in-memory index, one per resolved workspace. Caches Efforts and Ticket summaries; a body is read through to the driver on every call and never cached. |
-| `src/workspace-watcher.ts` | Filesystem watcher — debounced index invalidation for `.scratch/` changes. |
+| `src/driver-registry.ts` | One driver per resolved workspace, and the `closeAll()` that shuts them. A lookup, not a layer: it hands back the driver itself, so no read or write passes through it. |
 | `src/tools/` | One module per tool: its input schema, its description, and how its result renders. `workspace-line.ts` is the exception — the single rendering of which repository a call served, shared by `list_efforts` and every write. |
 | `src/server.ts` | Wires the above into an `McpServer`. |
-| `src/tracker-doc.ts` | Loads the shipped tracker configuration document for the `tracker-doc` MCP resource. Reads the filesystem, but only inside the installed package — never a served repository, which is why it does not go through the driver. |
+| `src/tracker-doc.ts` | Loads the shipped tracker configuration document for the `tracker-doc` MCP resource, from beside `dist/` in the installed package rather than from the working directory. |
 | `src/index.ts` | The package's library surface. Deliberately narrow — below-seam modules are not exported. |
 | `src/bin.ts` | The stdio entry point. |
 
 Nothing under `src/tools/` may import from `src/storage/`.
+
+Exactly two modules above the seam import `node:fs`. `src/workspace.ts` walks for a root marker,
+which is asked before there is a driver to ask; `src/tracker-doc.ts` reads a document shipped inside
+this package. Neither reads a served repository's tracker data, so neither is a route around the
+seam. A third wanting one is a design signal, not a third exception.
 
 Rendering rules that are load-bearing, not cosmetic:
 

@@ -13,6 +13,12 @@ export const WORKSPACE_ENV_VAR = 'FRONTIER_ROOT';
  * repository it was made from, a directory-only marker walks straight past it
  * and serves the parent — writing into the working copy the worktree exists to
  * isolate.
+ *
+ * These stay constants while the markdown driver takes its storage directory as
+ * a construction parameter. The upward walk asks "is this a repository this tool
+ * serves", which is a different question from "what does a driver call its
+ * storage" — and it is asked before any driver exists to be asked, so it cannot
+ * come from one.
  */
 const ROOT_MARKERS = [
   { name: '.scratch', matches: isDirectory },

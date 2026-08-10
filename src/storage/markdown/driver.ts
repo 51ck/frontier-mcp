@@ -65,9 +65,7 @@ export interface MarkdownDriverOptions {
    *
    * It is a parameter rather than a constant because it is this driver's answer
    * to "what do you call your storage", which the seam exists to keep from
-   * being everybody's. `src/workspace.ts`'s `ROOT_MARKERS` is the other
-   * question — "is this a repo we serve" — and stays a constant, since it is
-   * asked before there is a driver to ask.
+   * being everybody's.
    */
   readonly storageDir?: string;
   /** Debounce filesystem watcher events before dropping the scan. */
