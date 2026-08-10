@@ -7,10 +7,11 @@ export interface StorageWatcher {
   close(): void;
 }
 
-export interface StorageWatcherOptions {
-  /** Debounce rapid events before invalidating. Defaults to 50ms. */
-  readonly debounceMs?: number;
-}
+/**
+ * Long enough to coalesce the burst a branch switch makes, short enough that a
+ * hand edit is live by the time the next call arrives.
+ */
+const DEFAULT_DEBOUNCE_MS = 50;
 
 /**
  * Watch this driver's storage directory under a resolved workspace and call
@@ -28,9 +29,8 @@ export interface StorageWatcherOptions {
 export function watchStorage(
   root: string,
   invalidate: () => void,
-  options: StorageWatcherOptions = {},
+  debounceMs: number = DEFAULT_DEBOUNCE_MS,
 ): StorageWatcher {
-  const debounceMs = options.debounceMs ?? 50;
   const scratchPath = join(root, SCRATCH);
   let timer: ReturnType<typeof setTimeout> | undefined;
   let scratchWatcher: FSWatcher | undefined;

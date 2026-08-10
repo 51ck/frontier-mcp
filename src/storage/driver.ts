@@ -66,10 +66,10 @@ export interface HeaderDocOptions {
  * Whether to hold a scan, when it goes stale, and how it hears that another
  * process wrote are all answers about one physical model — the markdown driver
  * caches a full walk and watches a directory; a SQLite driver would query and
- * let its own page cache do the work. A layer above the seam that decided any
- * of this for both of them would be one model's policy wearing a generic
- * interface, which is the defect T28 removed. Callers see none of it: every
- * method answers as though it had just read.
+ * let its own page cache do the work. A layer above the seam deciding any of
+ * this for both of them is one model's policy wearing a generic interface, so
+ * there is no such layer. Callers see none of it: every method answers as
+ * though it had just read.
  */
 export interface StorageDriver {
   /**
@@ -176,6 +176,10 @@ export interface StorageDriver {
    * driver's filesystem watcher, a connection for a driver that has one. Reads
    * and writes are not expected after it, and a driver that holds nothing may
    * do nothing.
+   *
+   * Synchronous, because closing is: an `FSWatcher` closes synchronously and so
+   * does `node:sqlite`. Widening it to a promise the day a driver needs one is
+   * a change to this line and to the one caller that closes them all.
    */
   close(): void;
 }

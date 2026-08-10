@@ -103,18 +103,18 @@ export function createMarkdownDriver(
    * `listTickets` are two readings of a single walk, and every caller that
    * wants a Board wants both.
    */
-  let scanned: Promise<ScannedEffort[]> | undefined;
+  let cachedScan: Promise<ScannedEffort[]> | undefined;
   const scan = () => {
-    scanned ??= walk().catch((error: unknown) => {
-      scanned = undefined;
+    cachedScan ??= walk().catch((error: unknown) => {
+      cachedScan = undefined;
       throw error;
     });
-    return scanned;
+    return cachedScan;
   };
 
   /** Drop the scan, so the next read rebuilds from disk. */
   const invalidate = () => {
-    scanned = undefined;
+    cachedScan = undefined;
   };
 
   /**
@@ -129,11 +129,7 @@ export function createMarkdownDriver(
     }
   };
 
-  const watcher: StorageWatcher = watchStorage(
-    root,
-    invalidate,
-    watcherDebounceMs === undefined ? {} : { debounceMs: watcherDebounceMs },
-  );
+  const watcher: StorageWatcher = watchStorage(root, invalidate, watcherDebounceMs);
 
   return {
     async listEfforts(): Promise<readonly Effort[]> {
@@ -148,7 +144,8 @@ export function createMarkdownDriver(
       // Deliberately the fresh walk rather than the cached one. A body is read
       // for the few Tickets being worked, and reading it against a scan taken
       // before another process wrote is exactly the staleness `get_tickets`
-      // exists not to serve.
+      // exists not to serve. It costs a walk a concurrent Board would have
+      // shared — the price of an answer nothing can have staled underneath it.
       return readBodies(scratch, await walk(), handles);
     },
 

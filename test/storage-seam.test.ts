@@ -100,8 +100,8 @@ describe('the storage driver seam', () => {
 
   /**
    * A driver that fails once and answers the next time must be seen to recover.
-   * Nothing above the seam may remember the failure, which is only true while
-   * nothing above the seam remembers anything — the point of T28.
+   * Nothing above the seam may remember the failure, which holds only while
+   * nothing above the seam remembers anything.
    */
   it('does not let a failed read poison the reads after it', async () => {
     const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
