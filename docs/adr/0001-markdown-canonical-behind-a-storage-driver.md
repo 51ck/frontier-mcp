@@ -2,7 +2,9 @@
 
 The tracker's data lives in markdown files under `.scratch/` that humans read on GitHub, edit by hand,
 and diff in git — so files stay the source of truth and any index the server builds is derived,
-in-memory, and rebuildable from a scan. A SQLite driver is wanted later, with conversion both ways
+in-memory, and rebuildable from a scan. That index sits *inside* the driver, together with the change
+notification that drops it: the seam therefore covers the physical model, whatever cache it wants, and
+what "something changed" means for it. A SQLite driver is wanted later, with conversion both ways
 (`md → db`, `db → md`), so v1 puts every read and write behind a storage driver interface even though
 only the markdown driver exists; the tool layer never touches the filesystem directly.
 
@@ -18,3 +20,10 @@ only the markdown driver exists; the tool layer never touches the filesystem dir
 
 The driver interface is load-bearing from the first commit and must not leak markdown concepts —
 no file paths, no frontmatter, no section names — or the SQLite driver becomes impossible to write.
+
+It is also the whole of the physical model, not a set of queries with the live parts bolted above it.
+A driver is constructed already bound to its workspace and closed when the process is done with it, so
+holding a scan, dropping it on a write, and watching for someone else's are its decisions to make and
+its resources to release. Markdown answers all three by caching a full walk and running `fs.watch`,
+because a walk is single-digit milliseconds at these volumes; SQLite would answer none of them that
+way. Callers see the difference nowhere: every method answers as though it had just read.

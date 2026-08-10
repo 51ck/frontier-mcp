@@ -2,6 +2,7 @@ import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { createMarkdownDriver } from '../src/storage/markdown/driver.ts';
 import { map, ticket } from './support/fixtures.ts';
 import { cleanupFixtures, connectFrontier, makeFixtureTree } from './support/harness.ts';
 
@@ -217,5 +218,38 @@ describe('filesystem watcher', { timeout: TEST_TIMEOUT_MS }, () => {
       text => text.includes('Changed inside scratch'),
     );
     expect(updated).toContain('Changed inside scratch');
+  });
+
+  /**
+   * The watcher watches the directory its driver was constructed with. It has
+   * no `.scratch` of its own to name — that the default happens to be
+   * `.scratch` is the markdown driver's answer, passed down.
+   */
+  it('watches the storage directory the driver was given', async () => {
+    const watched = '.tracker/alpha/issues/01-T1-work.md';
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.tracker/alpha/map.md': map('Somewhere else entirely.'),
+      [watched]: ticket('T1', 'Before'),
+    });
+    const frontier = await connectFrontier({
+      cwd: root,
+      env: {},
+      createDriver: driverRoot =>
+        createMarkdownDriver(driverRoot, {
+          storageDir: '.tracker',
+          watcherDebounceMs: DEBOUNCE_MS,
+        }),
+    });
+
+    expect(await frontier.call('get_board', { effort: 'alpha' })).toContain('Before');
+
+    await writeFile(join(root, watched), ticket('T1', 'After a hand edit'), 'utf8');
+
+    const board = await waitFor(
+      () => frontier.call('get_board', { effort: 'alpha' }),
+      text => text.includes('After a hand edit'),
+    );
+    expect(board).toContain('After a hand edit');
   });
 });

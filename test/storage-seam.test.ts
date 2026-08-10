@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import type { Effort, Ticket } from '../src/domain.ts';
 import type { StorageDriver } from '../src/storage/driver.ts';
-import { spec } from './support/fixtures.ts';
+import { createMarkdownDriver } from '../src/storage/markdown/driver.ts';
+import { map, spec, ticket } from './support/fixtures.ts';
 import { cleanupFixtures, connectFrontier, makeFixtureTree } from './support/harness.ts';
 
 afterEach(cleanupFixtures);
@@ -32,7 +33,7 @@ function fixedDriver(
       async readTickets(handles) {
         const wanted = new Set(handles);
         return tickets.filter(
-          ticket => wanted.has(ticket.handle) || (ticket.id !== undefined && wanted.has(ticket.id)),
+          entry => wanted.has(entry.handle) || (entry.id !== undefined && wanted.has(entry.id)),
         );
       },
       updateTicket() {
@@ -55,6 +56,9 @@ function fixedDriver(
       },
       migrateEffort() {
         throw new Error('this driver is read-only');
+      },
+      close() {
+        // Nothing held open: this driver answers from a literal list.
       },
     }),
     scans: () => scans,
@@ -95,6 +99,11 @@ describe('the storage driver seam', () => {
     );
   });
 
+  /**
+   * A driver that fails once and answers the next time must be seen to recover.
+   * Nothing above the seam may remember the failure, which holds only while
+   * nothing above the seam remembers anything.
+   */
   it('does not let a failed read poison the reads after it', async () => {
     const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
     let attempts = 0;
@@ -140,6 +149,9 @@ describe('the storage driver seam', () => {
       migrateEffort() {
         throw new Error('this driver is read-only');
       },
+      close() {
+        // Nothing held open: this driver answers from a literal list.
+      },
     });
 
     const frontier = await connectFrontier({ cwd: root, env: {}, createDriver });
@@ -149,11 +161,11 @@ describe('the storage driver seam', () => {
   });
 });
 
-describe('the in-memory index', () => {
+describe("the driver's cached workspace", () => {
   /**
    * The one structural assertion in the suite. "An in-memory index is built by
    * a full scan at startup" is a T1 acceptance criterion with no user-facing
-   * outcome to observe instead — a warm index and a cold one answer alike.
+   * outcome to observe instead — a warm cache and a cold one answer alike.
    */
   it('is built by a full scan at startup, before any tool call', async () => {
     const root = await makeFixtureTree({ '.scratch/only/spec.md': spec('Only') });
@@ -170,5 +182,40 @@ describe('the in-memory index', () => {
     await connectFrontier({ cwd: root, env: {}, createDriver: driver.createDriver });
 
     expect(driver.scans()).toBe(1);
+  });
+});
+
+describe("the markdown driver's storage directory", () => {
+  /**
+   * `.scratch` is what this driver calls its storage, not something the server
+   * knows. Serving an Effort out of a directory by another name is the whole
+   * assertion: nothing above the driver had to be told.
+   */
+  it('is a construction parameter, not a module constant', async () => {
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.tracker/alpha/map.md': map('Somewhere else entirely.'),
+      '.tracker/alpha/issues/01-T1-work.md': ticket('T1', 'Filed under another name'),
+
+      // The default directory is present and holds a different Effort, so a
+      // driver reading both directories is caught listing one nobody asked
+      // for — not merely a driver reading the wrong one, which the assertions
+      // below would catch anyway.
+      '.scratch/decoy/map.md': map('The directory this driver was not given.'),
+    });
+
+    const frontier = await connectFrontier({
+      cwd: root,
+      env: {},
+      createDriver: driverRoot => createMarkdownDriver(driverRoot, { storageDir: '.tracker' }),
+    });
+
+    const efforts = await frontier.call('list_efforts');
+    expect(efforts).toContain('alpha');
+    expect(efforts).not.toContain('decoy');
+
+    const board = await frontier.call('get_board', { effort: 'alpha' });
+    expect(board).toContain('Somewhere else entirely.');
+    expect(board).toContain('Filed under another name');
   });
 });

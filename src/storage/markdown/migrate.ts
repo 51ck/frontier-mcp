@@ -12,7 +12,7 @@ export interface TicketFileEntry {
 }
 
 export interface MigrateFilesRequest {
-  readonly scratch: string;
+  readonly storage: string;
   readonly effort: string;
   readonly issues: string;
   readonly entries: readonly TicketFileEntry[];
@@ -54,7 +54,7 @@ export async function migrateEffortFiles(request: MigrateFilesRequest): Promise<
     return { effort, preview: true, renamed: rename, changes: plan.map(file => file.change) };
   }
 
-  return withIdReservations(request.scratch, needMint, request.rescan, async minted => {
+  return withIdReservations(request.storage, needMint, request.rescan, async minted => {
     const plan = planChanges(candidates, minted, entries, rename);
     await applyPlan(request, plan);
     return {

@@ -35,11 +35,13 @@ import {
   SECTION_HEADINGS,
 } from './header-doc.ts';
 import { parseTicketSummary, ticketBody } from './ticket.ts';
+import { watchStorage, type StorageWatcher } from './watcher.ts';
 
 /**
- * The layout this driver serves, per AGENTS.md:
+ * The layout this driver serves, per AGENTS.md, under the storage directory it
+ * was constructed with:
  *
- *   .scratch/<effort>/
+ *   <storage>/<effort>/
  *   ├── map.md            # Header doc — wayfinder
  *   ├── spec.md           # Header doc — to-spec
  *   └── issues/
@@ -47,7 +49,7 @@ import { parseTicketSummary, ticketBody } from './ticket.ts';
  *
  * Anything else in an Effort directory is ignored, never an error.
  */
-const SCRATCH_DIR = '.scratch';
+const DEFAULT_STORAGE_DIR = '.scratch';
 const ISSUES_DIR = 'issues';
 const MAP_FILE = 'map.md';
 const SPEC_FILE = 'spec.md';
@@ -56,19 +58,46 @@ const HEADER_DOCS: ReadonlyArray<readonly [HeaderDoc, string]> = [
   ['spec', SPEC_FILE],
 ];
 
+export interface MarkdownDriverOptions {
+  /**
+   * The directory under `root` this driver keeps its Efforts in, relative to
+   * the workspace root and one segment deep. Defaults to `.scratch`.
+   *
+   * It is a parameter rather than a constant because it is this driver's answer
+   * to "what do you call your storage", which the seam exists to keep from
+   * being everybody's.
+   */
+  readonly storageDir?: string;
+  /** Debounce filesystem watcher events before dropping the scan. */
+  readonly watcherDebounceMs?: number;
+}
+
 /**
  * The markdown driver — the only driver in v1. Bound to `root`, the resolved
  * workspace, so that no path crosses the {@link StorageDriver} interface.
+ *
+ * It is the workspace *cached and live*: it holds the scan a Board is built
+ * from, drops it when it writes, and watches the storage directory so a change
+ * another process made drops it too. Both are markdown policy — a full scan is
+ * cheap enough to cache wholesale, and `node:fs.watch` is how this physical
+ * model learns it moved. A driver over a database would cache and notice
+ * neither the same way, which is why nothing above the seam does it for them.
+ *
+ * Close it to stop the watcher; a process that keeps a workspace open forever
+ * never needs to.
  */
-export function createMarkdownDriver(root: string): StorageDriver {
-  const scratch = join(root, SCRATCH_DIR);
+export function createMarkdownDriver(
+  root: string,
+  { storageDir = DEFAULT_STORAGE_DIR, watcherDebounceMs }: MarkdownDriverOptions = {},
+): StorageDriver {
+  const storage = join(root, storageDir);
   let writes: Promise<unknown> = Promise.resolve();
 
   const walk = async (): Promise<ScannedEffort[]> => {
     // A repo that has never used the tracker is a supported starting state,
     // not an error: it simply holds no Efforts.
-    const slugs = await readDirectories(scratch);
-    const scanned = await Promise.all(slugs.map(slug => readEffort(scratch, slug)));
+    const slugs = await readDirectories(storage);
+    const scanned = await Promise.all(slugs.map(slug => readEffort(storage, slug)));
 
     return scanned
       .filter((entry): entry is ScannedEffort => entry !== undefined)
@@ -76,21 +105,41 @@ export function createMarkdownDriver(root: string): StorageDriver {
   };
 
   /**
-   * Both methods are always called together to build one index, and each walk
-   * reads every `issues/` directory. Sharing the in-flight walk makes that one
-   * pass instead of two.
+   * Hold the in-flight walk, not just its result, so concurrent callers share
+   * one scan instead of racing several. A failed scan is never cached as the
+   * answer.
    *
-   * The share lasts only as long as the walk itself — the driver holds no
-   * results, because deciding when a scan is stale belongs to the index above
-   * it and to the watcher T8 attaches there.
+   * The whole scan is one cache rather than one per method: `listEfforts` and
+   * `listTickets` are two readings of a single walk, and every caller that
+   * wants a Board wants both.
    */
-  let inFlight: Promise<ScannedEffort[]> | undefined;
+  let cachedScan: Promise<ScannedEffort[]> | undefined;
   const scan = () => {
-    inFlight ??= walk().finally(() => {
-      inFlight = undefined;
+    cachedScan ??= walk().catch((error: unknown) => {
+      cachedScan = undefined;
+      throw error;
     });
-    return inFlight;
+    return cachedScan;
   };
+
+  /** Drop the scan, so the next read rebuilds from disk. */
+  const invalidate = () => {
+    cachedScan = undefined;
+  };
+
+  /**
+   * A write moves the workspace on whether or not it succeeded partway, so the
+   * next read rebuilds rather than trusting a scan taken before it.
+   */
+  const moved = async <T>(operation: () => Promise<T>): Promise<T> => {
+    try {
+      return await operation();
+    } finally {
+      invalidate();
+    }
+  };
+
+  const watcher: StorageWatcher = watchStorage(root, storageDir, invalidate, watcherDebounceMs);
 
   return {
     async listEfforts(): Promise<readonly Effort[]> {
@@ -102,38 +151,52 @@ export function createMarkdownDriver(root: string): StorageDriver {
     },
 
     async readTickets(handles): Promise<readonly Ticket[]> {
-      return readBodies(scratch, await scan(), handles);
+      // Deliberately the fresh walk rather than the cached one. A body is read
+      // for the few Tickets being worked, and reading it against a scan taken
+      // before another process wrote is exactly the staleness `get_tickets`
+      // exists not to serve. It costs a walk a concurrent Board would have
+      // shared — the price of an answer nothing can have staled underneath it.
+      return readBodies(storage, await walk(), handles);
     },
 
     updateTicket(handle, edit, expectedRevision) {
-      return serialized(() => write(scratch, handle, edit, expectedRevision));
+      return moved(() => serialized(() => write(storage, handle, edit, expectedRevision)));
     },
 
     createTickets(effort, drafts, options) {
-      // The scan is deliberately not the shared one: allocation re-reads under
-      // its own guards, and an in-flight walk started before them would defeat
-      // the check it exists to make.
-      return serialized(() => create(scratch, effort, drafts, options, walk));
+      // The scan is deliberately not the cached one: allocation re-reads under
+      // its own guards, and a walk started before them would defeat the check
+      // it exists to make.
+      return moved(() => serialized(() => create(storage, effort, drafts, options, walk)));
     },
 
     readMap(effort) {
-      return serialized(() => loadMap(scratch, effort));
+      return serialized(() => loadMap(storage, effort));
     },
 
     editMap(effort, edit, expectedRevision, options) {
-      return serialized(() => saveMap(scratch, effort, edit, expectedRevision, options));
+      return moved(() =>
+        serialized(() => saveMap(storage, effort, edit, expectedRevision, options)),
+      );
     },
 
     readSpec(effort) {
-      return serialized(() => loadSpec(scratch, effort));
+      return serialized(() => loadSpec(storage, effort));
     },
 
     putSpec(effort, body, expectedRevision, options) {
-      return serialized(() => saveSpec(scratch, effort, body, expectedRevision, options));
+      return moved(() =>
+        serialized(() => saveSpec(storage, effort, body, expectedRevision, options)),
+      );
     },
 
     migrateEffort(effort, options) {
-      return serialized(() => migrate(scratch, effort, options, walk));
+      return moved(() => serialized(() => migrate(storage, effort, options, walk)));
+    },
+
+    close() {
+      watcher.close();
+      invalidate();
     },
   };
 
@@ -153,20 +216,20 @@ export function createMarkdownDriver(root: string): StorageDriver {
 }
 
 async function migrate(
-  scratch: string,
+  storage: string,
   effort: string,
   options: MigrateOptions,
   walk: () => Promise<ScannedEffort[]>,
 ): Promise<MigrationReport> {
-  const dir = join(scratch, effort);
-  if ((await readEffort(scratch, effort)) === undefined) throw new NoSuchEffort(effort);
+  const dir = join(storage, effort);
+  if ((await readEffort(storage, effort)) === undefined) throw new NoSuchEffort(effort);
 
   const entries = await readTicketFiles(dir, effort);
   const allTickets = (await walk()).flatMap(summariesOf);
   const issues = join(dir, ISSUES_DIR);
 
   return migrateEffortFiles({
-    scratch,
+    storage,
     effort,
     issues,
     entries,
@@ -181,20 +244,20 @@ async function migrate(
 }
 
 async function create(
-  scratch: string,
+  storage: string,
   effort: string,
   drafts: readonly TicketDraft[],
   options: CreateOptions,
   walk: () => Promise<ScannedEffort[]>,
 ): Promise<readonly TicketSummary[]> {
-  const dir = join(scratch, effort);
-  const missing = (await readEffort(scratch, effort)) === undefined;
+  const dir = join(storage, effort);
+  const missing = (await readEffort(storage, effort)) === undefined;
   if (missing && !options.createEffort) throw new NoSuchEffort(effort);
 
   // The directory is made inside, after validation — an Effort created here and
   // then refused would show up in list_efforts as an empty one nobody asked for.
   const filenames = await createTicketFiles({
-    scratch,
+    storage,
     effort,
     dir,
     issues: join(dir, ISSUES_DIR),
@@ -216,12 +279,12 @@ async function create(
 }
 
 async function write(
-  scratch: string,
+  storage: string,
   handle: string,
   edit: TicketEdit,
   expectedRevision: string,
 ): Promise<TicketWriteResult> {
-  const located = await locate(scratch, handle);
+  const located = await locate(storage, handle);
   if (located === undefined) throw new NoSuchTicket(handle);
 
   const { dir, effort, filename, ticket } = located;
@@ -261,7 +324,7 @@ async function write(
   const warnings: string[] = [];
   if (edit.status === 'resolved' || edit.status === 'dropped') {
     try {
-      await refreshMapDerived(scratch, effort);
+      await refreshMapDerived(storage, effort);
     } catch {
       warnings.push(
         'Decisions-so-far / dropped Out-of-scope may be stale — Map derived refresh failed after the Ticket write.',
@@ -272,21 +335,21 @@ async function write(
   return { ticket: written, warnings };
 }
 
-async function loadMap(scratch: string, effort: string): Promise<MapDocument> {
-  const path = join(scratch, effort, MAP_FILE);
+async function loadMap(storage: string, effort: string): Promise<MapDocument> {
+  const path = join(storage, effort, MAP_FILE);
   const revision = await currentRevision(path);
   if (revision === undefined) throw new NoSuchMap(effort);
   return readMapDocument(await readFile(path, 'utf8'), revision);
 }
 
 async function saveMap(
-  scratch: string,
+  storage: string,
   effort: string,
   edit: MapEdit,
   expectedRevision: string | undefined,
   options: HeaderDocOptions,
 ): Promise<MapDocument> {
-  const dir = join(scratch, effort);
+  const dir = join(storage, effort);
   const path = join(dir, MAP_FILE);
   const current = await currentRevision(path);
   const handle = `map:${effort}`;
@@ -295,7 +358,7 @@ async function saveMap(
     // createEffort only guards starting a new Effort. An Effort that already
     // holds a Spec or issues/ must be able to gain a Map without that flag —
     // that is wayfinder's handoff, not a mistyped slug.
-    if ((await readEffort(scratch, effort)) === undefined && !options.createEffort) {
+    if ((await readEffort(storage, effort)) === undefined && !options.createEffort) {
       throw new NoSuchEffort(effort);
     }
 
@@ -344,21 +407,21 @@ const DERIVED_REFRESH_ATTEMPTS = 16;
  * Invents the GENERATED-bearing headings when absent so a slim Map still gets
  * a truthful Decisions / Out-of-scope cache after resolve or drop.
  */
-async function refreshMapDerived(scratch: string, effort: string): Promise<void> {
-  return refreshMapDerivedOnce(scratch, effort, DERIVED_REFRESH_ATTEMPTS);
+async function refreshMapDerived(storage: string, effort: string): Promise<void> {
+  return refreshMapDerivedOnce(storage, effort, DERIVED_REFRESH_ATTEMPTS);
 }
 
 async function refreshMapDerivedOnce(
-  scratch: string,
+  storage: string,
   effort: string,
   remaining: number,
 ): Promise<void> {
-  const path = join(scratch, effort, MAP_FILE);
+  const path = join(storage, effort, MAP_FILE);
   const revision = await currentRevision(path);
   if (revision === undefined) return;
 
   const contents = await readFile(path, 'utf8');
-  const entries = await readTicketFiles(join(scratch, effort), effort);
+  const entries = await readTicketFiles(join(storage, effort), effort);
   const updated = applyMapEdit(
     contents,
     {},
@@ -385,7 +448,7 @@ async function refreshMapDerivedOnce(
       );
     }
     await new Promise(wait => setTimeout(wait, 10));
-    return refreshMapDerivedOnce(scratch, effort, remaining - 1);
+    return refreshMapDerivedOnce(storage, effort, remaining - 1);
   }
 }
 
@@ -397,21 +460,21 @@ class DerivedRefreshLost extends Error {
   }
 }
 
-async function loadSpec(scratch: string, effort: string): Promise<SpecDocument> {
-  const path = join(scratch, effort, SPEC_FILE);
+async function loadSpec(storage: string, effort: string): Promise<SpecDocument> {
+  const path = join(storage, effort, SPEC_FILE);
   const revision = await currentRevision(path);
   if (revision === undefined) throw new NoSuchSpec(effort);
   return { body: await readFile(path, 'utf8'), revision };
 }
 
 async function saveSpec(
-  scratch: string,
+  storage: string,
   effort: string,
   body: string,
   expectedRevision: string | undefined,
   options: HeaderDocOptions,
 ): Promise<SpecDocument> {
-  const dir = join(scratch, effort);
+  const dir = join(storage, effort);
   const path = join(dir, SPEC_FILE);
   const current = await currentRevision(path);
   const handle = `spec:${effort}`;
@@ -421,7 +484,7 @@ async function saveSpec(
   if (current === undefined) {
     // Same rule as Maps: createEffort starts an Effort; putting a Spec onto an
     // Effort that already has a Map needs no flag.
-    if ((await readEffort(scratch, effort)) === undefined && !options.createEffort) {
+    if ((await readEffort(storage, effort)) === undefined && !options.createEffort) {
       throw new NoSuchEffort(effort);
     }
 
@@ -484,12 +547,12 @@ function ticketPointers(
 
 /** Find the file backing a Ticket, by id or by its `<effort>#<order>` handle. */
 async function locate(
-  scratch: string,
+  storage: string,
   handle: string,
 ): Promise<{ dir: string; effort: string; filename: string; ticket: TicketSummary } | undefined> {
-  const slugs = await readDirectories(scratch);
+  const slugs = await readDirectories(storage);
   const perEffort = await Promise.all(
-    slugs.map(async slug => ({ slug, entries: await readTicketFiles(join(scratch, slug), slug) })),
+    slugs.map(async slug => ({ slug, entries: await readTicketFiles(join(storage, slug), slug) })),
   );
 
   for (const { slug, entries } of perEffort) {
@@ -499,7 +562,7 @@ async function locate(
 
     if (found !== undefined) {
       return {
-        dir: join(scratch, slug),
+        dir: join(storage, slug),
         effort: slug,
         filename: found.filename,
         ticket: found.ticket,
@@ -551,7 +614,7 @@ function summariesOf(scanned: ScannedEffort): readonly TicketSummary[] {
  * the caller, which is the only side that knows what it asked for.
  */
 async function readBodies(
-  scratch: string,
+  storage: string,
   scanned: readonly ScannedEffort[],
   handles: readonly string[],
 ): Promise<readonly Ticket[]> {
@@ -565,7 +628,7 @@ async function readBodies(
       )
       .map(({ filename, ticket }) => ({
         ticket,
-        path: join(scratch, entry.effort.slug, ISSUES_DIR, filename),
+        path: join(storage, entry.effort.slug, ISSUES_DIR, filename),
       })),
   );
 
@@ -636,13 +699,13 @@ function withUniqueHandles(entries: readonly TicketFileEntry[]): TicketFileEntry
 }
 
 /**
- * A directory under `.scratch/` is an Effort only once it holds something the
- * schema recognizes — a Header doc or an `issues/` directory. `.scratch/` is
- * also where these repos keep loose scratch output, and a directory of research
- * notes is not an empty Effort.
+ * A directory under the storage directory is an Effort only once it holds
+ * something the schema recognizes — a Header doc or an `issues/` directory.
+ * That directory is also where these repos keep loose scratch output, and a
+ * directory of research notes is not an empty Effort.
  */
-async function readEffort(scratch: string, slug: string): Promise<ScannedEffort | undefined> {
-  const dir = join(scratch, slug);
+async function readEffort(storage: string, slug: string): Promise<ScannedEffort | undefined> {
+  const dir = join(storage, slug);
   const listing = await readDir(dir);
 
   const files = new Set(listing.filter(entry => entry.isFile()).map(entry => entry.name));
