@@ -27,8 +27,8 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      # release-it bumps, commits, tags and pushes before it ever publishes, so a dispatch
-      # from a feature branch would rewrite that branch. Refuse loudly, first thing.
+      # release-it commits, tags and pushes as part of the run, so a dispatch from a feature
+      # branch would rewrite that branch. Refuse loudly, first thing.
       - name: Refuse to release off master
         if: github.ref != 'refs/heads/master'
         run: |
