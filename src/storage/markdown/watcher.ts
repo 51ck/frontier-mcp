@@ -28,8 +28,9 @@ const DEFAULT_DEBOUNCE_MS = 50;
  * of the time, 1ms lost 7%, 5ms lost 1%, and 25ms lost none — the window
  * closes before 25ms even under that load. These three sit at 2x, 10x and 40x
  * that margin, so a slower machine has room too. What these cost is bounded by
- * three re-scans — 12.94ms each at this repo's size, per the scan-cost
- * paragraph in AGENTS.md — but only a caller reading between every pair of them
+ * three re-scans — 13ms each at this repo's size on a fast core and 18ms on a
+ * slow one, per the scan-cost paragraph in AGENTS.md, which is where the
+ * hardware spread is recorded — but only a caller reading between every pair of them
  * pays all three. An invalidation drops the scan rather than taking one, so two
  * firing with no read between them cost one re-scan, not two, and a session
  * that first reads after the schedule has run out pays exactly one. Either way

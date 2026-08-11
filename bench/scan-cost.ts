@@ -728,6 +728,37 @@ async function runSession(): Promise<void> {
 
 // ----------------------------------------------------------- the report
 
+/**
+ * A fixed unit of the work a scan actually spends its time on, timed so that
+ * two result files can be told apart.
+ *
+ * The CPU model is not enough. The same machine produces wildly different
+ * numbers depending on how the run was launched — pinned to efficiency cores,
+ * throttled, or competing with something else — and `cpus()[0].model` reports
+ * the same string for all of them. A run that cannot say how fast its core was
+ * is the uncited claim this whole harness exists to stop, one level up.
+ *
+ * So this is measured rather than declared: no flag to forget, no label to get
+ * wrong. String building and object churn, because that is what parsing a
+ * Ticket does; a pure arithmetic loop would index a unit the scan never spends.
+ */
+function coreIndexMs(): number {
+  const passes: number[] = [];
+
+  for (let pass = 0; pass < 5; pass += 1) {
+    const started = performance.now();
+    let sink = 0;
+    for (let i = 0; i < 200_000; i += 1) {
+      const text = `id: T${String(i)}\nstatus: open\n`;
+      sink += text.length + text.charCodeAt(4);
+    }
+    passes.push(performance.now() - started);
+    if (sink === -1) throw new Error('unreachable, and keeps the loop from folding away');
+  }
+
+  return passes.toSorted((a, b) => a - b)[2] ?? 0;
+}
+
 function attribution() {
   const cores = cpus();
   return {
@@ -738,6 +769,9 @@ function attribution() {
     cpu: cores[0]?.model ?? 'unknown',
     cores: cores.length,
     memoryGb: Math.round(totalmem() / 1024 ** 3),
+    // Both change the numbers below and neither shows up in the CPU model.
+    threadpool: process.env['UV_THREADPOOL_SIZE'] ?? 'default',
+    coreIndexMs: coreIndexMs(),
   };
 }
 
@@ -780,8 +814,16 @@ async function runBenchmark(): Promise<void> {
   say('='.repeat(78));
   say(
     `${machine.node} (v8 ${machine.v8}) · ${machine.platform} · kernel ${machine.kernel}\n` +
-      `${machine.cpu} · ${String(machine.cores)} cores · ${String(machine.memoryGb)}GB`,
+      `${machine.cpu} · ${String(machine.cores)} cores · ${String(machine.memoryGb)}GB\n` +
+      `core index ${ms(machine.coreIndexMs)} · threadpool ${machine.threadpool}`,
   );
+  say();
+  say('The core index is the number that makes two runs comparable — the CPU model');
+  say('is the same string whether or not the run was slowed down. To measure the');
+  say('slow end of the hardware this ships to, rather than guessing at it:');
+  say('  · taskpolicy -b pnpm run bench:scan     — macOS, pins to efficiency cores');
+  say('  · UV_THREADPOOL_SIZE=1 pnpm run bench:scan  — serializes every file read');
+  say('The second one barely moves: this is CPU on parsing, not time on disk.');
   say();
   say('CAVEATS, read before quoting anything below:');
   say('  · "cold" means cold in this Node process, never cold in the OS page cache —');
