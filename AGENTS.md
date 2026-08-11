@@ -244,6 +244,13 @@ median but 41.71ms p95, and 1000 Tickets is 457.91ms. Assume a reader's machine 
 band rather than at the fast end, and note that variance widens far more than the median does — the
 worst single cold scan at 1000 Tickets was 1883ms.
 
+To place another machine in that band, the harness prints a **core index**: a fixed unit of the
+string and object work a scan is made of, timed. It reads **11ms on this machine's performance cores
+and 52ms on its efficiency ones**, and the scan cost between those two runs moved by about the same
+factor — so scaling the numbers above by your own index is a fair first estimate. It is printed
+because the CPU model is not enough: `cpus()[0].model` returns the same string however the run was
+slowed down, so two result files would otherwise be indistinguishable and equally quotable.
+
 Source layout:
 
 | Path | Holds |
