@@ -142,6 +142,21 @@ describe('packaging', () => {
     );
   });
 
+  it('reports the version it was published as, in the handshake', async () => {
+    const { default: packageJson } = await import('../package.json', { with: { type: 'json' } });
+    const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
+    const { client } = await connectFrontier({ cwd: root, env: {} });
+
+    // Read back over the wire rather than from src: the claim is what a client
+    // is told it is talking to. A hardcoded constant satisfies itself, and a
+    // release bumps package.json without touching src, so the two drift
+    // silently and every published build misreports itself.
+    expect(client.getServerVersion()).toMatchObject({
+      name: 'frontier',
+      version: packageJson.version,
+    });
+  });
+
   it('documents user-scope install with a pinned npx invocation', () => {
     const readme = readFileSync(join(import.meta.dirname, '..', 'README.md'), 'utf8');
 
