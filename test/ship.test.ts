@@ -83,6 +83,23 @@ describe('the shipped surface', () => {
     expect(text).toContain('blocked_by');
     expect(text).toMatch(/fallback|without Frontier/i);
   });
+
+  it('serves a document that forbids working out the next id by hand', async () => {
+    const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
+    const { client } = await connectFrontier({ cwd: root, env: {} });
+
+    const { contents } = await client.readResource({ uri: TRACKER_DOC_URI });
+    const text = contents.map(part => ('text' in part ? part.text : '')).join('\n');
+
+    // Read over the wire because that is the copy an agent acts on, and matched
+    // on substance rather than on the sentences as written — this file re-wraps
+    // whenever a line grows, and a rewording that still states the rule must not
+    // turn this red. Observed in the field: an agent with the server loaded
+    // scanned for the highest T<n> itself, the naive `max + 1` ADR 0005 measured.
+    expect(text).toMatch(/ids\s+come\s+from\s+`create_tickets`/i);
+    expect(text).toMatch(/never[\s\S]{0,40}\bscan/i);
+    expect(text).toMatch(/ADR 0005/);
+  });
 });
 
 describe('the tracker configuration document', () => {
@@ -127,6 +144,23 @@ Written by following the tracker configuration document only.
     // A Ticket the parser had to infer would be flagged Legacy — this one
     // carries real frontmatter, so it must not be.
     expect(board).not.toContain('legacy');
+  });
+
+  it('states the no-server precondition inside the hand-publish body, not only in its heading', () => {
+    const doc = shippedTrackerDoc();
+
+    const start = doc.indexOf('### Hand publish');
+    expect(start).toBeGreaterThan(-1);
+    // Sliced to the section, then past its heading line: an agent that arrived
+    // straight at this procedure never read the heading, so the precondition
+    // has to sit in the text it does read. A whole-document match would pass on
+    // the fence up in the File conventions preamble and prove nothing here.
+    const section = doc.slice(start);
+    const end = section.indexOf('\n## ');
+    const body = (end === -1 ? section : section.slice(0, end)).replace(/^.*\n/, '');
+
+    expect(body).toMatch(/absent|not loaded/i);
+    expect(body).toMatch(/create_tickets/);
   });
 });
 
