@@ -25,6 +25,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "bench:scan": "node bench/scan-cost.ts",
     "typecheck": "tsc -p tsconfig.test.json",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
