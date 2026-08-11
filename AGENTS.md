@@ -190,7 +190,7 @@ Stack, settled:
 - **`release-it`** with **`@release-it/conventional-changelog`** cuts releases, configured in
   `.release-it.json` and driven by `.github/workflows/release.yml`. **This bullet is the only place
   the release rationale is written down**; the README tells a releaser what to do and points here for
-  why, so a change lands in one file rather than three. Four things in that config are load-bearing
+  why, so a change lands in one file rather than three. Five things in that config are load-bearing
   and will look like cruft to anyone who does not know the reason:
   - It publishes through **`pnpm publish`**, not npm — `npm.publishPackageManager`. No step needs a
     globally installed npm, and whatever OIDC needs has to come from pnpm.
@@ -201,6 +201,12 @@ Stack, settled:
   - **`npm.skipChecks` is on.** Release-it's pre-publish checks run `npm whoami` (`isAuthenticated`)
     and `npm access list collaborators` (`isCollaborator`). Neither has an answer when the only
     credential is a short-lived OIDC token, so leaving the checks on fails every release.
+  - **`npm.publishArgs` carries `--no-git-checks`**, which is a *different* check from the one above:
+    that one is release-it's, this one is pnpm's own refusal to publish from a dirty tree. Release-it
+    bumps the version and rewrites `CHANGELOG.md`, then publishes, and only *then* commits and tags —
+    so the tree is dirty at publish time by construction, with release-it's own two files and nothing
+    else. Left on, it fails every release with `ERR_PNPM_GIT_UNCLEAN`. Turning it off here rather
+    than in an `.npmrc` keeps the guard alive for every other `pnpm publish` in the repo.
   - **pnpm is pinned to 10** in the workflow. 11 404s on OIDC publish (pnpm/pnpm#11513).
 
   The CHANGELOG intro lives in the plugin's `header` option, because the plugin strips and
@@ -329,10 +335,20 @@ a `!` — so it is cheap, and it is not a substitute for `check` and `test`. The
 because release-it prompts without it; a `pnpm run release:dry -- --ci` does not reach release-it.
 
 Releases are cut from GitHub Actions (`Release` workflow, `workflow_dispatch`), from `master` only —
-the job refuses any other ref before checkout, because release-it commits, tags and pushes before it
-publishes. That job runs `release-it --ci`, which bumps the version, updates package `CHANGELOG.md`,
-tags, opens a GitHub Release, and publishes with `pnpm`. Do not treat that changelog as tracker
-vocabulary — see `CONTEXT.md`. MCP install pins in the README stay manual after each release.
+the job refuses any other ref before checkout, because release-it commits, tags and pushes as part of
+the run, so a dispatch from a feature branch would rewrite that branch. That job runs
+`release-it --ci`, which bumps the version and updates package `CHANGELOG.md`, publishes with `pnpm`,
+then commits, tags, pushes, and opens a GitHub Release. **Publishing genuinely comes before the
+commit** — release-it runs its plugins in the order `['npm', 'git', 'github', …]` — which is why the
+tree is dirty at publish time and why `--no-git-checks` is needed; see the release-it bullet in Work
+Guidance. Do not treat that changelog as tracker vocabulary — see `CONTEXT.md`. MCP install pins in
+the README stay manual after each release.
+
+Every release needs the previous one to carry a `v*` tag: `@release-it/conventional-changelog` takes
+"every commit since the last tag", so a missing tag makes the next changelog restate the whole
+history and can recommend a bump from a breaking change that already shipped. `v0.1.0` was tagged
+retroactively onto `5f57754`, the commit 0.1.0 was published from by hand before this workflow
+existed — which is why that one tag has no `chore(release)` commit of its own.
 
 **Publishing is CI-only.** There is no local `release` script and should not be one: CI authenticates
 by OIDC, which issues no credential a laptop can hold, so a local publish path means minting the

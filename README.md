@@ -87,7 +87,7 @@ to avoid.
    new build — pins stay manual on purpose.
 
 The workflow is dispatchable from any branch but refuses to run off `master`: release-it commits,
-tags and pushes before it publishes, so a release from a feature branch would rewrite that branch.
+tags and pushes as part of the run, so a release from a feature branch would rewrite that branch.
 
 Local dry-run (no tag, no publish). It needs a clean working tree and an upstream branch, so commit
 first:
@@ -101,8 +101,8 @@ npmjs.com, so there is no `NPM_TOKEN` to rotate.
 
 Before changing `.release-it.json` or the workflow, read the release-it bullet in
 [AGENTS.md](./AGENTS.md) Work Guidance. Several settings there look removable and are not — the
-absent `registry-url`, `npm.skipChecks`, and the pnpm 10 pin each exist for a reason recorded in one
-place so it cannot drift.
+absent `registry-url`, `npm.skipChecks`, `npm.publishArgs`, and the pnpm 10 pin each exist for a
+reason recorded in one place so it cannot drift.
 
 ## License
 
