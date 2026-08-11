@@ -2,6 +2,12 @@
 
 Package release notes for `frontier-mcp` (npm). Not part of the `.scratch/` issue tracker.
 
+## [0.2.1](https://github.com/51ck/frontier-mcp/compare/v0.2.0...v0.2.1) (2026-08-11)
+
+### Bug Fixes
+
+* report the published version in the handshake ([c46b3f5](https://github.com/51ck/frontier-mcp/commit/c46b3f56d6b2178df7e9f34a32adee0eabae5ca7))
+
 ## [0.2.0](https://github.com/51ck/frontier-mcp/compare/v0.1.0...v0.2.0) (2026-08-11)
 
 ### Features

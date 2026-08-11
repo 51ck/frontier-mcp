@@ -1,6 +1,6 @@
 {
   "name": "frontier-mcp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "An MCP server exposing the markdown issue tracker under a repo's .scratch/ as a queryable graph",
   "license": "MIT",
   "repository": {
