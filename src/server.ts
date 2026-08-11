@@ -1,3 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import type { TicketSummary } from './domain.ts';
@@ -46,7 +50,31 @@ import { readTrackerDoc, TRACKER_DOC_URI } from './tracker-doc.ts';
 import { resolveWorkspace, type WorkspaceContext } from './workspace.ts';
 
 export const SERVER_NAME = 'frontier';
-export const SERVER_VERSION = '0.1.0';
+
+/**
+ * The version the handshake reports, read from `package.json` rather than
+ * written out here.
+ *
+ * A release bumps `package.json` and touches nothing in `src`, so a literal is
+ * correct only until the next release and then misreports every published
+ * build — silently, because nothing compares the two. The handshake is the one
+ * place a client learns which build it is talking to, so it has to come from
+ * the file that actually gets bumped.
+ *
+ * Resolved from this module rather than the working directory, for the same
+ * reason {@link readTrackerDoc} is: the server runs from the user's repo, not
+ * from its own install. `package.json` ships in every npm tarball regardless of
+ * the `files` field, and sits one level above both `src/` and `dist/`.
+ */
+export const SERVER_VERSION: string = readPackageVersion();
+
+function readPackageVersion(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const { version } = JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8')) as {
+    version: string;
+  };
+  return version;
+}
 
 export interface CreateServerOptions {
   /** The server process's working directory. */
