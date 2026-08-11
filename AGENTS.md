@@ -231,6 +231,19 @@ exactly that, so the number is representative rather than an artifact. The volum
 this starts to matter is ~1000 Tickets, thirty times every Ticket in this repo put together and
 forty times its largest single Effort.
 
+**Every number above is a floor, not a typical value**, because the machine is a fast one. What the
+scan is actually spending is CPU on parsing, not time on disk: re-run under `UV_THREADPOOL_SIZE=1`,
+which serializes every file read, and the numbers do not move (9.94ms cold at this repo's size
+against 8.91ms). So the cost tracks single-core speed almost exactly, and the honest way to state it
+is per Ticket. Re-run pinned to the same machine's efficiency cores — `taskpolicy -b pnpm run
+bench:scan`, which is background QoS and the slowest core available here — and the marginal cost is
+**~0.46ms per Ticket against ~0.08ms on a performance core, a factor of about six**. Both are flat
+in Ticket count; the ~7ms floor above only shows up when a performance core makes the per-Ticket
+work small enough to see it. In whole numbers, on efficiency cores this repo's re-scan is 17.93ms
+median but 41.71ms p95, and 1000 Tickets is 457.91ms. Assume a reader's machine is somewhere in that
+band rather than at the fast end, and note that variance widens far more than the median does — the
+worst single cold scan at 1000 Tickets was 1883ms.
+
 Source layout:
 
 | Path | Holds |

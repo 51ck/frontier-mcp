@@ -6,7 +6,7 @@ type: task
 status: resolved
 triage: ready-for-agent
 blocked_by: [T27, T28]
-answer_gist: A re-scan is 12.94ms median at this repo's size, not single-digit; the claim was wrong at every one of its five sites but the conclusions survive, the staleness window is invisible to a human at real volumes, and neither CPU nor retained memory justifies centralizing reads — frontier-hive should close as no-go
+answer_gist: A re-scan is 12.94ms median at this repo's size on a fast core and 17.93ms on a slow one, never single-digit; the claim was wrong at all five of its sites but the conclusions survive, centralizing reads is a no-go on any hardware, and the staleness window is invisible to a human only on a fast core — budget ~135ms and ~200ms p95, not ~80ms
 ---
 
 ## Question
@@ -79,3 +79,15 @@ At this repo's size one write costs all watching sessions **12.95ms combined at 
 ### What would make these numbers wrong
 
 No scan here is OS-cold — dropping the page cache needs root — so every figure is the optimistic end by an unknown margin. The re-scan is consistently slower than the cold scan at every size, because `invalidate()` drops the previous scan just as an equally sized one is allocated and both are briefly live; production does exactly that, so the number is representative rather than an artifact, but it means cold and re-scan bracket one operation rather than naming two. In groups 3 and 4 the writer is the harness rather than one of the N sessions, so this measures N watchers plus an external writer — a session doing its own write invalidates through `moved()` and pays no debounce, which is strictly cheaper than what is reported.
+
+## Comments
+
+Follow-up measurement: the numbers in the answer were taken on a fast machine, and one of the two judgements does not survive on a slow one.
+
+The scan is CPU-bound in parsing rather than bound by disk. Re-running under `UV_THREADPOOL_SIZE=1`, which serializes every file read, moves nothing — 9.94ms cold against 8.91ms at this repo's size. So the cost tracks single-core speed, and the per-Ticket marginal cost is the portable way to state it: **~0.08ms per Ticket on this machine's performance cores, ~0.46ms on its efficiency cores** (`taskpolicy -b pnpm run bench:scan`), a factor of about six between the fastest and slowest core in one machine, before any question of a genuinely older one.
+
+**The staleness judgement needs qualifying.** On efficiency cores at this repo's size the window is 88.45ms median at N=1 and **134.91ms median / 196.62ms p95 at N=4**, against 76.56ms and 80.99ms on performance cores. The answer above says the window sits under the ~100ms at which a UI stops reading as instantaneous. That holds on a fast core and does not hold on a slow one with four sessions running. The right form of the judgement: a browser driven from the watcher should budget **~135ms typical and ~200ms p95**, not ~80ms — perceptible as slight lag, still an order of magnitude inside the ~1s that breaks flow. `frontier-web`'s T23 keeps its green light, but on the slower number.
+
+**The centralization judgement survives comfortably**, which is worth saying explicitly since it is the one `frontier-hive` is blocked on. On efficiency cores four sessions pay 256.33ms combined per write at this repo's size, against writes that arrive at human pace, and the retained 1.2MB per process is hardware-independent. Nothing there is within an order of magnitude of paying for a shared read process. No-go stands.
+
+**What degrades worst is the tail, not the median.** At 1000 Tickets on efficiency cores, four sessions pay 935.83ms median but **2535ms p95** per write, and the worst single cold scan was 1883ms. So the ~1000-Ticket crossover named in the answer is a performance-core figure; on slow hardware the volume at which this stops being free arrives earlier, and it arrives through variance rather than through the average.
