@@ -25,5 +25,6 @@ It is also the whole of the physical model, not a set of queries with the live p
 A driver is constructed already bound to its workspace and closed when the process is done with it, so
 holding a scan, dropping it on a write, and watching for someone else's are its decisions to make and
 its resources to release. Markdown answers all three by caching a full walk and running `fs.watch`,
-because a walk is single-digit milliseconds at these volumes; SQLite would answer none of them that
-way. Callers see the difference nowhere: every method answers as though it had just read.
+because a walk is ~13ms at these volumes — measured since, in the scan-cost paragraph of
+[AGENTS.md](../../AGENTS.md); SQLite would answer none of them that way. Callers see the difference
+nowhere: every method answers as though it had just read.

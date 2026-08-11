@@ -45,8 +45,14 @@ to be *reused*, never to run without gaps, so a skipped number costs nothing; th
 one-line file naming the process that left it, and the headroom error points at them by name when
 enough have piled up to matter.
 
-Allocation costs two full workspace scans per batch, plus one more per contended retry. At the volumes
-this serves that is single-digit milliseconds, and creation is the rarest call on the surface.
+Allocation costs two full workspace scans per batch, plus one more per contended retry. Measured,
+two scans are 18–26ms at this repo's size and 158–202ms at 1000 Tickets — never single-digit
+milliseconds. Both ranges are doubled from single-scan timings rather than measured as a pair, so
+they bracket the cold and re-scan cases; the numbers and the machine are in the scan-cost paragraph
+of [AGENTS.md](../../AGENTS.md), from [`bench/scan-cost.ts`](../../bench/scan-cost.ts). Creation is
+genuinely the rarest call on the surface, so a batch pays that once where a read would pay it on
+every call, and the volume at which it would start to matter is ~1000 Tickets — thirty times every
+Ticket this repo holds.
 
 "All or none" needs two phases rather than one. Every file is staged beside its target first, and only
 once all of them exist does anything get renamed — so a full disk or a bad path fails while nothing is

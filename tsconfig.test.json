@@ -7,5 +7,5 @@
     // what `pnpm run typecheck` runs, and relaxing it here would stop the
     // typecheck from guarding src/ against syntax Node cannot strip.
   },
-  "include": ["src", "test", "vitest.config.ts"]
+  "include": ["src", "test", "bench", "vitest.config.ts"]
 }
