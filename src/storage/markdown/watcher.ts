@@ -27,9 +27,13 @@ const DEFAULT_DEBOUNCE_MS = 50;
  * samples per bucket: a write 0ms after `watch()` returned lost the event 14%
  * of the time, 1ms lost 7%, 5ms lost 1%, and 25ms lost none — the window
  * closes before 25ms even under that load. These three sit at 2x, 10x and 40x
- * that margin, so a slower machine has room too. Three extra scans at
- * construction cost nothing: a full scan is single-digit milliseconds, and
- * these run once per watch rather than per event.
+ * that margin, so a slower machine has room too. What these cost is bounded by
+ * three re-scans — 12.94ms each at this repo's size, per the scan-cost
+ * paragraph in AGENTS.md — but only a caller reading between every pair of them
+ * pays all three. An invalidation drops the scan rather than taking one, so two
+ * firing with no read between them cost one re-scan, not two, and a session
+ * that first reads after the schedule has run out pays exactly one. Either way
+ * it is per watch, not per event.
  */
 const DEFAULT_SETTLE_MS: readonly number[] = [50, 250, 1000];
 
@@ -39,7 +43,9 @@ const DEFAULT_SETTLE_MS: readonly number[] = [50, 250, 1000];
  *
  * It lives below the seam because what it does is markdown-driver policy: it
  * watches a directory of files with `node:fs`, at a granularity chosen because
- * a full markdown scan is single-digit milliseconds. A driver over a database
+ * a full markdown re-scan is ~13ms at these volumes — measured, see the
+ * scan-cost paragraph in AGENTS.md — so nothing is bought by tracking which
+ * file moved rather than dropping the scan. A driver over a database
  * would learn that its workspace moved some entirely different way. It names no
  * directory of its own for the same reason — which one to watch is the driver's
  * answer, handed down.
