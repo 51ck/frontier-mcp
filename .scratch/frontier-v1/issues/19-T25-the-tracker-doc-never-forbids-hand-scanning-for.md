@@ -2,9 +2,10 @@
 id: T25
 title: The tracker doc never forbids hand-scanning for the next id
 kind: build
-status: open
+status: resolved
 triage: ready-for-agent
 blocked_by: []
+answer_gist: The File conventions preamble states the rule once with the guard mechanism and ADR 0005's measurement; the `T<n>` bullet and the Hand publish body carry short fences at the point of instruction, and the no-server scan is fenced rather than removed
 ---
 
 # The tracker doc never forbids hand-scanning for the next id
@@ -39,12 +40,26 @@ bypasses a proxy exactly as it bypasses the guards.
 
 **Status:** ready-for-agent
 
-- [ ] The File conventions preamble states that when FrontierMCP is loaded, ids come from
+- [x] The File conventions preamble states that when FrontierMCP is loaded, ids come from
       `create_tickets` and are never derived by scanning
-- [ ] The `T<n>` bullet at :83-85 carries that fence at the point of instruction, not only in a
+- [x] The `T<n>` bullet at :83-85 carries that fence at the point of instruction, not only in a
       distant heading
-- [ ] The Hand publish section names the precondition in its body, so it is unambiguous to an agent
+- [x] The Hand publish section names the precondition in its body, so it is unambiguous to an agent
       that arrived without reading the heading
-- [ ] The reason is stated once — hand allocation is the naive `max + 1` ADR 0005 measured failing —
+- [x] The reason is stated once — hand allocation is the naive `max + 1` ADR 0005 measured failing —
       so the rule is not merely asserted
-- [ ] The shipped `frontier://tracker-doc` resource serves the corrected text
+- [x] The shipped `frontier://tracker-doc` resource serves the corrected text
+
+## Answer
+
+## Answer
+
+The fix is three fences in `docs/agents/issue-tracker.md` and no new code.
+
+The **File conventions preamble** now says outright that canonical is not licence to allocate ids by hand: with FrontierMCP loaded, ids come from `create_tickets` and are never derived by scanning. This is the one place the reason is argued — the repo-global `.scratch/.frontier-id-T<n>.guard` per candidate, the rescan while holding every guard, and [ADR 0005](../adr/0005-ids-are-allocated-under-a-guard-and-a-rescan.md)'s measurement of four processes producing thirteen files carrying four distinct ids. It also records the nuance that keeps the rule from being over-applied: a *guessed* id passed to `create_tickets` is harmless, because the server allocates and discards it. Only the hand-written file breaks.
+
+The **`T<n>` bullet** leads with the fence rather than the scan, then keeps the scan behind "Only when the server is absent:". The **Hand publish section** carries the precondition in its body — "Everything below holds only while FrontierMCP is absent from the session" — so an agent that arrived at the procedure without reading the heading meets it anyway. Neither re-argues the reason; both point back at the preamble.
+
+The no-server procedure survives intact. It is still the correct thing to do when there is genuinely no server, so it is fenced, not deleted.
+
+`src/tracker-doc.ts` reads the document from disk at request time, so the corrected text ships through the existing path with no change. That made criterion 5 true by construction rather than verified, so `test/ship.test.ts` gains two tests: one reads the resource over the wire and matches the rule on substance (whitespace-tolerant, because the file re-wraps whenever a line grows), and one slices the Hand publish section and drops its heading line before asserting the precondition — a whole-document match would have passed on the preamble fence and proved nothing about the section the ticket was actually about.

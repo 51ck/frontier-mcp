@@ -80,8 +80,17 @@ Claims are compare-and-set — a parallel session that already holds the Ticket 
 
 ## File conventions
 
-These conventions are canonical whether FrontierMCP is loaded or not. FrontierMCP reads and writes the same
-files; a session without the server still produces valid Tickets by following this section.
+These conventions are canonical whether FrontierMCP is loaded or not. FrontierMCP reads and writes
+the same files; a session without the server still produces valid Tickets by following this section.
+
+**Canonical is not licence to allocate ids by hand.** When FrontierMCP is loaded, ids come from
+`create_tickets` and are never derived by scanning. The server allocates each candidate under a
+repo-global `.scratch/.frontier-id-T<n>.guard` and re-scans while holding every guard; a file
+written straight to disk takes part in none of that, so it is the naive `max + 1` that
+[ADR 0005](../adr/0005-ids-are-allocated-under-a-guard-and-a-rescan.md) was written against —
+measured there, four processes creating three Tickets each produced thirteen files carrying four
+distinct ids, and duplicates are silent. A *guessed* id passed to `create_tickets` costs nothing;
+the server allocates and discards the guess. Only the hand-written file breaks.
 
 ### Layout
 
@@ -92,9 +101,11 @@ files; a session without the server still produces valid Tickets by following th
   tickets file.
 - Ticket filenames are `<NN>-T<n>-<slug>.md`. `NN` is sort order only and may be rewritten. `T<n>` is
   the identity and never changes.
-- **Ticket ids are `T<n>`, unique across the whole repo.** Before creating one by hand, scan every
-  `.scratch/*/issues/` for the highest existing `T` number and continue from there — ids do not restart
-  per Effort. A bare `T47` therefore resolves anywhere in the repo, including in commit messages.
+- **Ticket ids are `T<n>`, unique across the whole repo.** With FrontierMCP loaded, `create_tickets`
+  assigns them and you never scan for the next one. Only when the server is absent: before creating
+  a Ticket by hand, scan every `.scratch/*/issues/` for the highest existing `T` number and continue
+  from there — ids do not restart per Effort. A bare `T47` therefore resolves anywhere in the repo,
+  including in commit messages.
 - Formal metadata goes in YAML frontmatter. Prose stays prose.
 
 ### Ticket frontmatter
@@ -148,6 +159,10 @@ When FrontierMCP is loaded, prefer the MCP calls in the table above over hand-ed
 
 ### Hand publish (no FrontierMCP)
 
+**Everything below holds only while FrontierMCP is absent from the session.** With the server
+loaded, `create_tickets` publishes the breakdown and is the only thing that may allocate an id;
+hand-writing the file bypasses the guards, per the File conventions preamble.
+
 When a skill says "publish to the issue tracker" and FrontierMCP is not loaded, create
 `.scratch/<effort-slug>/issues/<NN>-T<n>-<slug>.md` (creating directories as needed), assign the next
-repo-global `T<n>`, and write frontmatter matching the template above.
+repo-global `T<n>` by scanning as described above, and write frontmatter matching the template above.
