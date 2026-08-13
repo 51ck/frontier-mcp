@@ -20,8 +20,8 @@ const CLAIMANTS = 4;
  */
 const CLAIMER = `
 import { createFrontierMCP } from '%SRC%';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { Client } from '@modelcontextprotocol/client';
+import { InMemoryTransport } from '@modelcontextprotocol/server';
 const [who, at] = [process.argv[2], Number(process.argv[3])];
 const frontier = createFrontierMCP({ cwd: process.argv[4], env: {} });
 const client = new Client({ name: who, version: '0' });

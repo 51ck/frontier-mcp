@@ -40,11 +40,12 @@
     "release:dry": "release-it --dry-run --ci"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "yaml": "^2.9.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "^2.0.0",
     "@release-it/conventional-changelog": "^12.0.0",
     "@types/node": "^24.10.1",
     "oxfmt": "^0.62.0",

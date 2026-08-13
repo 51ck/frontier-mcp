@@ -159,10 +159,15 @@ TypeScript, Node 24, stdio MCP server. pnpm — never npm or yarn.
 
 Stack, settled:
 
-- **`@modelcontextprotocol/sdk`** for the server, **zod** for tool input schemas. No protocol
-  revision is pinned; the SDK negotiates. It currently tops out at `2025-11-25` while the published
-  spec is at `2026-07-28` — irrelevant here, because the only feature we cared about in that revision
-  is Roots, which we deliberately do not use.
+- **`@modelcontextprotocol/server`** for the server, **zod** for tool input schemas. No protocol
+  revision is pinned; the SDK negotiates. It settles on `2025-11-25` while the published spec is at
+  `2026-07-28` — irrelevant here, because the only feature we cared about in that revision is Roots,
+  which we deliberately do not use.
+  - The v1 monolith `@modelcontextprotocol/sdk` is **not** what we depend on. It split into a scoped
+    family at `2.0.0` — `/server`, `/client`, `/node` — and T30 moved us onto it. `/client` is a dev
+    dependency, for the test harness only. `/node` is HTTP-only and has no place in a stdio server.
+  - The move changed nothing on the wire; it was a dependency-line decision, measured in
+    `docs/research/sdk-v2-family.md`.
 - **`yaml`** (`parseDocument`) for frontmatter, per ADR 0003. Not `gray-matter`.
 - **`node:fs.watch` with `{ recursive: true }`** for T8 — supported on macOS and Windows, and on
   Linux since Node 19.1. A re-scan costs ~13ms at this repo's size — see the scan-cost paragraph
@@ -172,8 +177,10 @@ Stack, settled:
   landing in that window is dropped outright rather than replayed. So every attach also schedules a
   few unconditional invalidations on a settle schedule; without them a server started and
   hand-edited immediately serves a stale Board until the next edit.
-- **`tsc` alone** for the build, no bundler. The only heavy dependency is the SDK, and bundling it
-  would inline express and hono for a stdio server that needs neither.
+- **`tsc` alone** for the build, no bundler. The SDK stopped being a heavy dependency at the scoped
+  split: `/server` brings a runtime closure of three packages — itself, `/core` and zod — where the
+  v1 monolith brought 91, express and hono among them. There is nothing left that bundling would
+  collapse, and `/server` ships its validator pre-bundled rather than resolving one.
 - **`oxlint`** for linting and **`oxfmt`** for formatting. No ESLint, no Prettier.
   - `oxfmt` is configured to the style the repo already had — single quotes, `printWidth` 100 to
     match the prose in these docs, `arrowParens: avoid` — rather than the other way round.

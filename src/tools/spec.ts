@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import type { SpecDocument } from '../domain.ts';
 
-export const specInputSchema = {
+export const specInputSchema = z.object({
   effort: z.string().describe('Effort slug whose Spec to get or put.'),
   create: z
     .boolean()
@@ -24,7 +24,7 @@ export const specInputSchema = {
         'omitted when creating one.',
     ),
   root: z.string().optional().describe('Workspace directory. Defaults to the session workspace.'),
-};
+});
 
 export const specDescription =
   'Get or put a Spec as a whole opaque document (conventionally with YAML frontmatter). ' +

@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import type { MapDocument, MapEdit } from '../domain.ts';
 
-export const editMapInputSchema = {
+export const editMapInputSchema = z.object({
   effort: z.string().describe('Effort slug whose Map to read or edit.'),
   create: z
     .boolean()
@@ -34,7 +34,7 @@ export const editMapInputSchema = {
         'omitted when creating one.',
     ),
   root: z.string().optional().describe('Workspace directory. Defaults to the session workspace.'),
-};
+});
 
 export const editMapDescription =
   "Read a Map's Destination and Notes, or edit one typed section — set Destination or Notes, " +

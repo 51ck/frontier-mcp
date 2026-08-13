@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { McpServer } from '@modelcontextprotocol/server';
 
 import type { TicketSummary } from './domain.ts';
 import { frontierOf } from './frontier.ts';
@@ -128,7 +128,13 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
 
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
-    { capabilities: { tools: {}, resources: {} } },
+    // `listChanged` is stated on both rather than defaulted: v2 advertises a
+    // declared `tools: {}` / `resources: {}` as `listChanged: true` at
+    // construction, and this server sends neither notification. The one
+    // resource is static packaged configuration and the tool set is fixed at
+    // build time, so advertising either would invite a client to wait for an
+    // update that never comes.
+    { capabilities: { tools: { listChanged: false }, resources: { listChanged: false } } },
   );
 
   server.registerResource(

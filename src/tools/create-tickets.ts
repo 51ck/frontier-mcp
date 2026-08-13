@@ -5,7 +5,7 @@ import { MINTED_ID, TRIAGE_ROLES } from '../domain.ts';
 import { cycleThrough, renderCycle, resolveDraftEdges, type EdgesOf } from '../edges.ts';
 import { indexById } from '../frontier.ts';
 
-export const createTicketsInputSchema = {
+export const createTicketsInputSchema = z.object({
   effort: z.string().describe('Effort slug to create them in.'),
   create: z
     .boolean()
@@ -44,7 +44,7 @@ export const createTicketsInputSchema = {
     .min(1)
     .describe('The whole set, in the order they should be numbered.'),
   root: z.string().optional().describe('Workspace directory. Defaults to the session workspace.'),
-};
+});
 
 export const createTicketsDescription =
   'Publish a whole breakdown in one call. Edges may name a sibling by a temporary key you choose; ' +
