@@ -6,7 +6,7 @@ import type { TriageRole } from '../domain.ts';
 import { cycleThrough, renderCycle, type EdgesOf } from '../edges.ts';
 import { indexById } from '../frontier.ts';
 
-export const updateTicketInputSchema = {
+export const updateTicketInputSchema = z.object({
   id: z.string().describe('Ticket id, or the <effort>#<order> handle of a Legacy Ticket.'),
   claim: z
     .object({ by: z.string().min(1).describe('Who is taking it.') })
@@ -52,7 +52,7 @@ export const updateTicketInputSchema = {
         'anything is written — one unmatched name fails the whole call and leaves the file untouched.',
     ),
   root: z.string().optional().describe('Workspace directory. Defaults to the session workspace.'),
-};
+});
 
 export const updateTicketDescription =
   'Change one Ticket. Lifecycle: claim, resolve with a one-line gist, or drop with a reason — at ' +

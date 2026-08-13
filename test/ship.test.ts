@@ -42,6 +42,43 @@ describe('the shipped surface', () => {
     ]);
   });
 
+  it('negotiates protocol version 2025-11-25', async () => {
+    // The fact that made the SDK v1 -> v2 scoped-family migration revertable:
+    // the wire did not move. See AGENTS.md, Work Guidance, on the SDK split.
+    const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
+    const { client } = await connectFrontier({ cwd: root, env: {} });
+
+    expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
+  });
+
+  it('advertises listChanged false on both declared capabilities', async () => {
+    // v2 defaults a declared `tools: {}` / `resources: {}` to `listChanged:
+    // true` at construction. src/server.ts states `false` on both because this
+    // server sends neither notification — a dropped `false` must go red here.
+    const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
+    const { client } = await connectFrontier({ cwd: root, env: {} });
+
+    expect(client.getServerCapabilities()).toMatchObject({
+      tools: { listChanged: false },
+      resources: { listChanged: false },
+    });
+  });
+
+  it('emits tool input schemas in the 2020-12 JSON Schema dialect', async () => {
+    // v2 moved the emitted `$schema` from draft-07. Pin the dialect so a
+    // future SDK move is a deliberate decision rather than a silent surprise.
+    const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
+    const { client } = await connectFrontier({ cwd: root, env: {} });
+
+    const { tools } = await client.listTools();
+    expect(tools.length).toBeGreaterThan(0);
+    for (const tool of tools) {
+      expect(tool.inputSchema).toMatchObject({
+        $schema: 'https://json-schema.org/draft/2020-12/schema',
+      });
+    }
+  });
+
   it('lists the tracker configuration document as an MCP resource, not a tool', async () => {
     const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
     const { client, call } = await connectFrontier({ cwd: root, env: {} });

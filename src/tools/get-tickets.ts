@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import type { Ticket } from '../domain.ts';
 
-export const getTicketsInputSchema = {
+export const getTicketsInputSchema = z.object({
   ids: z
     .array(z.string())
     .min(1)
@@ -11,7 +11,7 @@ export const getTicketsInputSchema = {
         'fetched by the <effort>#<order> handle its Board line shows.',
     ),
   root: z.string().optional().describe('Workspace directory. Defaults to the session workspace.'),
-};
+});
 
 export const getTicketsDescription =
   'Full bodies for a list of Ticket ids, in one call. Use after get_board, only for the ' +

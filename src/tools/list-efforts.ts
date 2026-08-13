@@ -7,14 +7,14 @@ import { workspaceLine } from './workspace-line.ts';
  * `root` is the per-call workspace override. It is the only argument, and it is
  * optional, because the workspace normally resolves from the session itself.
  */
-export const listEffortsInputSchema = {
+export const listEffortsInputSchema = z.object({
   root: z
     .string()
     .optional()
     .describe(
       'Workspace directory. Defaults to $FRONTIER_ROOT, then the session working directory.',
     ),
-};
+});
 
 export const listEffortsDescription =
   'List the Efforts in a repo, each with its Ticket count and which header docs it holds.';

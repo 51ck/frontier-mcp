@@ -3,10 +3,10 @@ import { z } from 'zod';
 import type { Effort, TicketSummary } from '../domain.ts';
 import { frontierOf, indexById } from '../frontier.ts';
 
-export const getBoardInputSchema = {
+export const getBoardInputSchema = z.object({
   effort: z.string().describe('Effort slug, as reported by list_efforts.'),
   root: z.string().optional().describe('Workspace directory. Defaults to the session workspace.'),
-};
+});
 
 export const getBoardDescription =
   "An Effort's Destination, then one line per Ticket — id, title, kind, status, Edges — with the " +

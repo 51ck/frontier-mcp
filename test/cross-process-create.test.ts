@@ -23,8 +23,8 @@ const PER_SESSION = 3;
  */
 const CREATOR = `
 import { createFrontierMCP } from '%SRC%';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { Client } from '@modelcontextprotocol/client';
+import { InMemoryTransport } from '@modelcontextprotocol/server';
 const [who, at, cwd] = [process.argv[2], Number(process.argv[3]), process.argv[4]];
 const frontier = createFrontierMCP({ cwd, env: {} });
 const client = new Client({ name: who, version: '0' });

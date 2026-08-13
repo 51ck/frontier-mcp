@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import type { MigrationChange, MigrationReport } from '../domain.ts';
 
-export const migrateEffortInputSchema = {
+export const migrateEffortInputSchema = z.object({
   effort: z.string().describe('Effort slug whose Legacy Tickets to normalize.'),
   preview: z
     .boolean()
@@ -15,7 +15,7 @@ export const migrateEffortInputSchema = {
       'Rename files to <NN>-T<n>-<slug>.md. Off by default so relative links keep resolving.',
     ),
   root: z.string().optional().describe('Workspace directory. Defaults to the session workspace.'),
-};
+});
 
 export const migrateEffortDescription =
   'Normalize Legacy Tickets in an Effort: schema frontmatter, preserve existing ids, mint ' +
