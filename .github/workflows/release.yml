@@ -4,10 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       increment:
-        description: Semver increment
+        description: Semver increment (auto derives it from the commits)
         required: true
+        default: auto
         type: choice
         options:
+          - auto
           - patch
           - minor
           - major
@@ -63,7 +65,21 @@ jobs:
       # pnpm's own OIDC support — there is deliberately no NODE_AUTH_TOKEN. Setting one from a
       # secret that may not exist writes an empty _authToken into .npmrc, which 401s instead of
       # falling back to OIDC.
+      # `auto` passes no --increment at all, which is what hands the decision to
+      # @release-it/conventional-changelog: it reads the conventional commits since the last v* tag
+      # and derives the bump. Note it is a *green no-op* when nothing since that tag is releasable —
+      # release-it prints "No new version to release" and exits 0, so a successful run is not by
+      # itself proof that anything shipped. Check the tags.
+      #
+      # The choice arrives as an env var rather than an inline ${{ }} expansion so it is never
+      # interpolated into the shell command.
       - name: Release
-        run: pnpm exec release-it --ci --increment=${{ inputs.increment }}
         env:
+          INCREMENT: ${{ inputs.increment }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "$INCREMENT" = auto ]; then
+            pnpm exec release-it --ci
+          else
+            pnpm exec release-it --ci --increment="$INCREMENT"
+          fi

@@ -80,7 +80,10 @@ publish script, and adding one would mean minting the long-lived npm token that 
 to avoid.
 
 1. Merge the work you want to ship to `master`.
-2. On GitHub: **Actions → Release → Run workflow**, pick `patch` / `minor` / `major`.
+2. On GitHub: **Actions → Release → Run workflow**, pick `auto` / `patch` / `minor` / `major`.
+   `auto` is the default and derives the bump from the conventional commits since the last release —
+   `feat:` gives a minor, `fix:` a patch. Pick an explicit one to override it. If nothing since the
+   last tag is releasable, `auto` exits green having shipped nothing, so confirm a new tag appeared.
 3. The workflow runs checks + tests, bumps `package.json`, updates `CHANGELOG.md`, tags
    `v*`, creates a GitHub Release, and publishes to npm with `pnpm`.
 4. Bump the pinned version in your user MCP config (`frontier-mcp@x.y.z`) when you want the

@@ -382,6 +382,18 @@ tree is dirty at publish time and why `--no-git-checks` is needed; see the relea
 Guidance. Do not treat that changelog as tracker vocabulary — see `CONTEXT.md`. MCP install pins in
 the README stay manual after each release.
 
+The dispatch takes an increment of `auto`, `patch`, `minor` or `major`, defaulting to `auto`. `auto`
+passes **no** `--increment`, which is what hands the decision to `@release-it/conventional-changelog`
+— it derives the bump from the conventional commits since the last tag, so `feat:` gives a minor and
+`fix:` a patch. The explicit three exist to override that, not to substitute for it. Two things about
+`auto` are worth knowing before dispatching it:
+
+- **Nothing releasable is a green no-op.** With no qualifying commits since the last tag, release-it
+  prints `No new version to release` and **exits 0**. The job succeeds having shipped nothing, so a
+  green run is not by itself evidence that a version went out — check the tags.
+- It reads the same commit range the changelog does, so everything below about a missing `v*` tag
+  applies to the version choice too, not just to the changelog prose.
+
 Every release needs the previous one to carry a `v*` tag: `@release-it/conventional-changelog` takes
 "every commit since the last tag", so a missing tag makes the next changelog restate the whole
 history and can recommend a bump from a breaking change that already shipped. `v0.1.0` was tagged
