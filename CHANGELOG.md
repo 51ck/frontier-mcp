@@ -2,6 +2,13 @@
 
 Package release notes for `frontier-mcp` (npm). Not part of the `.scratch/` issue tracker.
 
+## [0.3.0](https://github.com/51ck/frontier-mcp/compare/v0.2.1...v0.3.0) (2026-08-13)
+
+### Features
+
+* **ci:** let the release dispatch derive its own increment ([de7ecd7](https://github.com/51ck/frontier-mcp/commit/de7ecd7d1cbc23f1a1e746367de1215c5dbd5d1f))
+* move onto the v2 scoped SDK family ([dba3051](https://github.com/51ck/frontier-mcp/commit/dba30511db506a7d92dbe35c920fea62296cc7fa))
+
 ## [0.2.1](https://github.com/51ck/frontier-mcp/compare/v0.2.0...v0.2.1) (2026-08-11)
 
 ### Bug Fixes
