@@ -1,11 +1,11 @@
 ---
-id: T39
+id: T45
 title: What the token-cost claim measures, and whether it survives a skeptic
 kind: decision
 type: research
 status: open
 triage: ready-for-agent
-blocked_by: [T36]
+blocked_by: [T42]
 ---
 
 ## Question

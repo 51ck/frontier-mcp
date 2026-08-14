@@ -1,11 +1,11 @@
 ---
-id: T42
+id: T48
 title: Which venues carry the launch, in what order, with what artifact
 kind: decision
 type: grilling
 status: open
 triage: ready-for-human
-blocked_by: [T35, T36, T40]
+blocked_by: [T41, T42, T46]
 ---
 
 ## Question

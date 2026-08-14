@@ -1,11 +1,11 @@
 ---
-id: T40
+id: T46
 title: What must be true before a stranger is invited to look
 kind: decision
 type: grilling
 status: open
 triage: ready-for-human
-blocked_by: [T36, T37]
+blocked_by: [T42, T43]
 ---
 
 ## Question

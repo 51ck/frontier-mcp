@@ -1,11 +1,11 @@
 ---
-id: T41
+id: T47
 title: How to approach the ecosystem this is built on
 kind: decision
 type: grilling
 status: open
 triage: ready-for-human
-blocked_by: [T35, T36]
+blocked_by: [T41, T42]
 ---
 
 ## Question

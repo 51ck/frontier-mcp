@@ -1,5 +1,5 @@
 ---
-id: T36
+id: T42
 title: What FrontierMCP claims, in words a stranger understands
 kind: decision
 type: prototype
