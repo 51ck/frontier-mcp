@@ -286,7 +286,11 @@ function replaceGenerated(
 
   let replacement: string;
   if (GENERATED_BLOCK.test(section)) {
-    replacement = section.replace(GENERATED_BLOCK, block.trimEnd());
+    // A function, not a string: `String.replace` reads `$&`, `` $` ``, `$'` and
+    // `$1` in a replacement *string*, and this one is Ticket prose. A gist
+    // quoting a regex — `^T[0-9a-z]+$` followed by a backtick — silently became
+    // the text preceding the match, corrupting the very line it was rendering.
+    replacement = section.replace(GENERATED_BLOCK, () => block.trimEnd());
     if (!replacement.endsWith('\n')) replacement += '\n';
   } else if (options.wipeUnfenced) {
     // No markers: the whole section body is the derived cache the server owns.
