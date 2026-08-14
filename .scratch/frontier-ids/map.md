@@ -46,9 +46,6 @@ other tree merges into — which is exactly the property this Effort exists to s
 
 ## Not yet specified
 
-- **Does one scan actually cost half of two?** T37 halves ADR 0005's measured figures on paper, and that ADR says plainly its ranges were doubled from single-scan timings rather than measured as a pair. The new ADR should re-measure through `bench/scan-cost.ts` at the slow end rather than inherit arithmetic.
-- **The documentation blast radius.** `AGENTS.md`'s "Stable `id`, cosmetic filename" and "the counter is derived, and allocated under a guard" contracts, `CONTEXT.md`'s **Ticket** entry and its missing term for a draft's temporary key, `README.md`, and ADR 0005's own supersession note. Mostly mechanical, but the AGENTS.md contract wording is a decision in itself and may want its own Ticket once T39 settles what the no-server story is.
-
 ## Out of scope
 
 - **A CI tool that repairs id collisions at merge time.** Proposed while cross-branch collisions were an expected merge outcome; the format change in T35 removes the case it was built for. What still collides across branches is the `NN` file number, which is cosmetic by contract. See [[T38]].
