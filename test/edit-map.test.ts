@@ -320,6 +320,39 @@ describe('edit_map', () => {
     expect(outOfScope).toContain('- Rewriting CONTEXT.md through this tool');
   });
 
+  it('renders a gist containing $ replacement patterns verbatim', async () => {
+    // A gist is Ticket prose, and prose about this codebase quotes regexes. Fed
+    // to `String.replace` as a replacement *string*, `` $` `` means the text
+    // before the match and `$&` the match itself — so the rendered line came out
+    // as some other part of the Map.
+    const gist = "Matching `^T[0-9a-z]+$`, and $& and $' and $1 survive too";
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.scratch/alpha/map.md': fullMap(),
+      '.scratch/alpha/issues/01-T1-first.md': ticket('T1', 'First', {
+        status: 'resolved',
+        answer_gist: gist,
+      }),
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+    const rev = revisionOf(await frontier.call('edit_map', { effort: 'alpha' }), 'map');
+
+    await frontier.call('edit_map', {
+      effort: 'alpha',
+      notes: 'Refresh derived blocks.',
+      expected_revision: rev,
+    });
+
+    const onDisk = await readFile(join(root, '.scratch/alpha/map.md'), 'utf8');
+    const decisions = onDisk.slice(
+      onDisk.indexOf('## Decisions so far'),
+      onDisk.indexOf('## Not yet specified'),
+    );
+
+    // One line, not three: the corruption spliced newlines in mid-gist.
+    expect(decisions).toContain(`- [T1 — First](issues/01-T1-first.md) — ${gist}`);
+  });
+
   it('omits the gist em dash when a resolved Ticket has no answer_gist', async () => {
     // T6: "gist plus link". Empty gist → link-only line, no trailing " —", no invented prose.
     const root = await makeFixtureTree({
