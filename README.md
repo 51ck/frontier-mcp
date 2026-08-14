@@ -3,6 +3,15 @@
 An MCP server that serves the markdown issue tracker under `.scratch/` as a queryable graph — so agents
 stop re-parsing prose to learn what is open, blocked, or takeable.
 
+## Stability
+
+**Pre-1.0: the API can change in a breaking way on any release.** The tool surface is fixed at eight
+tools, but their arguments, results, and the on-disk conventions under `.scratch/` are still being
+settled — Ticket id format among them. Semver is honoured within `0.x` as best it can be, and the
+`CHANGELOG.md` records every break, but a `0.x` bump is not a promise of compatibility. Pin an exact
+version (see below) and read the changelog before moving the pin. From `v1.0.0` on, breaking changes
+wait for a major.
+
 ## Requirements
 
 - Node 24 or later
