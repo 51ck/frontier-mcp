@@ -51,3 +51,11 @@ slugs and Edges into unmerged Efforts are refused.
 - [ ] How much plausible-key space a pattern may swallow is decided, or the loss is recorded
       deliberately
 - [ ] For a pattern containing `<effort>`, whether an unknown slug is well-formed is decided
+
+## Comments
+
+Inherited from T51 when it was dropped. "Filename-safe" is doing more work than it looks, and it is the one constraint here that comes from outside the repo rather than from our own design.
+
+The id appears in `<NN>-<id>-<slug>.md`, and three filesystems are in play with no test covering the difference. **APFS is case-insensitive** — T35 already hit this and forced base36 lowercase, but a pattern mixing cases could mint `Tab7` and `TAb7` as distinct ids that collide as filenames on the developer's own machine. CI runs ubuntu only, so a case collision would pass every check and fail on macOS. `package.json` declares no `os`, so the package nominally installs on **Windows**, where `CON`, `NUL`, `AUX`, `PRN` and `COM1`-`COM9` are reserved names regardless of extension, and `<>:"/\|?*` are illegal — several of which are natural literal separators for a pattern.
+
+Whether Windows is actually supported is a product question this map does not own. What T52 owes is a rule that does not silently depend on the answer.

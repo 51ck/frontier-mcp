@@ -3,9 +3,10 @@ id: T51
 title: How other trackers constrain a configurable key format
 kind: decision
 type: research
-status: open
+status: dropped
 triage: ready-for-agent
 blocked_by: []
+dropped_reason: Prior art from hosted trackers answers a different question. Jira, Linear, YouTrack and Redmine all have a central server, so `max + 1` is trivially coordinated for them — the constraint this Effort exists to work around is one they do not have. Their key rules follow from database referential integrity and a rename operation; ours follow from branch divergence and a filesystem. T36 already relays third-party ids to the driver that owns them, so nothing here has to interoperate with a key format we did not choose.
 ---
 
 ## Question
@@ -31,3 +32,7 @@ primary sources only — vendor documentation and API references, not blog posts
 - [ ] Whether the numeric part is per-project or global is recorded for each
 - [ ] Whether any tracker offers a template rather than prefix plus counter is answered
 - [ ] Findings live in one file, linked from this Ticket
+
+## Comments
+
+Dropped during the charting review. The one finding worth having — whether any tracker offers a template rather than prefix-plus-counter — would have been a weak signal either way: absence of a feature in centralized commercial products says little about a file-based tracker. The genuinely external fact this map does wait on is filesystem safety for an id that appears in a filename, which moves to T52 rather than justifying a research Ticket of its own.

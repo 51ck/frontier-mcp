@@ -61,4 +61,5 @@ rewrite, since it opens on the premise that the guards are going.
 
 
 <!-- GENERATED: overwritten on every mutation through the server. Do not hand-edit. -->
+- [T51 — How other trackers constrain a configurable key format](issues/01-T51-how-other-trackers-constrain-a-configurable-key.md) — Prior art from hosted trackers answers a different question. Jira, Linear, YouTrack and Redmine all have a central server, so `max + 1` is trivially coordinated for them — the constraint this Effort exists to work around is one they do not have. Their key rules follow from database referential integrity and a rename operation; ours follow from branch divergence and a filesystem. T36 already relays third-party ids to the driver that owns them, so nothing here has to interoperate with a key format we did not choose.
 <!-- /GENERATED -->
