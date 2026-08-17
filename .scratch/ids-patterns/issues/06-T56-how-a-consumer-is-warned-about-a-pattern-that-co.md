@@ -3,9 +3,11 @@ id: T56
 title: How a consumer is warned about a pattern that collides
 kind: decision
 type: grilling
-status: open
+status: claimed
 triage: ready-for-agent
 blocked_by: [T52, T54]
+claimed_by: claude-opus-5
+claimed_at: 2026-08-17T13:22:38.574Z
 ---
 
 ## Question
