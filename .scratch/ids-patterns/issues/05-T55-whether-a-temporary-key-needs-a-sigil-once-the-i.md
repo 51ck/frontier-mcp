@@ -61,7 +61,9 @@ This Ticket rests on one claim: that a wide configurable pattern loses the same 
 
 The check T36 traded away is still there, for every pattern a consumer can legally write. The price was never paid, so there is nothing to buy back.
 
-The empirical side agrees. Every temporary key that exists anywhere in this repo is a bare lowercase word — `a`, `b`, `parse`, `render`, `left`, `right`, across `test/create-tickets.test.ts`, `test/cycles.test.ts` and `test/workspace-echo.test.ts` — and not one of them is matched by any legal pattern. Nothing in the repo has ever used a key with a hyphen, a digit or a sigil.
+The empirical side agrees. Seven distinct temporary keys exist anywhere in this repo, all in tests. Six are bare lowercase words — `a`, `b`, `parse`, `render`, `left`, `right`, across `test/create-tickets.test.ts`, `test/cycles.test.ts` and `test/workspace-echo.test.ts` — and no legal pattern matches any of them.
+
+The seventh is `T8` (`test/create-tickets.test.ts:176`), and it is the negative case: the test is named *'refuses a temporary key shaped like a real id'*. It is the one key in the repo that a legal pattern does match, it exists precisely to prove the collision is caught, and it is caught. That is the mechanism this answer relies on, already under test.
 
 ## Sigils solve the wrong ambiguity
 
