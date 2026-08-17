@@ -66,7 +66,7 @@ That also disposes of `FRONTIER_ROOT` as precedent. It names *which* repo is ser
 
 **It binds to the storage, which is what actually owns the id space.** `.scratch` may be a symlink — `src/workspace.ts:99`: "Follows symlinks: a `.scratch` pointed at shared storage is still the tracker." Two repos pointed at one storage directory share their Tickets and therefore share one id space, and putting the pattern inside that directory means they automatically share the pattern too. Any other location would let them disagree about the format of ids they are jointly minting. This is the argument that makes it the storage directory rather than the repo root.
 
-**It is not a new file kind in a directory that holds only Efforts.** That objection dissolves on inspection: the Effort scan reads directories and nothing else — `src/storage/markdown/driver.ts:761` filters `entry.isDirectory()`. Non-Effort entries already live at that level and are already invisible to it; ADR 0005's guard files are exactly that, and its comment says so — "the storage scan yields it no Effort because it is not a directory." A plain file needs no new exclusion rule.
+**It is not a new file kind in a directory that holds only Efforts.** That objection dissolves on inspection: the Effort scan reads directories and nothing else — `src/storage/markdown/driver.ts:763` filters `entry.isDirectory()`. Non-Effort entries already live at that level and are already invisible to it; ADR 0005's guard files are exactly that, and its comment says so — "the storage scan yields it no Effort because it is not a directory." A plain file needs no new exclusion rule.
 
 **It travels with the branch, and it survives a `.scratch`-only workspace.** `.scratch` is itself a root marker (`workspace.ts:24`), so a project with no `.git` is still served — and the pattern, living inside `.scratch`, is still there. This is the same property that got git-derived tokens ruled out of scope, now cutting the other way.
 
@@ -78,7 +78,7 @@ That also disposes of `FRONTIER_ROOT` as precedent. It names *which* repo is ser
 
 **Absent file, or present file with no `id_pattern` key: the default, and not an error.** The default is [[T35]]'s `T<b36{6}>`. The overwhelming majority of repos will never contain this file, and that is the intended state — the map is explicit that this Effort decides whether the default can be *overridden*, not what it is.
 
-One sequencing note for the build, because the code does not match the decision yet: `MINTED_ID` is still `/^T(\d+)$/` at `src/domain.ts:18`, so `T<b36{6}>` is decided and unbuilt. This Effort's build lands after T35's, and the default the pattern reader falls back to is the base36 one, not today's `T<n>`.
+One sequencing note for the build, because the code does not match the decision yet: `MINTED_ID` is still `/^T(\d+)$/` at `src/domain.ts:26`, so `T<b36{6}>` is decided and unbuilt. This Effort's build lands after T35's, and the default the pattern reader falls back to is the base36 one, not today's `T<n>`.
 
 ## The hand-writing agent
 
