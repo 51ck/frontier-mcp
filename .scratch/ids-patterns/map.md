@@ -54,6 +54,7 @@ rewrite, since it opens on the premise that the guards are going.
 
 <!-- GENERATED: overwritten on every mutation through the server. Do not hand-edit. -->
 - [T52 — The token language and what makes a pattern legal](issues/02-T52-the-token-language-and-what-makes-a-pattern-lega.md) — Four tokens — `<N>`, `<b36{n}>`, `<b16{n}>` and literals; `<effort>` is refused because identity may not derive from an unvalidated directory name the product ships a tool to change, which dissolves the unknown-slug question; legality is split into parseability rules, filesystem rules that come from outside the repo, and no ambiguity rules at all — the plausible-key loss is recorded deliberately as a density problem, not a width one
+- [T53 — What each pattern implies for minting, and what becomes of the guards](issues/03-T53-what-each-pattern-implies-for-minting-and-what-b.md) — Charting fused two independent questions: `<N>` decides whether minting needs coordination, and the presence of any random token decides whether identity survives a merge — so guards are kept for every pattern containing `<N>` (they were never actually deleted) while a mixed pattern like `T<N>-<b36{4}>` is cross-tree safe with only its counter racing; T38's write-refusal cannot substitute because the only path that is a pure function of the id is the guard itself, so "make the write atomic" reduces to reinventing it
 <!-- /GENERATED -->
 
 ## Not yet specified
