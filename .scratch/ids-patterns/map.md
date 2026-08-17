@@ -18,9 +18,16 @@ The map ends at the decisions. The build is handed to `frontier-v1` as build Tic
 **Origin.** Raised while `frontier-ids` was still walking its map: recommend a default id format, but
 let a consumer compose their own from tokens — `T<N>`, `T<b36{6}>`, `#<effort>-<N>`, `0x<b16{8}>`.
 
-**Scope: the markdown driver only.** Ticket ids are a local project convention, and the tracker is
-plain files in the consumer's repo. T36 already gives every driver its own dialect, so a GitHub
-driver has no say in issue numbers and nothing here reaches it.
+**Scope: local drivers, not third-party ones.** The line is who owns the storage. Where the consumer
+owns it — the markdown driver today, a local database driver if one is ever built — the ids are a
+local project convention and the consumer may name them. Where a third-party tracker owns it, that
+tracker owns the ids and we relay them: T36 already gives every driver its own dialect, so a GitHub
+driver has no say in issue numbers and nothing on this map reaches it.
+
+Every decision here is nonetheless worked against the **markdown driver**, because it is the only
+local driver that exists. What generalizes to a second one is the ownership principle, not this
+pattern language — designing a token set for a driver nobody has written would be speculation
+wearing the clothes of foresight.
 
 **Standing preference — adults.** Warn, never prevent. A consumer may pick a collision-prone pattern;
 the product recommends against it and says why, then does as it is told. It keeps no pattern history
@@ -57,7 +64,7 @@ rewrite, since it opens on the premise that the guards are going.
 
 - **Tokens derived from git state.** `<commit>` and anything like it — a 7-character hash of HEAD at mint time. Dropped during charting. Rebase, amend or squash and the id points at an object that no longer exists: still unique, but misleading rather than merely opaque, which is worse. It is also unavailable in a `.scratch/`-only workspace, which the workspace resolver supports, and it would make minting reach outside `.scratch/` for the first time. The provenance it reaches for belongs in a field, where it can be wrong without corrupting identity.
 - **Compatibility checking and migration between patterns.** A consumer who changes a pattern mid-project owns the consequences. The product keeps no pattern history, verifies no compatibility, and repairs nothing — the predicate answers from the current pattern plus the ids already on disk, and an Edge naming an old-pattern id whose Ticket is not in this tree is refused rather than warned. The recommendation is to choose a pattern once and keep it for the life of the project.
-- **A configurable id format for any driver but markdown.** T36 already gives each driver its own dialect — a GitHub driver answers with issue numbers, a database driver with primary keys, and neither has a format to offer the consumer. Configurability is meaningful only where the tracker is plain files in the consumer's own repo.
+- **A configurable id format for a third-party tracker's driver.** The boundary is ownership of the storage, not which driver happens to exist. A GitHub or Jira driver relays ids that the remote tracker minted and named, so there is no format to offer the consumer; T36 already gives each driver its own dialect. Configurability belongs to drivers whose storage lives in the consumer's own repo — the markdown driver today, a local database driver if one is ever built.
 
 
 <!-- GENERATED: overwritten on every mutation through the server. Do not hand-edit. -->
