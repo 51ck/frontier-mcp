@@ -118,4 +118,4 @@ reason recorded in one place so it cannot drift.
 
 ## License
 
-MIT
+MIT — see [LICENSE](./LICENSE).
