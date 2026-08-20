@@ -2,6 +2,13 @@
 
 Package release notes for `frontier-mcp` (npm). Not part of the `.scratch/` issue tracker.
 
+## [0.3.1](https://github.com/51ck/frontier-mcp/compare/v0.3.0...v0.3.1) (2026-08-20)
+
+### Bug Fixes
+
+* declare the tool side effects that were defaulting to true ([d561a1c](https://github.com/51ck/frontier-mcp/commit/d561a1c3adf73f43dc136eb5184f0e0888c26e53))
+* **map:** render a gist containing $ patterns verbatim ([5fbf9a9](https://github.com/51ck/frontier-mcp/commit/5fbf9a93082026a96ff55baa9baef6bed738bfe7))
+
 ## [0.3.0](https://github.com/51ck/frontier-mcp/compare/v0.2.1...v0.3.0) (2026-08-13)
 
 ### Features
