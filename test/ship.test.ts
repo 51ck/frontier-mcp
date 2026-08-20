@@ -236,4 +236,19 @@ describe('packaging', () => {
     expect(readme).toContain('frontier://tracker-doc');
     expect(readme).toContain('The pin is the version you get');
   });
+
+  it('ships a LICENSE file, not just an SPDX string in the manifest', async () => {
+    // package.json's `"license": "MIT"` and the README's one-word License
+    // section are declarations; neither is the grant. Without this file
+    // GitHub's API reports `license: null`, so licence scanners at any
+    // adopter read the repo as unlicensed. npm always includes a LICENSE in
+    // the tarball regardless of `files`, so its presence here is the fix.
+    const { default: packageJson } = await import('../package.json', { with: { type: 'json' } });
+    const license = readFileSync(join(import.meta.dirname, '..', 'LICENSE'), 'utf8');
+
+    expect(packageJson.license).toBe('MIT');
+    expect(license).toContain('MIT License');
+    expect(license).toContain('Permission is hereby granted, free of charge');
+    expect(license).toContain('THE SOFTWARE IS PROVIDED "AS IS"');
+  });
 });
