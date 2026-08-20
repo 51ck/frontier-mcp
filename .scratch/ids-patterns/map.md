@@ -42,8 +42,8 @@ deleted outright. Ruling `<N>` in has falsified that — scan-derived minting ne
 the guards survive for those patterns while random ones need none. T37 is **not** reopened; a
 resolved Ticket records the route actually walked, and it is superseded here the way ADR 0005 is
 superseded rather than amended. But `frontier-ids` must not write its ADR until this map closes, or
-that ADR will state something untrue. T39, T40, T49 and T50 all survive; T40's framing needs a
-rewrite, since it opens on the premise that the guards are going.
+that ADR will state something untrue. T39, T40, T49 and T50 all survive; T62 restated T40's minting
+half under T53's guards.
 
 **Skills.** `/grilling` and `/domain-modeling` every session.
 
@@ -63,7 +63,6 @@ rewrite, since it opens on the premise that the guards are going.
 ## Not yet specified
 
 - **What the vendored tracker doc says once ids are a local convention.** `docs/agents/issue-tracker.md` hardcodes `T<n>` in its examples, its frontmatter template, and its Hand-publish instruction to scan for the highest `T`. It is served as `frontier://tracker-doc` and vendored into other repos, so under a configurable pattern it is wrong for the repo reading it unless it is generated per-repo. Overlaps `frontier-ids` T39 and T50 hard, and may resolve there rather than here.
-- **What `migrate_effort` mints under each strategy.** Migration allocates ids for Legacy Tickets through `withIdReservations` (`src/storage/markdown/create.ts:102`), which exists only to hold guards. Guards now survive for derived patterns and not for random ones, so migration inherits both strategies and the batch case may differ from the single case. `frontier-ids` T40 asks a version of this, but on the premise that the guards are going — that premise is dead and the Ticket needs rewriting whichever Effort answers it.
 
 ## Out of scope
 

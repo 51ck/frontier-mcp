@@ -6,7 +6,7 @@ type: grilling
 status: resolved
 triage: ready-for-agent
 blocked_by: [T35, T37]
-answer_gist: Migration mints inline against the scan it already takes, `withIdReservations` and `peekMintedIds` are both deleted, an existing id is always preserved, `rename` goes, preview names unminted Tickets by handle through reference-style links, and a foreign frontmatter fence is quarantined into the body rather than imported
+answer_gist: Superseded on minting by T62; an existing id is always preserved, `rename` goes, preview names unminted Tickets by handle through reference-style links, and a foreign frontmatter fence is quarantined into the body rather than imported
 ---
 
 ## Question
@@ -117,3 +117,7 @@ Nothing can write those fields today. `update_ticket` sets Status through the li
 **Rejected: a field-by-field filter on foreign frontmatter.** Importing the fields we recognize and dropping the rest sounds more careful than quarantining the whole fence, and it is strictly worse. A filter still has to decide what a foreign `status: closed` means, and it cannot — that is the exact case that reads as `open` today. Refusing the whole fence is the only rule that covers a foreign field wearing one of our names.
 
 **Rejected: per-field provenance.** Recording which fields the floor read from a label and which it defaulted would answer "did the file say `open`, or did it say nothing" precisely. It costs a schema change nobody has asked for, and the quarantined block already carries the raw source for any file that had one. For a file with no fence, the agent reads the prose regardless of which fields are marked.
+
+## Comments
+
+T62 supersedes the minting half of this answer — `withIdReservations` and `peekMintedIds` are not both deleted. The gist is amended so Decisions-so-far stops advertising that. The rest of this answer stands and is what T70 and T57 still cite.
