@@ -157,7 +157,7 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       title: 'List Efforts',
       description: listEffortsDescription,
       inputSchema: listEffortsInputSchema,
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async ({ root }) => {
       const workspace = resolveWorkspace(root, context);
@@ -176,7 +176,7 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       title: 'Get Board',
       description: getBoardDescription,
       inputSchema: getBoardInputSchema,
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async ({ effort: slug, root }) => {
       const workspace = resolveWorkspace(root, context);
@@ -200,7 +200,7 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       title: 'Get Tickets',
       description: getTicketsDescription,
       inputSchema: getTicketsInputSchema,
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async ({ ids, root }) => {
       const workspace = resolveWorkspace(root, context);
@@ -216,7 +216,12 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       title: 'Create Tickets',
       description: createTicketsDescription,
       inputSchema: createTicketsInputSchema,
-      annotations: { readOnlyHint: false, idempotentHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
     },
     async ({ effort, create, tickets, root }) => {
       const workspace = resolveWorkspace(root, context);
@@ -244,7 +249,12 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       title: 'Update Ticket',
       description: updateTicketDescription,
       inputSchema: updateTicketInputSchema,
-      annotations: { readOnlyHint: false, idempotentHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
     },
     async ({ id, claim, resolve, drop, status, triage, blocked_by, comment, tick, root }) => {
       const workspace = resolveWorkspace(root, context);
@@ -297,7 +307,12 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       title: 'Edit Map',
       description: editMapDescription,
       inputSchema: editMapInputSchema,
-      annotations: { readOnlyHint: false, idempotentHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
     },
     async ({
       effort,
@@ -347,7 +362,12 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       title: 'Spec',
       description: specDescription,
       inputSchema: specInputSchema,
-      annotations: { readOnlyHint: false, idempotentHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
     },
     async ({ effort, create, content, expected_revision, root }) => {
       const workspace = resolveWorkspace(root, context);
@@ -375,7 +395,12 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       title: 'Migrate Effort',
       description: migrateEffortDescription,
       inputSchema: migrateEffortInputSchema,
-      annotations: { readOnlyHint: false, idempotentHint: false },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
     },
     async ({ effort, preview, rename, root }) => {
       const workspace = resolveWorkspace(root, context);

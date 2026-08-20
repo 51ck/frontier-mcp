@@ -112,6 +112,13 @@ Design decisions settled and binding until an ADR revises them:
   it can land without touching the tool layer. See [ADR 0001](./docs/adr/0001-markdown-canonical-behind-a-storage-driver.md).
 - **The server owns writes.** Full CRUD through tools; hand-editing stays legal but is what the
   schema drifts from.
+- **Every tool states the side effects that are meaningful for it.** `destructiveHint` and
+  `openWorldHint` both default to *true* when omitted, so silence declared a purely-local `.scratch/`
+  editor open-world and the additive `create_tickets` destructive. All eight tools set
+  `openWorldHint: false`. The five writers also set `destructiveHint` — `false` on `create_tickets`
+  alone, `true` out loud on the four that replace or remove, so that the one `false` reads as a
+  decision rather than an oversight. The three readers set neither `destructiveHint` nor
+  `idempotentHint`: both are meaningless under `readOnlyHint: true`. Pinned in `test/ship.test.ts`.
 - **`.md` with YAML frontmatter.** Not `.mdc`.
 - **Formal metadata in frontmatter, prose in the body.** Identity, status, edges, and kind are fields.
   Everything an agent reads as prose stays prose.

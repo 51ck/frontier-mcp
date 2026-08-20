@@ -252,3 +252,64 @@ describe('packaging', () => {
     expect(license).toContain('THE SOFTWARE IS PROVIDED "AS IS"');
   });
 });
+
+/** Every tool's annotations, read off the wire as a client sees them. */
+async function annotationsByTool(): Promise<Record<string, Record<string, unknown>>> {
+  const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
+  const { client } = await connectFrontier({ cwd: root, env: {} });
+  const { tools } = await client.listTools();
+
+  return Object.fromEntries(
+    tools.map(tool => [tool.name, (tool.annotations ?? {}) as Record<string, unknown>]),
+  );
+}
+
+describe('tool annotations', () => {
+  it('declares every tool closed-world, because scope stops at .scratch/', async () => {
+    // openWorldHint defaults to *true* when omitted, so silence here is not
+    // neutral — it tells every client that a server which touches only local
+    // files under .scratch/ reaches out to external entities. It does not.
+    const annotations = await annotationsByTool();
+
+    for (const [name, annotation] of Object.entries(annotations)) {
+      expect(annotation, name).toMatchObject({ openWorldHint: false });
+    }
+  });
+
+  it('declares create_tickets additive, because it only ever adds', async () => {
+    // create_tickets writes new Ticket files and nothing else, so a client
+    // gating a confirmation prompt on the omitted-means-true default was
+    // prompting on the additive path — the friction this server exists to
+    // remove.
+    const annotations = await annotationsByTool();
+
+    expect(annotations['create_tickets']).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+    });
+  });
+
+  it('declares the overwriting writers destructive, and says so out loud', async () => {
+    // These four replace or remove what was there: update_ticket rewrites
+    // fields and sections, edit_map replaces Destination/Notes and graduates
+    // fog away, spec puts a whole new body, migrate_effort rewrites and
+    // renames files. True is also the default, and stated anyway — see
+    // AGENTS.md, Local Contracts.
+    const annotations = await annotationsByTool();
+
+    for (const name of ['update_ticket', 'edit_map', 'spec', 'migrate_effort']) {
+      expect(annotations[name], name).toMatchObject({
+        readOnlyHint: false,
+        destructiveHint: true,
+      });
+    }
+  });
+
+  it('keeps the three readers read-only', async () => {
+    const annotations = await annotationsByTool();
+
+    for (const name of ['list_efforts', 'get_board', 'get_tickets']) {
+      expect(annotations[name], name).toMatchObject({ readOnlyHint: true });
+    }
+  });
+});
