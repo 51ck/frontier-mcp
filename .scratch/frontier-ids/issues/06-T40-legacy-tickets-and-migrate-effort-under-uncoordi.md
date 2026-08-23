@@ -6,7 +6,7 @@ type: grilling
 status: resolved
 triage: ready-for-agent
 blocked_by: [T35, T37]
-answer_gist: Superseded on minting by T62; an existing id is always preserved, `rename` goes, preview names unminted Tickets by handle through reference-style links, and a foreign frontmatter fence is quarantined into the body rather than imported
+answer_gist: Superseded on minting by T62 and on the shape of migration by T57; an existing id is always preserved, `rename` goes, and preview names unminted Tickets by handle through reference-style links — but the foreign fence is no longer quarantined into the body and `awaits_migration` is never written, because lazy conversion leaves neither necessary
 ---
 
 ## Question
@@ -121,3 +121,13 @@ Nothing can write those fields today. `update_ticket` sets Status through the li
 ## Comments
 
 T62 supersedes the minting half of this answer — `withIdReservations` and `peekMintedIds` are not both deleted. The gist is amended so Decisions-so-far stops advertising that. The rest of this answer stands and is what T70 and T57 still cite.
+
+T57 supersedes the migration-shape half of this answer. Two conclusions are withdrawn.
+
+The foreign fence is no longer quarantined into the body under `## Unmerged legacy frontmatter`. It is surfaced in `get_tickets` output as a fenced `yaml` block from `Split.raw`, and the file is not written. Quarantining writes a block a later pass has to consume and clean, needs a per-field disposition vocabulary to ever empty, and leaves a heading asserting *unmerged* about a block that was merged.
+
+`awaits_migration` is never written. The argument for it here — that `legacy` is derived from fence presence and migration destroys it — is true but insufficient. `id: undefined` survives the normalizing write and renders as `no id (N)`, pinned by `test/normalize-and-stale.test.ts:97-101`; `unrecognizedStatus` covers a fence whose status will not map. The only case both miss is a Ticket whose id sat in its heading, which is the case where the floor's inference is most trustworthy.
+
+What holds the two withdrawals together is that conversion is lazy and already ships: a write to a Foreign Ticket normalizes it, so migration is not a pass that rewrites an Effort. `migrate_effort` narrows to the id-minting batch, which is the one operation that cannot be lazy, and this answer's minting analysis is what it still builds from.
+
+The gist is amended so Decisions-so-far stops advertising the quarantine block. **Legacy Ticket** also becomes **Foreign Ticket** repo-wide, on a conformance axis rather than a provenance one.

@@ -4,7 +4,7 @@ title: ADR 0006 and the docs that state the id format
 kind: build
 status: open
 triage: ready-for-agent
-blocked_by: [T65, T70, T49]
+blocked_by: [T65, T49]
 ---
 
 **What to build:** the written half of the id work.
@@ -54,3 +54,11 @@ release it is settled but configurable, which is a different sentence.
 - [ ] `docs/agents/issue-tracker.md` branches on `id_pattern`, drops the sentence describing no code
       path, fixes the guard filename, and carries a version marker
 - [ ] `README.md`'s stability notice is true after the release
+
+## Comments
+
+Two changes from [[T57]].
+
+The T70 Edge is gone: T70 is dropped, because both halves of its premise died — the foreign fence is no longer quarantined into the body, and `awaits_migration` is never written. Nothing in this Ticket's remaining scope depends on it, so the Edge is not replaced. Foreign detection is [[T73]] and does not gate the id docs.
+
+The `CONTEXT.md` criterion moves to [[T78]], which owns every glossary edit so they land in one commit rather than two Tickets editing one file. That covers this Ticket's three [[T50]] items — naming `id_pattern` with no shape, adding **Temporary key** and **Handle**, correcting **Edge** — alongside T57's Foreign entry and the accepted-synonym slot. Skip that criterion here; ADR 0006, `AGENTS.md`, `docs/agents/issue-tracker.md` and `README.md` are unchanged and still this Ticket's.

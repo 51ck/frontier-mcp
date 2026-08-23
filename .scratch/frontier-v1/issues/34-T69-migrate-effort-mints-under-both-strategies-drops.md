@@ -56,3 +56,13 @@ pattern; and T58, which decides the handle separator this report is written in.
       definition block and workspace-root-relative paths
 - [ ] Preview run twice against unchanged files produces the same report
 - [ ] Handles render unpadded, matching `handleFor`
+
+## Comments
+
+[[T57]] changed the shape of migration around this Ticket. The minting analysis it builds from is untouched; two things in its surroundings are not.
+
+`migrate_effort` narrows to minting and prose-Edge remapping, and writes nothing else. It no longer quarantines a foreign fence and no longer writes `awaits_migration` — T70 is dropped and was never built, so there is nothing to remove, but do not add either behaviour while working here.
+
+Conversion is otherwise lazy and already ships: a write to a Foreign Ticket normalizes that file (`test/normalize-and-stale.test.ts:28-51`). Migration is not the operation that converts an Effort — it is the operation that mints ids Effort-wide, which is the one thing that cannot be done a Ticket at a time, because `Blocked by: 01, 02` names sort orders that only a whole-Effort batch can resolve.
+
+Read [[T40]] with its amended gist: its minting half stands, its migration-shape half is superseded.

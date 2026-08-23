@@ -2,9 +2,10 @@
 id: T70
 title: Foreign frontmatter is quarantined and migrated Tickets are flagged
 kind: build
-status: open
+status: dropped
 triage: ready-for-agent
 blocked_by: [T69]
+dropped_reason: "Both halves of the premise died in [[T57]]. The foreign fence is no longer quarantined into the body under `## Unmerged legacy frontmatter` — it is surfaced in `get_tickets` output and the file is not written ([[T74]]). And `awaits_migration` is never written at all: `id: undefined` survives the normalizing write and renders as `no id (N)`, `unrecognizedStatus` covers a fence whose status will not map, and the only case both miss is a Ticket whose id sat in its heading, which is where the floor's inference is most trustworthy. The hole this Ticket opened is real and survives as [[T73]], which detects a non-conforming fence on read and writes nothing; the scope warning about T57 gating the release is answered, since there is no flag left for anything to clear."
 ---
 
 **What to build:** the second half of [[T40]] — the part that protects against a file we did not
