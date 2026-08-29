@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import type { TicketEdit, TicketSummary } from '../domain.ts';
+import type { Kind, TicketEdit, TicketSummary } from '../domain.ts';
 import { STATUSES, TRIAGE_ROLES } from '../domain.ts';
 import type { TriageRole } from '../domain.ts';
 import { cycleThrough, renderCycle, type EdgesOf } from '../edges.ts';
@@ -23,10 +23,22 @@ export const updateTicketInputSchema = z.object({
     .object({ reason: z.string().min(1).describe('Why it is beyond the destination.') })
     .optional()
     .describe('Close the Ticket as work ruled out of scope.'),
+  reopen: z
+    .object({ reason: z.string().min(1).describe('Why it is being reopened.') })
+    .optional()
+    .describe('Return a resolved or dropped Ticket to open.'),
+  release: z
+    .literal(true)
+    .optional()
+    .describe(
+      'Release the claim on a claimed Ticket and return it to open. Pass { release: true }.',
+    ),
   status: z
     .enum(STATUSES)
     .optional()
-    .describe('Not settable directly — use claim, resolve, or drop. Named here to say so.'),
+    .describe(
+      'Not settable directly — use claim, resolve, drop, reopen, or release. Named here to say so.',
+    ),
   triage: z
     .enum(TRIAGE_ROLES)
     .optional()
@@ -51,24 +63,37 @@ export const updateTicketInputSchema = z.object({
         'as get_tickets returns them and re-joined onto one line. All references resolve before ' +
         'anything is written — one unmatched name fails the whole call and leaves the file untouched.',
     ),
+  title: z.string().min(1).optional().describe('Replace the Ticket title.'),
+  kind: z.enum(['build', 'decision']).optional().describe('Replace the Ticket kind.'),
+  type: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Replace the decision type — research, prototype, grilling, or task.'),
   root: z.string().optional().describe('Workspace directory. Defaults to the session workspace.'),
 });
 
 export const updateTicketDescription =
-  'Change one Ticket. Lifecycle: claim, resolve with a one-line gist, or drop with a reason — at ' +
-  'most one of those per call. Graph: replace the Edges, refused if they close a cycle. ' +
-  'Annotations: triage role, a comment, ticking acceptance criteria; these touch no part of the ' +
-  'graph. Any of the three groups may accompany the others or stand alone.';
+  'Change one Ticket. Lifecycle: claim, resolve with a one-line gist, drop with a reason, reopen ' +
+  'with a reason, or release a claim — at most one of those per call. Graph: replace the Edges, ' +
+  'refused if they close a cycle. Identity: title, kind, and type. Annotations: triage role, a ' +
+  'comment, ticking acceptance criteria; these touch no part of the graph. Any of the four groups ' +
+  'may accompany the others or stand alone.';
 
 export interface UpdateRequest {
   readonly claim?: { by: string } | undefined;
   readonly resolve?: { answer_gist: string; answer?: string | undefined } | undefined;
   readonly drop?: { reason: string } | undefined;
+  readonly reopen?: { reason: string } | undefined;
+  readonly release?: true | undefined;
   readonly triage?: TriageRole | undefined;
   readonly status?: string | undefined;
   readonly blocked_by?: readonly string[] | undefined;
   readonly comment?: string | undefined;
   readonly tick?: readonly string[] | undefined;
+  readonly title?: string | undefined;
+  readonly kind?: Kind | undefined;
+  readonly type?: string | undefined;
 }
 
 /**
@@ -85,10 +110,12 @@ export function editFor(
   request: UpdateRequest,
   now: string,
 ): TicketEdit {
-  // Annotations are not graph operations. They carry no lifecycle meaning, so
-  // they ride along with a transition or stand on their own. An Edge change is a
-  // graph operation and rides along the same way, having been validated first.
+  // Identity and annotations are not graph operations. They carry no lifecycle
+  // meaning, so they ride along with a transition or stand on their own. An Edge
+  // change is a graph operation and rides along the same way, having been
+  // validated first.
   const annotations: TicketEdit = {
+    ...identityFor(ticket, request),
     ...(request.triage === undefined ? {} : { triage: request.triage }),
     ...(request.comment === undefined ? {} : { comment: request.comment }),
     ...(request.tick === undefined ? {} : { tick: request.tick }),
@@ -100,20 +127,27 @@ export function editFor(
   // a Status this would have accepted either way.
   if (request.status !== undefined) {
     throw new Error(
-      `status is not set directly. Use claim, resolve, or drop; '${request.status}' ` +
-        'is a lifecycle position the server derives.',
+      `status is not set directly. Use claim, resolve, drop, reopen, or release; ` +
+        `'${request.status}' is a lifecycle position the server derives.`,
     );
   }
 
-  const actions = [request.claim, request.resolve, request.drop].filter(
-    action => action !== undefined,
-  );
-  if (actions.length > 1) throw new Error('Pass at most one of claim, resolve, or drop.');
+  const actions = [
+    request.claim,
+    request.resolve,
+    request.drop,
+    request.reopen,
+    request.release,
+  ].filter(action => action !== undefined);
+  if (actions.length > 1) {
+    throw new Error('Pass at most one of claim, resolve, drop, reopen, or release.');
+  }
 
   if (actions.length === 0) {
     if (Object.keys(annotations).length === 0) {
       throw new Error(
-        'Nothing to do: pass a lifecycle change, or blocked_by, triage, comment, or tick.',
+        'Nothing to do: pass a lifecycle change, or title, kind, type, blocked_by, triage, comment, ' +
+          'or tick.',
       );
     }
     return annotations;
@@ -146,7 +180,40 @@ export function editFor(
     };
   }
 
+  if (request.reopen !== undefined) {
+    const reopen = reopenEdit(ticket, request.reopen.reason);
+    const archiveComment = reopen.comment ?? '';
+    const comment =
+      request.comment === undefined ? archiveComment : `${archiveComment}\n\n${request.comment}`;
+    const { comment: _ignored, ...rest } = annotations;
+    return { ...rest, ...reopen, comment };
+  }
+
+  if (request.release !== undefined) {
+    return { ...annotations, ...releaseEdit(ticket) };
+  }
+
   throw new Error('Unreachable: an action was counted but none matched.');
+}
+
+function identityFor(ticket: TicketSummary, request: UpdateRequest): TicketEdit {
+  const resultingKind = request.kind ?? ticket.kind;
+
+  if (request.type !== undefined && resultingKind !== 'decision') {
+    throw new Error(
+      `"${request.title ?? ticket.title}" is a build Ticket, so it has no type — that field records which ` +
+        'wayfinder shape a decision Ticket is.',
+    );
+  }
+
+  const clearType = request.kind === 'build' && ticket.type !== undefined;
+
+  return {
+    ...(request.title === undefined ? {} : { title: request.title }),
+    ...(request.kind === undefined ? {} : { kind: request.kind }),
+    ...(request.type === undefined ? {} : { type: request.type }),
+    ...(clearType ? { type: null } : {}),
+  };
 }
 
 /**
@@ -191,7 +258,7 @@ function claimEdit(ticket: TicketSummary, by: string, now: string): TicketEdit {
     throw new Error(
       `${ticket.handle} is already claimed by ${ticket.claimedBy}` +
         `${ticket.claimedAt === undefined ? '' : ` since ${ticket.claimedAt}`}. ` +
-        'Claims are never auto-released; take it up with the holder.',
+        'Claims are never auto-released; use release or take it up with the holder.',
     );
   }
   if (ticket.status === 'resolved' || ticket.status === 'dropped') {
@@ -199,6 +266,48 @@ function claimEdit(ticket: TicketSummary, by: string, now: string): TicketEdit {
   }
 
   return { status: 'claimed', claimedBy: by, claimedAt: now };
+}
+
+/**
+ * Reopening archives what closed the Ticket in a server-authored comment, then
+ * clears the fields that made it closed so the Frontier can take it again.
+ */
+function reopenEdit(ticket: TicketSummary, reason: string): TicketEdit {
+  if (ticket.status !== 'resolved' && ticket.status !== 'dropped') {
+    throw new Error(
+      `${ticket.handle} is ${ticket.status}, so it cannot be reopened — only resolved or ` +
+        'dropped Tickets can.',
+    );
+  }
+
+  const archive = [`Reopened: ${reason}`];
+  if (ticket.status === 'resolved' && ticket.answerGist !== undefined) {
+    archive.push(`Previous answer_gist: ${ticket.answerGist}`);
+  }
+  if (ticket.status === 'dropped' && ticket.droppedReason !== undefined) {
+    archive.push(`Previous dropped_reason: ${ticket.droppedReason}`);
+  }
+
+  return {
+    status: 'open',
+    answerGist: null,
+    droppedReason: null,
+    claimedBy: null,
+    claimedAt: null,
+    comment: archive.join('\n'),
+  };
+}
+
+/** Release clears a claim without touching what closed the Ticket, if anything did. */
+function releaseEdit(ticket: TicketSummary): TicketEdit {
+  if (ticket.status !== 'claimed') {
+    throw new Error(
+      `${ticket.handle} is ${ticket.status}, so its claim cannot be released — only claimed ` +
+        'Tickets can.',
+    );
+  }
+
+  return { status: 'open', claimedBy: null, claimedAt: null };
 }
 
 export function renderUpdate(ticket: TicketSummary, warnings: readonly string[] = []): string {

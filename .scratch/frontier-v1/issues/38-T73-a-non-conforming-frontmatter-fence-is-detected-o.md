@@ -2,9 +2,10 @@
 id: T73
 title: A non-conforming frontmatter fence is detected on read
 kind: build
-status: open
+status: resolved
 triage: ready-for-agent
 blocked_by: []
+answer_gist: "Foreign fences detected on read: no-id plus a non-schema key is Legacy; unmapped fenced status sets unrecognizedStatus and stays off the Frontier"
 ---
 
 **What to build:** the detection half of [[T57]], replacing the quarantine half of the dropped T70.
@@ -19,11 +20,14 @@ Second: a `status` value outside `STATUSES` sets `unrecognizedStatus`, which tod
 
 **Detect on read, write nothing.** The Board warns, grouped rather than itemized like the existing Foreign and `no id` warnings (`get-board.ts:145`, `:218-224`). The Ticket stays off the Frontier — `isTakeable` (`frontier.ts:35-39`) already requires `status === 'open'`, and an unrecognized status is not one. This is [[T38]]'s warn-on-read, refuse-on-write rule reused, and it keeps the read path pure as [[T8]] requires.
 
-**Status:** ready-for-agent
 
-- [ ] A fence with no `id` and at least one key outside our eleven reads as Foreign
-- [ ] A normalized Ticket with our keys and no `id` is **not** caught, and `test/normalize-and-stale.test.ts:85-102` still passes
-- [ ] A `status` value outside `STATUSES` sets `unrecognizedStatus` on a fenced file, not only on the unfenced path
-- [ ] A foreign fence carrying only colliding keys is caught by the status test alone
-- [ ] `status: closed` never reaches the Frontier
-- [ ] The Board warns about Foreign fences as a group; nothing is written during a read
+- [x] A fence with no `id` and at least one key outside our eleven reads as Foreign
+- [x] A normalized Ticket with our keys and no `id` is **not** caught, and `test/normalize-and-stale.test.ts:85-102` still passes
+- [x] A `status` value outside `STATUSES` sets `unrecognizedStatus` on a fenced file, not only on the unfenced path
+- [x] A foreign fence carrying only colliding keys is caught by the status test alone
+- [x] `status: closed` never reaches the Frontier
+- [x] The Board warns about Foreign fences as a group; nothing is written during a read
+
+## Answer
+
+Two independent tests, either alone leaks. A fence with no `id` and at least one key outside the eleven schema keys is `legacy: true` and joins the existing grouped Legacy warning. A fenced `status` outside STATUSES sets `unrecognizedStatus` (so `title` + `status: closed` is caught even when every key collides). `isTakeable` now also requires `unrecognizedStatus === undefined`, so those Tickets never reach the Frontier. Reads write nothing. A normalized no-id Ticket with only our keys is not caught — `test/normalize-and-stale.test.ts:85-102` still passes.

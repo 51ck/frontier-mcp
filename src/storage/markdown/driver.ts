@@ -334,13 +334,16 @@ async function write(
   )?.ticket;
   if (written === undefined) throw new NoSuchTicket(handle);
 
-  // Resolving or dropping moves what the Map's derived blocks must show. Refresh
-  // them here so a session that never touches edit_map still leaves the file
-  // truthful for a human reading it on GitHub. Best-effort: the Ticket Status is
-  // already on disk, so a refresh failure must not make the lifecycle change look
-  // like it failed — the Map catches up on a later successful refresh or edit.
+  // Resolving or dropping moves what the Map's derived blocks must show; reopening
+  // clears a gist or dropped_reason that those blocks may still list. Refresh them
+  // here so a session that never touches edit_map still leaves the file truthful
+  // for a human reading it on GitHub. Best-effort: the Ticket Status is already
+  // on disk, so a refresh failure must not make the lifecycle change look like it
+  // failed — the Map catches up on a later successful refresh or edit.
   const warnings: string[] = [];
-  if (edit.status === 'resolved' || edit.status === 'dropped') {
+  const reopenClearsDerived =
+    edit.status === 'open' && (edit.answerGist === null || edit.droppedReason === null);
+  if (edit.status === 'resolved' || edit.status === 'dropped' || reopenClearsDerived) {
     try {
       await refreshMapDerived(storage, effort);
     } catch {

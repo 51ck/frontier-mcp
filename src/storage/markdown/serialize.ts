@@ -270,6 +270,9 @@ function existingDocument(raw: string | undefined): Document | undefined {
 function fieldsOf(edit: TicketEdit): Array<[string, string | null]> {
   const pairs: Array<[string, string | null]> = [];
 
+  if (edit.title !== undefined) pairs.push(['title', edit.title]);
+  if (edit.kind !== undefined) pairs.push(['kind', edit.kind]);
+  if (edit.type !== undefined) pairs.push(['type', edit.type]);
   if (edit.status !== undefined) pairs.push(['status', edit.status]);
   if (edit.triage !== undefined) pairs.push(['triage', edit.triage]);
   if (edit.claimedBy !== undefined) pairs.push(['claimed_by', edit.claimedBy]);

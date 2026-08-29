@@ -2,9 +2,10 @@
 id: T76
 title: A Ticket can be reopened and a claim released
 kind: build
-status: open
+status: resolved
 triage: ready-for-agent
 blocked_by: []
+answer_gist: reopen (reason) returns resolved/dropped to open and archives the gist; release drops a claim
 ---
 
 **What to build:** the missing reverse transitions. Found while grilling [[T57]]; it is a defect in its own right and predates that Ticket.
@@ -17,9 +18,12 @@ It is not only a migration problem. A resolution that turns out wrong, and a cla
 
 What the verbs are called and whether reopening a `dropped` Ticket differs from reopening a `resolved` one are open; both clear `answer_gist`/`dropped_reason`, and a reopen that silently discarded a written answer would be worse than the defect. Consider requiring a reason, the way `drop` does.
 
-**Status:** ready-for-agent
 
-- [ ] A `resolved` or `dropped` Ticket returns to `open`, and its `answer_gist`/`dropped_reason` are handled explicitly rather than left stale
-- [ ] A claim is released without another agent having to take it
-- [ ] Reopening a blocker puts every Ticket downstream of it back off the Frontier
-- [ ] `status` is still not settable directly
+- [x] A `resolved` or `dropped` Ticket returns to `open`, and its `answer_gist`/`dropped_reason` are handled explicitly rather than left stale
+- [x] A claim is released without another agent having to take it
+- [x] Reopening a blocker puts every Ticket downstream of it back off the Frontier
+- [x] `status` is still not settable directly
+
+## Answer
+
+Two verbs. `reopen` with a required reason returns `resolved` or `dropped` to `open`, clears `answer_gist`/`dropped_reason`/claim fields, and archives the prior gist or reason in a server-authored comment (`Reopened: …` plus a Previous line when one exists). A caller comment is concatenated after that archive. `release: true` returns `claimed` to `open` and clears the claim only — no archive, no auto-expiry. At most one lifecycle action per call. Direct `status` is still refused. Reopen refreshes Map derived blocks; reopening a blocker takes dependents off the Frontier.

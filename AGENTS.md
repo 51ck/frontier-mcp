@@ -311,6 +311,8 @@ Rendering rules that are load-bearing, not cosmetic:
   reference form, so the Board is the only thing that can make a foreign Edge followable.
 - **An unresolvable Edge renders `T9?`** and is counted in the warnings block. It never silently
   makes a Ticket look takeable.
+- **An unrecognized status is counted in the warnings block and is never takeable.** The Board line
+  may still show `/open`, but the Ticket is kept off the Frontier until a write normalizes it.
 - **Every Ticket is nameable.** A Legacy Ticket with no id gets an `<effort>#<order>` handle, which
   `get_tickets` accepts. It is an address, not an id — not repo-stable, and never usable as an Edge —
   but without it a whole Effort has no route to its own bodies.
@@ -340,7 +342,7 @@ Write rules, equally load-bearing:
   failure. The tool returns success with a warning that those blocks may be stale; a later
   successful refresh or Map mutation catches them up.
 - **A write normalizes the Legacy file it touches**, and keeps the prose it inferred from verbatim.
-- **Claims are flagged when stale, never released.** 24h; auto-expiry is out of scope.
+- **Claims are flagged when stale, never auto-released.** 24h; use `release` to drop a claim explicitly.
 - **A batch creation is all or none.** Every reference resolves before anything is written, so an
   undeclared temporary key or a cycle leaves the workspace untouched. Temporary keys exist for the
   length of the call and never reach a file.

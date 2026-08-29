@@ -256,12 +256,42 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
         openWorldHint: false,
       },
     },
-    async ({ id, claim, resolve, drop, status, triage, blocked_by, comment, tick, root }) => {
+    async ({
+      id,
+      claim,
+      resolve,
+      drop,
+      reopen,
+      release,
+      status,
+      triage,
+      blocked_by,
+      comment,
+      tick,
+      title,
+      kind,
+      type,
+      root,
+    }) => {
       const workspace = resolveWorkspace(root, context);
       const driver = registry.forWorkspace(workspace);
       const tickets = await driver.listTickets();
 
-      const request = { claim, resolve, drop, status, triage, blocked_by, comment, tick };
+      const request = {
+        claim,
+        resolve,
+        drop,
+        reopen,
+        release,
+        status,
+        triage,
+        blocked_by,
+        comment,
+        tick,
+        title,
+        kind,
+        type,
+      };
       const find = (from: readonly TicketSummary[]): TicketSummary => {
         const ticket = from.find(entry => entry.id === id || entry.handle === id);
         if (ticket === undefined) throw new Error(`No Ticket '${id}' in ${workspace}.`);

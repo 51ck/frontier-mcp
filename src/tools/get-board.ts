@@ -189,7 +189,7 @@ function collectWarnings(board: Board): string[] {
   }
   if (unrecognized.size > 0) {
     warnings.push(
-      `unrecognized status, read as open (${String(unrecognized.size)}): ` +
+      `unrecognized status, kept off the Frontier (${String(unrecognized.size)}): ` +
         [...unrecognized].toSorted().join(' '),
     );
   }

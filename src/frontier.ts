@@ -34,6 +34,7 @@ export function indexById(all: readonly TicketSummary[]): ReadonlyMap<string, Ti
  */
 function isTakeable(ticket: TicketSummary, byId: ReadonlyMap<string, TicketSummary>): boolean {
   if (ticket.status !== 'open') return false;
+  if (ticket.unrecognizedStatus !== undefined) return false;
 
   return ticket.blockedBy.every(id => byId.get(id)?.status === 'resolved');
 }
