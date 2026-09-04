@@ -103,6 +103,23 @@ describe('create_tickets', () => {
     expect(await issuesIn(root, 'alpha')).toEqual(['01-T1-first-thing.md']);
   });
 
+  it('creates the first Effort when the repository has no tracker yet', async () => {
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    await frontier.call('create_tickets', {
+      effort: 'probe',
+      create: true,
+      tickets: [{ title: 'Runtime probe' }],
+    });
+
+    expect(await frontier.call('get_board', { effort: 'probe' })).toContain(
+      'T1  Runtime probe  build/open',
+    );
+  });
+
   it('resolves Edges declared by temporary key into the ids it minted', async () => {
     const root = await makeFixtureTree(WORKSPACE);
     const frontier = await connectFrontier({ cwd: root, env: {} });

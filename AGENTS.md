@@ -191,9 +191,9 @@ Stack, settled:
 - **`oxlint`** for linting and **`oxfmt`** for formatting. No ESLint, no Prettier.
   - `oxfmt` is configured to the style the repo already had — single quotes, `printWidth` 100 to
     match the prose in these docs, `arrowParens: avoid` — rather than the other way round.
-  - It never touches markdown. `**/*.md` and `.scratch/**` are in `ignorePatterns`, because
-    `.scratch/` is the tracker data this server exists to serve and becomes T2's fixtures; a
-    formatter rewrapping it would corrupt the input under test.
+  - It never touches markdown or installed upstream skills. `**/*.md`, `.scratch/**`, and
+    `.agents/skills/**` are in `ignorePatterns`: tracker data is input under test, and skill files
+    stay as their upstream copies.
   - `oxfmt` sorts `package.json` keys by default. That is left on.
   - Lint categories are `correctness`, `suspicious`, and `perf`. `pedantic`, `style`, and
     `restriction` are off — they need a suppression list before they say anything useful.

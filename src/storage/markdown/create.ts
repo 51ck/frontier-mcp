@@ -67,6 +67,9 @@ export interface CreateRequest {
  */
 export async function createTicketFiles(request: CreateRequest): Promise<readonly string[]> {
   const { storage, effort, dir, issues, drafts, rescan, validate, createEffort } = request;
+  // The first Effort has no storage directory yet, but allocation still starts
+  // by exclusively creating its guards inside that shared namespace.
+  await mkdir(storage, { recursive: true });
   const { reservations, tickets } = await reserve(storage, drafts.length, rescan);
 
   try {
