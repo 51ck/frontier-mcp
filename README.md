@@ -27,6 +27,35 @@ The package-runtime check has been run on macOS arm64 with Node 20.20.2, 22.17.1
 Compatibility CI is configured for those versions on macOS, Linux, and Windows; until those jobs run,
 that matrix is configured coverage rather than measured platform support.
 
+## Set up from a Node 16 project (source checkout)
+
+The released `0.3.1` package still declares `Node >=24`. The source checkout contains a bootstrap for
+testing the next installation path; it is not yet a downloadable released artifact. The release-ready
+package includes bootstrap revision 1, but a public versioned download can exist only after a release
+has an actual tag or asset. It runs under Node 16, installs the requested released package outside the
+project, and saves an absolute compatible Node path for Cursor. It never changes the project's Node
+pin, package files, or lockfile. The bootstrap is tested on Node 16.20.2; the setup smoke selects
+Node 24.15.0. Those are tested floors, not a claim about every older Node 16 release.
+
+From this source checkout, choose an already installed compatible Node and an exact released pin:
+
+```bash
+node scripts/frontier-setup.cjs --version 0.3.1 --node /absolute/path/to/node --apply
+```
+
+The bootstrap reads that pin's registry metadata before installing it. For `0.3.1`, pass a Node 24
+executable; the newer source package range does not change the requirements of an existing release.
+It uses pnpm associated with that selected Node, or its Corepack installation. If neither is present,
+it stops with pnpm installation guidance and makes no project or Cursor changes. Run without `--apply`
+to preview, add `--client manual` to print an entry for another client, and add `--replace` only after
+reviewing a different existing `frontier` entry. A replacement creates a backup beside Cursor's config.
+
+The script runs its exact saved command through MCP initialization and `tools/list` in a temporary empty
+directory before it touches Cursor. It refuses malformed Cursor JSON and changes detected after it
+prepares the backup and replacement file. An unrelated editor can still write in the one final-read to
+rename syscall interval; the bootstrap cannot make that uncooperative writer participate in its guard.
+An explicit replacement has a backup of the prior config.
+
 ## Install once (user scope)
 
 Register FrontierMCP once in your **user-level** MCP config, pinned to a released version. Every
@@ -90,6 +119,7 @@ pnpm test
 pnpm run check
 pnpm run build
 pnpm run test:runtime
+FRONTIER_NODE16=/path/to/node16 FRONTIER_NODE24=/path/to/node24 pnpm run test:setup
 node src/bin.ts
 ```
 

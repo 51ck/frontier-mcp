@@ -500,7 +500,7 @@ When the user requests a durable behavior change, record it here or in the relev
 
 - `src/` and `test/` remain root-owned; Work Guidance above covers them. `src/storage/` earns its own
   doc the day a second driver lands.
-- [scripts/AGENTS.md](./scripts/AGENTS.md) covers reusable runtime compatibility checks.
+- [scripts/AGENTS.md](./scripts/AGENTS.md) covers runtime compatibility and setup scripts.
 - Root-owned files: [CONTEXT.md](./CONTEXT.md) (glossary), [docs/adr/](./docs/adr/) (decision records),
   [docs/agents/](./docs/agents/) (skill configuration — tracker conventions, triage labels, domain docs,
   FrontierMCP consumer friction), [docs/research/](./docs/research/) (dated findings behind a decision
