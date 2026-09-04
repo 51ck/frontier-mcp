@@ -14,8 +14,18 @@ wait for a major.
 
 ## Requirements
 
-- Node 24 or later
+- Node 20.20.2+ on 20.x, 22.17.1+ on 22.x, or 24.15.0+ on 24.x to run the published package
 - npx to run it; pnpm for development of this package
+
+The emitted package supports those three release lines from their stated floors; it does not claim
+odd-numbered or later Node majors. Node 24 LTS is recommended for new installations. Node 20 is
+compatible with the compiled package but is end-of-life. Developing FrontierMCP still requires Node
+24 because `node src/bin.ts` uses Node's native TypeScript execution; consumers run the emitted
+`dist/bin.js` instead.
+
+The package-runtime check has been run on macOS arm64 with Node 20.20.2, 22.17.1, and 24.15.0.
+Compatibility CI is configured for those versions on macOS, Linux, and Windows; until those jobs run,
+that matrix is configured coverage rather than measured platform support.
 
 ## Install once (user scope)
 
@@ -79,6 +89,7 @@ pnpm install
 pnpm test
 pnpm run check
 pnpm run build
+pnpm run test:runtime
 node src/bin.ts
 ```
 

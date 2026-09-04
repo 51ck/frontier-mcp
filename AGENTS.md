@@ -16,7 +16,8 @@ Vocabulary is defined in [CONTEXT.md](./CONTEXT.md) and is binding on code, tool
 
 ## Ownership
 
-Root owns everything in this repository. No child `AGENTS.md` yet.
+Root owns the application, tracker, and project configuration. The child
+[scripts/AGENTS.md](./scripts/AGENTS.md) owns runtime/setup scripts.
 
 ## Core Contract
 
@@ -162,7 +163,9 @@ Anything else in an effort directory is ignored, never an error.
 
 ## Work Guidance
 
-TypeScript, Node 24, stdio MCP server. pnpm — never npm or yarn.
+TypeScript, Node 24 development, stdio MCP server. pnpm — never npm or yarn. The emitted package
+supports Node 20.20.2+ on 20.x, 22.17.1+ on 22.x, and 24.15.0+ on 24.x; `src/` still requires Node
+24's native TypeScript execution.
 
 Stack, settled:
 
@@ -486,11 +489,18 @@ See [docs/agents/frontier-consumer.md](./docs/agents/frontier-consumer.md).
 
 When the user requests a durable behavior change, record it here or in the relevant child AGENTS.md.
 
+- Runtime setup must preserve the consumer project's Node version, discover existing version
+  managers, and recommend fnm when no manager or suitable Node is available. Prefer a project's
+  Bun or Deno only after FrontierMCP compatibility is verified. Recommend automated setup in the
+  installation guide and retain complete manual instructions. T88 verifies the emitted package on
+  the 20.x, 22.x, and 24.x release lines from floors 20.20.2, 22.17.1, and 24.15.0; T89–T92 build
+  the installation flow around that contract.
+
 ## Child DOX Index
 
-- No child AGENTS.md files are needed for the current repository structure. `src/` and `test/` are
-  small enough that Work Guidance above covers them; `src/storage/` earns its own doc the day a second
-  driver lands.
+- `src/` and `test/` remain root-owned; Work Guidance above covers them. `src/storage/` earns its own
+  doc the day a second driver lands.
+- [scripts/AGENTS.md](./scripts/AGENTS.md) covers reusable runtime compatibility checks.
 - Root-owned files: [CONTEXT.md](./CONTEXT.md) (glossary), [docs/adr/](./docs/adr/) (decision records),
   [docs/agents/](./docs/agents/) (skill configuration — tracker conventions, triage labels, domain docs,
   FrontierMCP consumer friction), [docs/research/](./docs/research/) (dated findings behind a decision
@@ -499,7 +509,7 @@ When the user requests a durable behavior change, record it here or in the relev
   release-it; not tracker vocabulary), [LICENSE](./LICENSE) (the MIT grant itself — `package.json`'s
   SPDX string and the README's License section are declarations, not the grant, and npm ships this
   file whatever `files` says), [.release-it.json](./.release-it.json) and
-  [.github/workflows/release.yml](./.github/workflows/release.yml) (the release itself — read the
+  [.github/workflows/](./.github/workflows/) (release and runtime CI — read the
   release-it bullet in Work Guidance before editing either), [bench/](./bench/) (throwaway harnesses
   behind a measured claim — typechecked and linted with everything else, deliberately absent from
   `package.json`'s `files`, and never a place results are committed).

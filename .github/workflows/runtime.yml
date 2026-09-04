@@ -1,0 +1,58 @@
+name: Runtime compatibility
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  development:
+    name: Development (Node 24)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run check
+      - run: pnpm test
+      - run: pnpm run build
+      - run: pnpm pack --pack-destination package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontier-mcp-package
+          path: package/*.tgz
+
+  package-runtime:
+    name: Package (Node ${{ matrix.node }}, ${{ matrix.os }})
+    needs: development
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20.20.2, 22.17.1, 24.15.0]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontier-mcp-package
+          path: package
+      - run: pnpm run test:runtime:package -- --tarball package
