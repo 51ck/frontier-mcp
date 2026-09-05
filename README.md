@@ -43,6 +43,45 @@ From this source checkout, choose an already installed compatible Node and an ex
 node scripts/frontier-setup.cjs --version 0.3.1 --node /absolute/path/to/node --apply
 ```
 
+When the current Node is too old, omit `--node` and setup looks only at already installed releases
+from fnm, nvm, nvm-windows, Volta, asdf, and mise. It keeps the current Node if it is suitable;
+otherwise it prefers Node 24 LTS, then the highest compatible managed version. An explicit `--node`
+always wins. Discovery never installs a runtime, changes a manager's default, writes a project pin,
+or loads a shell profile. If no detected manager has a suitable release, setup prints that manager's
+Node 24 installation command. With no manager, it recommends `fnm install 24`.
+
+The setup smoke has verified fnm discovery on macOS arm64. Its nvm, nvm-windows, Volta, asdf, and
+mise layouts are simulated from their documented on-disk locations; Windows and Linux manager behavior
+has not been measured locally. The runtime compatibility CI matrix is configured separately from these
+manager fixtures.
+
+The saved entry runs a generated launcher that holds the real Node executable and package entry, so
+`.nvmrc`, `.tool-versions`, `mise.toml`, Volta pins, and an editor's stripped `PATH` cannot select the
+project's Node 16. If that managed executable is later removed, the launcher writes its manager's
+repair command to stderr; rerun setup after repairing it. Use the automatic setup whenever possible:
+it verifies this exact command before saving it.
+Windows uses a `.cmd` launcher and requires a client with batch-file support, such as clients built
+with the MCP SDK's stdio transport. Setup checks that launcher through the system `cmd.exe`.
+
+For a terminal-only manual launch, resolve the package entry once and make the manager choose an
+installed version explicitly. Replace `ENTRY` with the absolute `dist/bin.js` path of the pinned
+installation. These are manager commands, not desktop configuration: editors often do not load the
+shell setup that places a manager on `PATH`.
+
+| Manager | Manual terminal launch |
+| --- | --- |
+| fnm | `fnm exec --using 24.15.0 node "ENTRY"` |
+| nvm (macOS/Linux) | `. "$NVM_DIR/nvm.sh" --no-use && nvm exec 24.15.0 node "ENTRY"` |
+| nvm-windows (cmd.exe) | `"C:\path\to\nvm\v24.15.0\node.exe" "ENTRY"` |
+| Volta | `volta run --node 24.15.0 node "ENTRY"` |
+| asdf | `ASDF_NODEJS_VERSION=24.15.0 asdf exec node "ENTRY"` |
+| mise | `mise exec node@24.15.0 -- node "ENTRY"` |
+
+Use an exact version already installed by that manager. Some manual commands can download a missing
+version; setup only examines local installations. Set `NVM_DIR` to your nvm installation directory
+before the nvm recipe. For desktop clients, prefer the absolute Node path produced by setup over
+these shell-dependent commands.
+
 The bootstrap reads that pin's registry metadata before installing it. For `0.3.1`, pass a Node 24
 executable; the newer source package range does not change the requirements of an existing release.
 It uses pnpm associated with that selected Node, or its Corepack installation. If neither is present,

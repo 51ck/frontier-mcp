@@ -6,8 +6,10 @@
 // FrontierMCP setup bootstrap revision 1.
 
 const { spawn } = require('node:child_process');
+const { createHash } = require('node:crypto');
 const {
   access,
+  chmod,
   copyFile,
   mkdtemp,
   mkdir,
@@ -56,10 +58,7 @@ async function main(args) {
   const release = await readRelease(options.version);
   const runtime = await selectRuntime(options.node, release.engines.node);
   const installation = await findOrInstall(runtime, options.version);
-  const launch = {
-    command: runtime.executable,
-    args: [installation.entry],
-  };
+  const launch = await durableLaunch(runtime, installation);
 
   // The preflight starts in a disposable empty directory. It proves the exact
   // saved executable and entry work without creating or changing a tracker in
@@ -168,35 +167,57 @@ function readJson(url) {
   });
 }
 
-async function selectRuntime(override, range) {
-  const executable = await stableRuntimePath(
-    path.resolve(override === undefined ? process.execPath : override),
-  );
-  const version = await nodeVersion(executable);
+async function selectRuntime(override, range, options = {}) {
+  const environment = options.environment ?? process.env;
+  const currentExecutable = options.currentExecutable ?? process.execPath;
   if (!isKnownEngineRange(range)) {
     throw new Error(
       `${PACKAGE} declares ${range}. This bootstrap understands only >=N and ^N.N.N clauses joined with ||; use a bootstrap released for that package version.`,
     );
   }
-  if (!supportsRange(version, range)) {
+  if (override !== undefined) {
+    const runtime = await resolvedRuntime(path.resolve(override), environment, 'override');
+    if (supportsRange(runtime.version, range)) return runtime;
     throw new Error(
-      `${executable} is Node ${formatVersion(version)}, but ${PACKAGE} requires ${range}. ` +
-        'Use --node with a compatible installed Node. If none is available, install Node 24 LTS with fnm; setup will not alter project pins or shell profiles.',
+      `${runtime.executable} is Node ${formatVersion(runtime.version)}, but ${PACKAGE} requires ${range}.`,
     );
   }
-  return { executable, version };
+
+  const current = await resolvedRuntime(path.resolve(currentExecutable), environment, 'current');
+  if (supportsRange(current.version, range)) return current;
+
+  const discovery = await discoverManagedRuntimes(
+    environment,
+    options.platform ?? process.platform,
+  );
+  const selected = selectManagedRuntime(discovery.runtimes, range);
+  if (selected !== undefined) return selected;
+
+  throw new Error(
+    `${current.executable} is Node ${formatVersion(current.version)}, but ${PACKAGE} requires ${range}. ` +
+      missingRuntimeGuidance(discovery.managers),
+  );
 }
 
-async function stableRuntimePath(requested) {
+async function resolvedRuntime(requested, environment, source, manager, repairCommand) {
+  const executable = await stableRuntimePath(requested, environment);
+  const version = await nodeVersion(executable, environment);
+  return { executable, version, source, manager, repairCommand };
+}
+
+async function stableRuntimePath(requested, environment) {
   try {
-    const { stdout } = await run(requested, ['-p', 'process.execPath'], { capture: true });
+    const { stdout } = await run(requested, ['-p', 'process.execPath'], {
+      capture: true,
+      env: environment,
+    });
     const selected = stdout.trim();
     if (!path.isAbsolute(selected))
       throw new Error('The selected Node did not report an absolute path.');
     const resolved = await realpath(selected);
     // A manager shim can choose an executable from the setup project's pin.
     // Save the process it actually selected, never the shim itself.
-    await nodeVersion(resolved);
+    await nodeVersion(resolved, environment);
     return resolved;
   } catch (error) {
     throw new Error(
@@ -208,8 +229,8 @@ async function stableRuntimePath(requested) {
   }
 }
 
-async function nodeVersion(executable) {
-  const { stdout } = await run(executable, ['--version'], { capture: true });
+async function nodeVersion(executable, environment) {
+  const { stdout } = await run(executable, ['--version'], { capture: true, env: environment });
   const match = /^v(\d+)\.(\d+)\.(\d+)\s*$/.exec(stdout);
   if (match === null) throw new Error(`${executable} did not report a Node version.`);
   return { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]) };
@@ -251,6 +272,456 @@ function compareVersions(left, right) {
 
 function formatVersion(version) {
   return `${version.major}.${version.minor}.${version.patch}`;
+}
+
+const MANAGER_ORDER = ['fnm', 'nvm', 'nvm-windows', 'volta', 'asdf', 'mise'];
+
+async function discoverManagedRuntimes(environment, platform) {
+  const discoveries = await Promise.all([
+    discoverFnm(environment, platform),
+    discoverNvm(environment, platform),
+    discoverNvmWindows(environment, platform),
+    discoverVolta(environment, platform),
+    discoverAsdf(environment, platform),
+    discoverMise(environment, platform),
+  ]);
+  const managers = discoveries.filter(discovery => discovery.found);
+  const runtimes = deduplicateRuntimes(discoveries.flatMap(discovery => discovery.runtimes));
+  return { managers, runtimes };
+}
+
+async function discoverFnm(environment, platform) {
+  const repairCommand = 'fnm install 24';
+  const roots = uniquePaths([
+    environment.FNM_DIR,
+    environment.XDG_DATA_HOME && path.join(environment.XDG_DATA_HOME, 'fnm'),
+    platform === 'darwin' &&
+      path.join(homeDirectory(environment), 'Library', 'Application Support', 'fnm'),
+    platform === 'win32' && environment.APPDATA && path.join(environment.APPDATA, 'fnm'),
+    path.join(homeDirectory(environment), '.local', 'share', 'fnm'),
+    path.join(homeDirectory(environment), '.fnm'),
+  ]);
+  const command = await managerCommand('fnm', roots, environment, platform);
+  const runtimes = await runtimesFromLayouts(
+    roots.map(root => ({
+      root: path.join(root, 'node-versions'),
+      suffix: ['installation', ...nodeLayout(platform)],
+    })),
+    'fnm',
+    repairCommand,
+    environment,
+  );
+  return managerResult(
+    'fnm',
+    repairCommand,
+    command !== undefined || runtimes.length > 0,
+    runtimes,
+  );
+}
+
+async function discoverNvm(environment, platform) {
+  if (platform === 'win32') return emptyDiscovery('nvm', 'nvm install 24');
+  const script = await nvmScript(environment);
+  const repairCommand = 'nvm install 24';
+  const roots = uniquePaths([
+    environment.NVM_DIR,
+    environment.XDG_CONFIG_HOME === undefined
+      ? undefined
+      : path.join(environment.XDG_CONFIG_HOME, 'nvm'),
+    path.join(homeDirectory(environment), '.nvm'),
+  ]);
+  const runtimes = await runtimesFromLayouts(
+    roots.map(root => ({ root: path.join(root, 'versions', 'node'), suffix: ['bin', 'node'] })),
+    'nvm',
+    repairCommand,
+    environment,
+  );
+  return managerResult('nvm', repairCommand, script !== undefined || runtimes.length > 0, runtimes);
+}
+
+async function nvmScript(environment) {
+  const directories = [
+    environment.NVM_DIR,
+    environment.XDG_CONFIG_HOME === undefined
+      ? undefined
+      : path.join(environment.XDG_CONFIG_HOME, 'nvm'),
+    path.join(homeDirectory(environment), '.nvm'),
+  ].filter(Boolean);
+  return firstAccessible(directories.map(directory => path.join(directory, 'nvm.sh')));
+}
+
+async function discoverNvmWindows(environment, platform) {
+  const repairCommand = 'nvm install 24';
+  if (platform !== 'win32') return emptyDiscovery('nvm-windows', repairCommand);
+  const directRoots = uniquePaths([environment.NVM_HOME, nvmWindowsDefaultRoot(environment)]);
+  const command = await managerCommand('nvm', directRoots, environment, platform);
+  const root = await nvmWindowsRoot(command, environment);
+  const roots = uniquePaths([root, ...directRoots]);
+  const runtimes = await runtimesFromLayouts(
+    roots.map(candidate => ({ root: candidate, suffix: ['node.exe'] })),
+    'nvm-windows',
+    repairCommand,
+    environment,
+  );
+  const evidence = await Promise.all(roots.map(nvmWindowsRootEvidence));
+  return managerResult(
+    'nvm-windows',
+    repairCommand,
+    command !== undefined || evidence.some(Boolean) || runtimes.length > 0,
+    runtimes,
+  );
+}
+
+function nvmWindowsDefaultRoot(environment) {
+  return environment.APPDATA === undefined ? undefined : path.join(environment.APPDATA, 'nvm');
+}
+
+async function nvmWindowsRootEvidence(root) {
+  try {
+    const entries = await readdir(root, { withFileTypes: true });
+    return entries.some(
+      entry =>
+        entry.name === 'settings.txt' ||
+        entry.name === 'nvm.exe' ||
+        (entry.isDirectory() && /^v\d+\.\d+\.\d+$/.test(entry.name)),
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function nvmWindowsRoot(command, environment) {
+  if (environment.NVM_HOME !== undefined) return environment.NVM_HOME;
+  if (command === undefined) return undefined;
+  try {
+    const { stdout } = await run(command, ['root'], { env: environment, label: 'nvm root' });
+    return stdout.trim().replace(/^Current Root:\s*/i, '');
+  } catch {
+    return undefined;
+  }
+}
+
+async function discoverVolta(environment, platform) {
+  const repairCommand = 'volta fetch node@24';
+  const roots = uniquePaths([
+    environment.VOLTA_HOME,
+    platform === 'win32' &&
+      environment.LOCALAPPDATA &&
+      path.join(environment.LOCALAPPDATA, 'Volta'),
+    path.join(homeDirectory(environment), '.volta'),
+  ]);
+  const command = await managerCommand('volta', roots, environment, platform);
+  const listed = command === undefined ? [] : await voltaListedVersions(command, environment);
+  const runtimes = await runtimesFromLayouts(
+    roots.map(root => ({
+      root: path.join(root, 'tools', 'image', 'node'),
+      suffix: nodeLayout(platform),
+    })),
+    'volta',
+    repairCommand,
+    environment,
+    listed,
+  );
+  return managerResult(
+    'volta',
+    repairCommand,
+    command !== undefined || runtimes.length > 0,
+    runtimes,
+  );
+}
+
+async function discoverAsdf(environment, platform) {
+  const repairCommand = 'asdf install nodejs latest:24';
+  if (platform === 'win32') return emptyDiscovery('asdf', repairCommand);
+  const roots = uniquePaths([
+    environment.ASDF_DATA_DIR,
+    environment.ASDF_DIR,
+    path.join(homeDirectory(environment), '.asdf'),
+  ]);
+  const command = await managerCommand('asdf', roots, environment, platform);
+  const runtimes = await runtimesFromLayouts(
+    roots.map(root => ({ root: path.join(root, 'installs', 'nodejs'), suffix: ['bin', 'node'] })),
+    'asdf',
+    repairCommand,
+    environment,
+  );
+  return managerResult(
+    'asdf',
+    repairCommand,
+    command !== undefined || runtimes.length > 0,
+    runtimes,
+  );
+}
+
+async function discoverMise(environment, platform) {
+  const repairCommand = 'mise install node@24';
+  const roots = uniquePaths([
+    environment.MISE_DATA_DIR,
+    environment.XDG_DATA_HOME && path.join(environment.XDG_DATA_HOME, 'mise'),
+    platform === 'win32' && environment.LOCALAPPDATA && path.join(environment.LOCALAPPDATA, 'mise'),
+    path.join(homeDirectory(environment), '.local', 'share', 'mise'),
+  ]);
+  const command = await managerCommand('mise', roots, environment, platform);
+  const runtimes = await runtimesFromLayouts(
+    roots.map(root => ({
+      root: path.join(root, 'installs', 'node'),
+      suffix: nodeLayout(platform),
+    })),
+    'mise',
+    repairCommand,
+    environment,
+  );
+  return managerResult(
+    'mise',
+    repairCommand,
+    command !== undefined || runtimes.length > 0,
+    runtimes,
+  );
+}
+
+function emptyDiscovery(manager, repairCommand) {
+  return { found: false, manager, repairCommand, runtimes: [] };
+}
+
+function nodeLayout(platform) {
+  return platform === 'win32' ? ['node.exe'] : ['bin', 'node'];
+}
+
+function managerResult(manager, repairCommand, found, runtimes) {
+  return { found, manager, repairCommand, runtimes };
+}
+
+async function runtimesFromLayouts(layouts, manager, repairCommand, environment, listed) {
+  const candidates = (await Promise.all(layouts.map(runtimeCandidatesFromLayout))).flat();
+  const allowed =
+    listed === undefined || listed.length === 0
+      ? candidates
+      : candidates.filter(candidate =>
+          listed.some(version => compareVersions(version, candidate.version) === 0),
+        );
+  const outcomes = await Promise.allSettled(
+    allowed.map(async candidate => {
+      const runtime = await resolvedRuntime(
+        candidate.executable,
+        environment,
+        'manager',
+        manager,
+        repairCommand,
+      );
+      if (compareVersions(runtime.version, candidate.version) !== 0)
+        throw new Error('Runtime version does not match its manager directory.');
+      return runtime;
+    }),
+  );
+  return outcomes.filter(outcome => outcome.status === 'fulfilled').map(outcome => outcome.value);
+}
+
+async function runtimeCandidatesFromLayout(layout) {
+  try {
+    return (await readdir(layout.root, { withFileTypes: true }))
+      .filter(entry => entry.isDirectory())
+      .flatMap(entry => {
+        const version = /^v?\d+\.\d+\.\d+$/.test(entry.name)
+          ? listedVersions(entry.name)[0]
+          : undefined;
+        return version === undefined
+          ? []
+          : [{ executable: path.join(layout.root, entry.name, ...layout.suffix), version }];
+      });
+  } catch {
+    return [];
+  }
+}
+
+function listedVersions(output) {
+  const versions = [];
+  const expression = /(?:v|node@)?(\d+)\.(\d+)\.(\d+)/g;
+  let match;
+  while ((match = expression.exec(output)) !== null) {
+    const version = { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]) };
+    if (!versions.some(candidate => compareVersions(candidate, version) === 0))
+      versions.push(version);
+  }
+  return versions;
+}
+
+function deduplicateVersions(versions) {
+  return versions.filter(
+    (version, index) =>
+      versions.findIndex(candidate => compareVersions(candidate, version) === 0) === index,
+  );
+}
+
+function voltaInstalledNodeVersions(output) {
+  let inNodeRuntimes = false;
+  const versions = [];
+  for (const line of output.split(/\r?\n/)) {
+    if (/^\s*Node runtimes:\s*$/i.test(line)) {
+      inNodeRuntimes = true;
+    } else if (/^\S.*:\s*$/.test(line)) {
+      inNodeRuntimes = false;
+    } else if (inNodeRuntimes) {
+      versions.push(...listedVersions(line));
+    }
+  }
+  return deduplicateVersions(versions);
+}
+
+async function voltaListedVersions(command, environment) {
+  try {
+    const { stdout } = await run(command, ['list', 'all', '--format', 'plain'], {
+      env: environment,
+      label: 'volta list',
+    });
+    return voltaInstalledNodeVersions(stdout);
+  } catch {
+    return [];
+  }
+}
+
+function deduplicateRuntimes(runtimes) {
+  const byPath = new Map();
+  for (const runtime of runtimes) {
+    if (!byPath.has(runtime.executable)) byPath.set(runtime.executable, runtime);
+  }
+  return [...byPath.values()];
+}
+
+function selectManagedRuntime(runtimes, range) {
+  return runtimes
+    .filter(runtime => supportsRange(runtime.version, range))
+    .reduce(
+      (selected, candidate) =>
+        selected === undefined || compareManagedRuntimes(candidate, selected) < 0
+          ? candidate
+          : selected,
+      undefined,
+    );
+}
+
+function compareManagedRuntimes(left, right) {
+  const lts = Number(right.version.major === 24) - Number(left.version.major === 24);
+  if (lts !== 0) return lts;
+  const version = compareVersions(right.version, left.version);
+  if (version !== 0) return version;
+  const manager = MANAGER_ORDER.indexOf(left.manager) - MANAGER_ORDER.indexOf(right.manager);
+  if (manager !== 0) return manager;
+  return left.executable.localeCompare(right.executable);
+}
+
+function missingRuntimeGuidance(managers) {
+  if (managers.length === 0)
+    return 'No supported Node version manager was found. Install fnm, then run `fnm install 24` and rerun setup. Setup will not alter project pins or shell profiles.';
+  const commands = managers
+    .map(manager => `${manager.manager}: ${manager.repairCommand}`)
+    .join('; ');
+  return `No compatible installed Node was found. Install Node 24 LTS with one detected manager (${commands}), then rerun setup. Setup will not alter project pins or shell profiles.`;
+}
+
+async function managerCommand(name, roots, environment, platform) {
+  const extensions = platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : [''];
+  const rooted = roots.flatMap(root => [
+    ...extensions.map(extension => path.join(root, 'bin', `${name}${extension}`)),
+    ...extensions.map(extension => path.join(root, `${name}${extension}`)),
+  ]);
+  return firstAccessible([...rooted, ...commandCandidatesOnPath(name, environment, platform)]);
+}
+
+function commandCandidatesOnPath(name, environment, platform) {
+  const directories = (environment.PATH ?? '').split(path.delimiter).filter(Boolean);
+  const extensions = platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : [''];
+  return directories.flatMap(directory =>
+    extensions.map(extension => path.join(directory, `${name}${extension}`)),
+  );
+}
+
+function uniquePaths(paths) {
+  return [...new Set(paths.filter(Boolean))];
+}
+
+async function firstAccessible(candidates) {
+  const checks = await Promise.all(
+    candidates.map(async candidate => {
+      try {
+        await access(candidate);
+        return candidate;
+      } catch {
+        return undefined;
+      }
+    }),
+  );
+  return checks.find(Boolean);
+}
+
+async function durableLaunch(runtime, installation) {
+  const contents =
+    process.platform === 'win32'
+      ? windowsLaunchWrapper(runtime, installation.entry)
+      : posixLaunchWrapper(runtime, installation.entry);
+  const digest = createHash('sha256').update(contents).digest('hex').slice(0, 24);
+  const wrapper = path.join(
+    installation.directory,
+    `frontier-launch-${digest}${process.platform === 'win32' ? '.cmd' : ''}`,
+  );
+  // A preview must never redirect a launcher already named by saved configuration.
+  try {
+    await writeFile(wrapper, contents, { encoding: 'utf8', flag: 'wx' });
+  } catch (error) {
+    if (error.code !== 'EEXIST' || (await readFile(wrapper, 'utf8')) !== contents) throw error;
+  }
+  if (process.platform !== 'win32') await chmod(wrapper, 0o755);
+  return { command: wrapper, args: [] };
+}
+
+function posixLaunchWrapper(runtime, entry) {
+  const repair = runtime.repairCommand ?? 'fnm install 24';
+  return `#!/bin/sh
+if [ ! -x ${shellQuote(runtime.executable)} ]; then
+  printf '%s\\n' ${shellQuote(`FrontierMCP cannot find its configured Node runtime: ${runtime.executable}`)} >&2
+  printf '%s\\n' ${shellQuote(`Repair it with ${repair}, then rerun FrontierMCP setup.`)} >&2
+  exit 127
+fi
+exec ${shellQuote(runtime.executable)} ${shellQuote(entry)} "$@"
+`;
+}
+
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, `'"'"'`)}'`;
+}
+
+function windowsLaunchWrapper(runtime, entry) {
+  const node = windowsBatchQuote(runtime.executable);
+  const quotedEntry = windowsBatchQuote(entry);
+  const repair = runtime.repairCommand ?? 'fnm install 24';
+  return `@echo off
+setlocal DisableDelayedExpansion
+if not exist ${node} (
+  >&2 echo FrontierMCP cannot find its configured Node runtime: ${windowsBatchText(runtime.executable)}
+  >&2 echo Repair it with ${windowsBatchText(repair)}, then rerun FrontierMCP setup.
+  exit /b 127
+)
+${node} ${quotedEntry} %*
+exit /b %ERRORLEVEL%
+`;
+}
+
+function windowsBatchQuote(value) {
+  // Metacharacters are literal within quotes; carets here would change the path.
+  // Percent expansion still occurs in batch files, even within quotes.
+  if (/["\r\n]/.test(value)) throw new Error('Invalid Windows launcher path.');
+  return `"${String(value).replace(/%/g, '%%')}"`;
+}
+
+function windowsBatchText(value) {
+  return String(value)
+    .replace(/\^/g, '^^')
+    .replace(/%/g, '%%')
+    .replace(/&/g, '^&')
+    .replace(/\|/g, '^|')
+    .replace(/</g, '^<')
+    .replace(/>/g, '^>')
+    .replace(/\(/g, '^(')
+    .replace(/\)/g, '^)');
 }
 
 async function findOrInstall(runtime, version) {
@@ -382,8 +853,8 @@ function dataRoot() {
   return process.env.XDG_DATA_HOME ?? path.join(home, '.local', 'share');
 }
 
-function homeDirectory() {
-  return process.env.HOME ?? process.env.USERPROFILE ?? os.homedir();
+function homeDirectory(environment = process.env) {
+  return environment.HOME ?? environment.USERPROFILE ?? os.homedir();
 }
 
 async function verifyLaunch(launch) {
@@ -397,9 +868,21 @@ async function verifyLaunch(launch) {
 
 function protocolCheck(launch, cwd, environment = minimalLaunchEnvironment(launch.command)) {
   return new Promise((resolve, reject) => {
-    const child = spawn(launch.command, launch.args, {
+    const batch = process.platform === 'win32' && launch.command.endsWith('.cmd');
+    if (batch && launch.args.length !== 0)
+      throw new Error('Setup batch launch takes no arguments.');
+    const command = batch
+      ? path.join(environment.SystemRoot ?? environment.SYSTEMROOT, 'System32', 'cmd.exe')
+      : launch.command;
+    // Match the batch launch used by MCP clients with cross-spawn. The setup
+    // wrapper takes no arguments, so only its literal filename needs escaping.
+    const args = batch
+      ? ['/d', '/s', '/c', `"${launch.command.replace(/([()\][%!^"`<>&|;, *?])/g, '^$1')}"`]
+      : launch.args;
+    const child = spawn(command, args, {
       cwd,
       env: environment,
+      windowsVerbatimArguments: batch,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     let stderr = '';
@@ -639,9 +1122,14 @@ module.exports = {
   testing: {
     applyConfig,
     cursorConfigPath,
+    discoverManagedRuntimes,
+    durableLaunch,
     prepareConfig,
     protocolCheck,
+    selectManagedRuntime,
+    selectRuntime,
     stableRuntimePath,
     supportsRange,
+    windowsLaunchWrapper,
   },
 };

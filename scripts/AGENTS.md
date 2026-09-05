@@ -25,6 +25,15 @@ These scripts provide runtime probes and setup helpers for T88–T91.
   an immutable user-data install, verifies real MCP initialization and `tools/list`, then previews or
   applies only Cursor user configuration. It ships in the package as bootstrap revision 1. Its private `testing` export exists solely for the adjacent
   process-level check to force races and protocol failures; it is not a supported interface.
+- When its current Node is unsuitable and no explicit `--node` was supplied, `frontier-setup.cjs`
+  reads installed versions from fnm, nvm, nvm-windows, Volta, asdf, and mise. It resolves and probes a
+  persistent executable, never a project-sensitive shim; manager discovery never installs, changes
+  a default, or reads shell profiles. Saved launches use a generated wrapper so a deleted managed
+  executable reports its manager-specific repair command on stderr. The setup fixture exercises the
+  documented on-disk layouts; only fnm discovery is measured against a local macOS installation.
+  Launcher filenames derive from their contents so a preview cannot rewrite an already configured
+  launch. Windows uses a batch launcher; preflight invokes system `cmd.exe`, as the SDK transport's
+  batch-file support does. Keep Windows claims limited to fixtures until measured there.
 - `frontier-setup-check.cjs` runs that bootstrap under Node 16 against an explicit newer Node and the
   released pin named by `FRONTIER_SETUP_RELEASE` (default `0.3.1`). It requires `FRONTIER_NODE16` and
   `FRONTIER_NODE24`, uses a temporary home and project, and needs registry access.

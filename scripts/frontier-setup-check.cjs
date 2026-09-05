@@ -14,6 +14,7 @@ const {
   readdir,
   realpath,
   rm,
+  symlink,
   writeFile,
 } = require('node:fs/promises');
 const os = require('node:os');
@@ -48,11 +49,37 @@ async function main() {
       ),
     );
     const environment = {
-      ...process.env,
+      ...isolatedManagerEnvironment(home),
       HOME: home,
       PATH: path.dirname(options.node16),
       XDG_DATA_HOME: path.join(home, 'data'),
     };
+    const fnmRoot = path.join(temporary, 'fnm root with spaces');
+    await mkdir(fnmRoot, { recursive: true });
+    await linkNode(
+      options.node24,
+      path.join(fnmRoot, 'node-versions', 'v24.15.0', 'installation', 'bin', 'node'),
+    );
+    const fnm = path.join(fnmRoot, 'fnm');
+    await writeFile(
+      fnm,
+      '#!/bin/sh\nif [ "$1" = list ]; then printf "v24.15.0\\n"; else printf "%s\\n" "$FRONTIER_NODE24"; fi\n',
+      'utf8',
+    );
+    await chmod(fnm, 0o755);
+    const managerEnvironment = {
+      ...environment,
+      FRONTIER_NODE24: options.node24,
+      FNM_DIR: fnmRoot,
+      PATH: '',
+    };
+    const managerSelected = await bootstrap(
+      ['--version', options.version, '--client', 'manual'],
+      project,
+      managerEnvironment,
+    );
+    assert.equal(managerSelected.code, 0, managerSelected.stderr);
+    assert.match(managerSelected.stdout, new RegExp(`Runtime: ${escapeRegex(options.node24)}`));
     const shim = path.join(temporary, 'project-sensitive-node');
     await writeFile(
       shim,
@@ -88,11 +115,13 @@ async function main() {
     assert.equal(applied.code, 0, applied.stderr);
     const configured = JSON.parse(await readFile(configPath, 'utf8'));
     assert.deepEqual(configured.mcpServers.other, { command: 'other' });
-    assert.equal(
-      configured.mcpServers.frontier.command,
-      await testing.stableRuntimePath(options.node24),
+    assert.equal(configured.mcpServers.frontier.args.length, 0);
+    assert.equal(path.isAbsolute(configured.mcpServers.frontier.command), true);
+    const savedLaunch = await readFile(configured.mcpServers.frontier.command, 'utf8');
+    assert.match(
+      savedLaunch,
+      new RegExp(escapeRegex(await testing.stableRuntimePath(options.node24))),
     );
-    assert.equal(path.isAbsolute(configured.mcpServers.frontier.args[0]), true);
     await testing.protocolCheck(
       {
         command: configured.mcpServers.frontier.command,
@@ -191,6 +220,7 @@ async function main() {
         project,
       ),
     );
+    await managerDiscoveryCheck(temporary, home, options);
     assert.deepEqual(
       await Promise.all(
         ['.nvmrc', 'package.json', 'pnpm-lock.yaml'].map(file =>
@@ -204,6 +234,195 @@ async function main() {
   } finally {
     if (temporary !== undefined) await rm(temporary, { recursive: true, force: true });
   }
+}
+
+async function managerDiscoveryCheck(checkTemporary, home, checkOptions) {
+  const nvmDirectory = path.join(checkTemporary, 'custom nvm directory');
+  await linkNode(
+    checkOptions.node24,
+    path.join(nvmDirectory, 'versions', 'node', 'v24.15.0', 'bin', 'node'),
+  );
+  await writeFile(path.join(nvmDirectory, 'nvm.sh'), 'nvm() { :; }\n', 'utf8');
+  const fnmDirectory = path.join(checkTemporary, 'custom fnm directory');
+  await linkNode(
+    checkOptions.node24,
+    path.join(fnmDirectory, 'node-versions', 'v24.15.0', 'installation', 'bin', 'node'),
+  );
+  const voltaDirectory = path.join(checkTemporary, 'custom volta directory');
+  await linkNode(
+    checkOptions.node24,
+    path.join(voltaDirectory, 'tools', 'image', 'node', '24.15.0', 'bin', 'node'),
+  );
+  await writeManager(
+    path.join(voltaDirectory, 'bin', 'volta'),
+    '#!/bin/sh\nif [ "$1" = list ]; then printf "Node runtimes:\\n  v24.15.0\\nPackage binaries:\\n"; else exit 91; fi\n',
+  );
+  const asdfDirectory = path.join(checkTemporary, 'custom asdf directory');
+  await linkNode(
+    checkOptions.node24,
+    path.join(asdfDirectory, 'installs', 'nodejs', '24.15.0', 'bin', 'node'),
+  );
+  await writeManager(path.join(asdfDirectory, 'bin', 'asdf'), '#!/bin/sh\nexit 91\n');
+  const miseDirectory = path.join(checkTemporary, 'custom mise directory');
+  await linkNode(
+    checkOptions.node24,
+    path.join(miseDirectory, 'installs', 'node', '24.15.0', 'bin', 'node'),
+  );
+  await writeManager(path.join(miseDirectory, 'bin', 'mise'), '#!/bin/sh\nexit 91\n');
+  const windowsNvmDirectory = path.join(checkTemporary, 'custom nvm-windows directory');
+  await linkNode(checkOptions.node24, path.join(windowsNvmDirectory, 'v24.15.0', 'node.exe'));
+  await writeFile(path.join(windowsNvmDirectory, 'settings.txt'), 'root: fixture\n', 'utf8');
+
+  const layouts = [
+    ['fnm', 'FNM_DIR', fnmDirectory, 'darwin', 'fnm install 24'],
+    ['nvm', 'NVM_DIR', nvmDirectory, 'darwin', 'nvm install 24'],
+    ['nvm-windows', 'NVM_HOME', windowsNvmDirectory, 'win32', 'nvm install 24'],
+    ['volta', 'VOLTA_HOME', voltaDirectory, 'darwin', 'volta fetch node@24'],
+    ['asdf', 'ASDF_DATA_DIR', asdfDirectory, 'darwin', 'asdf install nodejs latest:24'],
+    ['mise', 'MISE_DATA_DIR', miseDirectory, 'darwin', 'mise install node@24'],
+  ];
+  await Promise.all(
+    layouts.map(async ([manager, variable, root, platform, repair]) => {
+      const isolated = { ...isolatedManagerEnvironment(home), [variable]: root };
+      const selected = await testing.selectRuntime(undefined, '^24.15.0', {
+        currentExecutable: checkOptions.node16,
+        environment: isolated,
+        platform,
+      });
+      assert.equal(selected.manager, manager, `Individual ${manager} discovery`);
+      assert.equal(selected.repairCommand, repair);
+      const emptyRoot = path.join(checkTemporary, `empty ${manager}`);
+      await mkdir(emptyRoot, { recursive: true });
+      if (manager === 'nvm') await writeFile(path.join(emptyRoot, 'nvm.sh'), 'nvm() { :; }\n');
+      else if (manager === 'nvm-windows')
+        await writeFile(path.join(emptyRoot, 'settings.txt'), 'root: fixture\n');
+      else await writeManager(path.join(emptyRoot, 'bin', manager), '#!/bin/sh\nexit 0\n');
+      await assert.rejects(
+        testing.selectRuntime(undefined, '^24.15.0', {
+          currentExecutable: checkOptions.node16,
+          environment: { ...isolated, [variable]: emptyRoot },
+          platform,
+        }),
+        error => error.message.includes(`${manager}: ${repair}`),
+        `Missing ${manager} installation should retain manager guidance`,
+      );
+    }),
+  );
+
+  const noManager = await testing.discoverManagedRuntimes(
+    { ...isolatedManagerEnvironment(home), APPDATA: path.join(checkTemporary, 'empty roaming') },
+    'win32',
+  );
+  assert.equal(noManager.managers.length, 0, 'APPDATA alone is not nvm-windows evidence');
+
+  const managerEnvironment = {
+    ...isolatedManagerEnvironment(home),
+    HOME: home,
+    NVM_DIR: nvmDirectory,
+    FNM_DIR: fnmDirectory,
+    VOLTA_HOME: voltaDirectory,
+    ASDF_DATA_DIR: asdfDirectory,
+    MISE_DATA_DIR: miseDirectory,
+    PATH: '',
+  };
+  const discovery = await testing.discoverManagedRuntimes(managerEnvironment, 'darwin');
+  assert.deepEqual(
+    discovery.managers.map(manager => manager.manager),
+    ['fnm', 'nvm', 'volta', 'asdf', 'mise'],
+  );
+  assert.equal(discovery.runtimes.length, 1);
+  assert.equal(
+    discovery.runtimes[0].executable,
+    await testing.stableRuntimePath(checkOptions.node24),
+  );
+  const runtime = await testing.selectRuntime(undefined, '^24.15.0', {
+    currentExecutable: checkOptions.node16,
+    environment: managerEnvironment,
+    platform: 'darwin',
+  });
+  assert.equal(runtime.manager, 'fnm');
+
+  const windowsDiscovery = await testing.discoverManagedRuntimes(
+    { ...managerEnvironment, NVM_HOME: windowsNvmDirectory },
+    'win32',
+  );
+  assert.equal(
+    windowsDiscovery.managers.some(manager => manager.manager === 'nvm-windows'),
+    true,
+  );
+
+  await assert.rejects(
+    testing.selectRuntime(undefined, '^24.15.0', {
+      currentExecutable: checkOptions.node16,
+      environment: isolatedManagerEnvironment(home),
+      platform: 'darwin',
+    }),
+    /Install fnm.*fnm install 24/,
+  );
+
+  const wrapper = await testing.durableLaunch(
+    {
+      executable: path.join(checkTemporary, 'removed Node'),
+      repairCommand: 'nvm install 24',
+      version: { major: 24, minor: 15, patch: 0 },
+    },
+    { directory: checkTemporary, entry: path.join(checkTemporary, 'server.js') },
+  );
+  const repaired = await run(wrapper.command, [], {
+    cwd: checkTemporary,
+    env: { PATH: '/usr/bin:/bin' },
+  });
+  assert.equal(repaired.code, 127);
+  assert.match(repaired.stderr, /nvm install 24/);
+  const originalWrapper = await readFile(wrapper.command, 'utf8');
+  const changedWrapper = await testing.durableLaunch(
+    { executable: checkOptions.node24, repairCommand: 'fnm install 24' },
+    { directory: checkTemporary, entry: path.join(checkTemporary, 'server.js') },
+  );
+  assert.notEqual(changedWrapper.command, wrapper.command);
+  assert.equal(await readFile(wrapper.command, 'utf8'), originalWrapper);
+
+  const batch = testing.windowsLaunchWrapper(
+    {
+      executable: 'C:\\Node (managed)\\node&24!^.exe',
+      repairCommand: 'fnm install 24 & rerun',
+    },
+    'C:\\Frontier (user)\\entry%24.js',
+  );
+  assert.match(batch, /setlocal DisableDelayedExpansion/);
+  assert.equal(batch.includes('"C:\\Node (managed)\\node&24!^.exe"'), true);
+  assert.equal(batch.includes('"C:\\Frontier (user)\\entry%%24.js"'), true);
+  assert.equal(batch.includes('runtime: C:\\Node ^(managed^)\\node^&24!^^.exe'), true);
+}
+
+function isolatedManagerEnvironment(home) {
+  const environment = { HOME: home, USERPROFILE: home, PATH: '' };
+  for (const variable of [
+    'FNM_DIR',
+    'NVM_DIR',
+    'NVM_HOME',
+    'VOLTA_HOME',
+    'ASDF_DIR',
+    'ASDF_DATA_DIR',
+    'MISE_DATA_DIR',
+    'XDG_CONFIG_HOME',
+    'XDG_DATA_HOME',
+    'APPDATA',
+    'LOCALAPPDATA',
+  ])
+    environment[variable] = path.join(home, 'uninstalled managers', variable);
+  return environment;
+}
+
+async function linkNode(source, target) {
+  await mkdir(path.dirname(target), { recursive: true });
+  await symlink(source, target);
+}
+
+async function writeManager(target, source) {
+  await mkdir(path.dirname(target), { recursive: true });
+  await writeFile(target, source, 'utf8');
+  await chmod(target, 0o755);
 }
 
 function parseArguments(args) {
