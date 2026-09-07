@@ -7,3 +7,6 @@ dist/
 # .claude/ stays trackable.
 .claude/worktrees/
 .claude/settings.local.json
+
+# Local pnpm content-addressable store, not project config.
+.pnpm-store/
