@@ -16,8 +16,9 @@ Vocabulary is defined in [CONTEXT.md](./CONTEXT.md) and is binding on code, tool
 
 ## Ownership
 
-Root owns the application, tracker, and project configuration. The child
-[scripts/AGENTS.md](./scripts/AGENTS.md) owns runtime/setup scripts.
+Root owns the application, tracker, and project configuration. The children
+[.agents/skills/AGENTS.md](./.agents/skills/AGENTS.md) and [scripts/AGENTS.md](./scripts/AGENTS.md)
+own installed upstream skills and runtime/setup scripts respectively.
 
 ## Core Contract
 
@@ -468,6 +469,10 @@ project existing, so they are checked rather than restated.
 
 ## Agent skills
 
+Matt Pocock's skills are installed for Codex in `.agents/skills/`; `skills-lock.json` records their
+upstream source and hashes. See [.agents/skills/AGENTS.md](./.agents/skills/AGENTS.md) for maintenance.
+The repository-specific configuration stays in `docs/agents/` below.
+
 ### Issue tracker
 
 Local markdown under `.scratch/<effort-slug>/`. See [docs/agents/issue-tracker.md](./docs/agents/issue-tracker.md).
@@ -498,6 +503,8 @@ When the user requests a durable behavior change, record it here or in the relev
 
 ## Child DOX Index
 
+- [.agents/skills/AGENTS.md](./.agents/skills/AGENTS.md) covers installed upstream skills and their
+  maintenance. Root retains ownership of `.agents/mcp.json`, `skills-lock.json`, and `docs/agents/`.
 - `src/` and `test/` remain root-owned; Work Guidance above covers them. `src/storage/` earns its own
   doc the day a second driver lands.
 - [scripts/AGENTS.md](./scripts/AGENTS.md) covers runtime compatibility and setup scripts.
