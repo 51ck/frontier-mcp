@@ -39,7 +39,6 @@ is ever centralized. It also blocks T19, and it is what makes the shared-driver 
 **Blocked by:** the body split — same files, and the smaller change should land first, against a
 simpler shape.
 
-**Status:** ready-for-agent
 
 - [x] `WorkspaceIndex` no longer exists as a layer above `StorageDriver`; caching and change
       notification belong to the driver

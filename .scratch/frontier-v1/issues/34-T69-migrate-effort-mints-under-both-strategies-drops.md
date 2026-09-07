@@ -46,7 +46,6 @@ resolves.
 **Blocked by:** the minting strategy; T62, which decides what T40 still means under a derived
 pattern; and T58, which decides the handle separator this report is written in.
 
-**Status:** ready-for-agent
 
 - [ ] Migration mints correctly under both strategies, per T62
 - [ ] An existing id is always preserved; a collision with an id elsewhere refuses and names both
@@ -66,3 +65,7 @@ pattern; and T58, which decides the handle separator this report is written in.
 Conversion is otherwise lazy and already ships: a write to a Foreign Ticket normalizes that file (`test/normalize-and-stale.test.ts:28-51`). Migration is not the operation that converts an Effort — it is the operation that mints ids Effort-wide, which is the one thing that cannot be done a Ticket at a time, because `Blocked by: 01, 02` names sort orders that only a whole-Effort batch can resolve.
 
 Read [[T40]] with its amended gist: its minting half stands, its migration-shape half is superseded.
+
+[[T58]] resolved: the handle separator stays `#`, so nothing in this Ticket's preview changes shape.
+
+One correction it hands over. [[T40]]'s worked example prints handles zero-padded — `ship-0-5-0#01` — and `handleFor` emits no padding (`src/storage/markdown/ticket.ts:106-108`); the filename pads (`pad`, `src/storage/markdown/create.ts:379-380`), the handle does not. A builder following T40's example verbatim renders a handle nothing resolves. The existing criterion "Handles render unpadded, matching `handleFor`" is the one that catches this — take the form from `handleFor`, not from T40's example.

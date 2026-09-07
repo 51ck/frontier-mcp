@@ -103,3 +103,12 @@ T40's worked example zero-pads handles as `ship-0-5-0#01`. `handleFor` emits no 
 **T40 is superseded on minting, not rewritten.** Same move T53 made to T37: a resolved Ticket records the route actually walked. Rewriting T40's Answer would bury the correction inside a document that opens on a dead premise, and T69 already says "Do not write this Ticket from T40's text alone." T62 is the live minting decision. T40 keeps the surviving conclusions — T70 still cites it for quarantine, T57 still cites it for the floor.
 
 T40's gist is amended so Decisions-so-far stops advertising "`withIdReservations` and `peekMintedIds` are both deleted". The Answer body stays as the historical record, with a comment pointing here. That is the one edit T40 receives. Pure supersede without the gist change would leave the Map lying; rewriting the Answer would pretend T40 had known about T53.
+
+## Comments
+
+Two rows of this Ticket's survival table are superseded by [[T57]], which resolved after it. Both cite [[T70]], which is now dropped.
+
+- `Foreign frontmatter quarantined under ## Unmerged legacy frontmatter | Survives. [[T70]].` — it does not survive. T57 rules the fence is surfaced in `get_tickets` output and the file is not written; nothing is quarantined into the body. That is [[T74]].
+- `awaits_migration: true on every migrated Ticket | Survives. [[T70]].` — never written at all. T57 found `id: undefined` survives the normalizing write and renders as `no id (N)`, and `unrecognizedStatus` covers a fence whose status will not map.
+
+Every other row stands, and this Ticket's own conclusion — `withIdReservations` kept, `peekMintedIds` deleted, preview names handles — is untouched. T37, T40, T69 and T72 all received correcting comments when T57 landed; this Ticket was missed.

@@ -37,7 +37,6 @@ have already decided to change, so this lands first.
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
 
 - [x] `StorageDriver.listTickets` returns `TicketSummary`, and the markdown driver stops retaining
       bodies from its walk

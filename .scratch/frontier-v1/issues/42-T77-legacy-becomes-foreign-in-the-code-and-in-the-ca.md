@@ -17,10 +17,14 @@ blocked_by: [T73, T74]
 
 Pre-1.0 permits the caller-visible break (`README.md:8-13`). Land it in one commit so no release ships half the vocabulary.
 
-**Status:** ready-for-agent
 
 - [ ] `TicketSummary.legacy` is `foreign`, with a doc comment stating the conformance rule
 - [ ] All four caller-visible strings are updated, the Board warning included
 - [ ] `legacy.ts` keeps its filename, and its module comment says why
 - [ ] No occurrence of the old term survives outside `legacy.ts`'s filename and its own internals
 - [ ] The whole rename is one commit
+- [ ] `NoSuchTicket` recognizes a pasted `<id>@<effort>` and names the bare id back, per [[T58]]
+- [ ] `placeholderFor` emits `draft 1`, one-based, so `#` has only its handle sense
+- [ ] `withUniqueHandles`'s comment names the real collision cause — a prefix-less file taking
+      `position + 1` colliding with an `NN-` prefix, not two files sharing a prefix
+- [ ] `withUniqueHandles` has a test; it has none today

@@ -33,7 +33,6 @@ never shows the config the pin lives in. Give it the install snippet the pin lin
 **Blocked by:** the release workflow ticket, whose behaviour these docs describe, and the local-release
 decision, which settles what the `release` script is for.
 
-**Status:** ready-for-agent
 
 - [ ] README, AGENTS.md and `package.json` agree on how a release is cut and on whether a local
       publish is possible

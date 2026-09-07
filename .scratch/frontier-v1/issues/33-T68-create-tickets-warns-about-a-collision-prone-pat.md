@@ -34,7 +34,6 @@ T53's wording is the reference text:
 **Blocked by:** the disposition is a property of the compiled pattern, and the channel is the mint
 result.
 
-**Status:** ready-for-agent
 
 - [ ] The warning rides every `create_tickets` result under a `<N>`-only pattern
 - [ ] It never appears on a read, and there is no suppression

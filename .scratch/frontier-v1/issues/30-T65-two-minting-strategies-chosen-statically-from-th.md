@@ -39,7 +39,6 @@ through the existing signature without taking a guard. The conditional is smalle
 
 **Blocked by:** the strategy is a property of the compiled pattern, which does not exist yet.
 
-**Status:** ready-for-agent
 
 - [ ] The minting plan compiles once from the token list; there is no per-call strategy branch
 - [ ] Random: draw, verify against the batch scan, bounded retry, its own limit and its own message

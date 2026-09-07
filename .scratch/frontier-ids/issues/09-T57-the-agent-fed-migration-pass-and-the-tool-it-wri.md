@@ -34,8 +34,6 @@ put there, and what stops that same write reaching a Ticket nobody migrated?
 
 ## Answer
 
-## Answer
-
 **The pass writes through the server, and the surface is `update_ticket` widened with `title`, `kind` and `type`.**
 
 A distinct tool lost both of its arguments during this grilling. It was to be gated on `awaits_migration`, and that field is deleted below. It was to edit the quarantined block in the body, and nothing is quarantined below. What remains is three fields the tracker's CRUD surface cannot reach — a tracker that cannot fix a typo in a title has a gap, and migration merely walked into it. `TicketEdit` (`src/domain.ts:120-134`) gains three mutation points; a second tool writing those same three fields would be a migration-shaped hole in a general surface.
@@ -66,7 +64,7 @@ The word keeps its imprecision knowingly: *foreign* connotes came-from-elsewhere
 
 ## Rejected
 
-**A validation function that sets the flag.** There is nothing to extract: no `safeParse`, no schema object, nothing in `src/storage/markdown/` validates, and `splitFrontmatter` commits to the opposite discipline in a comment. Worse, the predicate fires on the wrong set. A file that fails to parse already reads `foreign`; a file the floor migrated is *perfectly valid* and is precisely the unreviewed one. Validity and reviewedness are orthogonal, so a validator can never see the case the flag was for. Setting a flag on read would also make the read path write, against [[T8]] and against [[T38]]'s warn-on-read precedent. The predicate itself is worth having on the write side — that is [[T67]]'s business, not this Ticket's.
+**A validation function that sets the flag.** There is nothing to extract: no `safeParse`, no schema object, nothing in `src/storage/markdown/` validates, and `splitFrontmatter` commits to the opposite discipline in a comment. Worse, the predicate fires on the wrong set. A file that fails to parse already reads `foreign`; a file the floor migrated is *perfectly valid* and is precisely the unreviewed one. Validity and reviewedness are orthogonal, so a validator can never see the case the flag was for. Setting a flag on read would also make the read path write, against [[T8]] and against [[T38]]'s warn-on-read precedent. The predicate itself is worth having on the write side — that is [[T73]]'s business, not this Ticket's.
 
 **Quarantining the foreign fence into the body.** T40's answer, superseded. It writes a block that a later pass has to consume and clean, needs a per-field disposition vocabulary to ever empty, and leaves a heading asserting *unmerged* about a block that was merged. Surfacing the same bytes in tool output costs one render and writes nothing.
 

@@ -41,7 +41,6 @@ part of the `.scratch/` issue tracker will land below the first release section.
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
 
 - [ ] The workflow authenticates through one path; an absent `NPM_TOKEN` does not leave an empty
       `_authToken` in `.npmrc`, and does not shadow OIDC

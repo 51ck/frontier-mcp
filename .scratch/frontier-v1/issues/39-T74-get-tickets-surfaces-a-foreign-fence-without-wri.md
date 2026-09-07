@@ -13,9 +13,8 @@ blocked_by: [T73]
 
 **Why not the body.** [[T40]] quarantined the fence into the file under `## Unmerged legacy frontmatter`; [[T57]] withdrew that. Writing the block means a later pass has to consume and clean it, which needs a per-field disposition vocabulary before the block can ever empty, and leaves a heading asserting *unmerged* about a block that was merged. It would also be a fourth body mutation point, and the only one editing text the server wrote rather than appending text a caller supplied — `src/domain.ts:113-119` holds that a Ticket body is opaque apart from three places.
 
-Only a Ticket that [[detect]] marked Foreign gets the block. A conforming Ticket's output is unchanged, so this costs nothing on the ordinary path.
+Only a Ticket that [[T73]] marked Foreign gets the block. A conforming Ticket's output is unchanged, so this costs nothing on the ordinary path.
 
-**Status:** ready-for-agent
 
 - [ ] A Foreign fence appears in `get_tickets` output as a fenced `yaml` block, byte-identical to `Split.raw`
 - [ ] The file on disk is not modified by the read

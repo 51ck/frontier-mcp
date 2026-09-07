@@ -131,3 +131,5 @@ The foreign fence is no longer quarantined into the body under `## Unmerged lega
 What holds the two withdrawals together is that conversion is lazy and already ships: a write to a Foreign Ticket normalizes it, so migration is not a pass that rewrites an Effort. `migrate_effort` narrows to the id-minting batch, which is the one operation that cannot be lazy, and this answer's minting analysis is what it still builds from.
 
 The gist is amended so Decisions-so-far stops advertising the quarantine block. **Legacy Ticket** also becomes **Foreign Ticket** repo-wide, on a conformance axis rather than a provenance one.
+
+The correction paragraph added when [[T62]] landed ends "The rest of this answer stands and is what T70 and T57 still cite." [[T70]] is now dropped, so only [[T57]] cites it. Read that sentence as naming T57 alone; nothing else in the paragraph changes.

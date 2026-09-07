@@ -19,11 +19,12 @@ under a configured pattern the forbidden set is whatever that pattern accepts.
 
 `key`'s schema description hardcodes `T<n>` — "Never stored. May not look like T<n>"
 (`src/tools/create-tickets.ts:25`). [[T55]] records it as wrong either way, and it is the one
-migration that decision leaves behind. `src/domain.ts:19` and `:146` say the same thing in prose.
+migration that decision leaves behind. `src/domain.ts:19`, `:38`, `:42-44` and `:146` say the same thing in prose — `:38` is
+`TicketSummary.id` ("`T<n>`, unique repo-wide"), the restatement [[T50]] singled out as the one
+inside the layer [[T36]] emptied, and `:42-44` names a "Legacy Ticket" that [[T57]] renamed.
 
 **Blocked by:** the predicate the tool layer calls is the compiled pattern's.
 
-**Status:** ready-for-agent
 
 - [ ] `MINTED_ID` no longer exists in `src/domain.ts`
 - [ ] The tool layer tests id-ness through the driver, not a regular expression it holds

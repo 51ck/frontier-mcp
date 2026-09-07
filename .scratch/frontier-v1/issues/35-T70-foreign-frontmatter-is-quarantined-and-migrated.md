@@ -41,7 +41,6 @@ carries a flag nothing in the release can clear. Either T57 lands first, or this
 
 **Blocked by:** same files as the migration rewrite, and the smaller change lands first.
 
-**Status:** ready-for-agent
 
 - [ ] A foreign fence moves verbatim under `## Unmerged legacy frontmatter` as a `yaml` block, and
       nothing from it is imported

@@ -27,7 +27,6 @@ Detection writes nothing, extending [[T38]]'s warn-on-read rule and keeping the 
 
 **Blocked by:** the behaviour has to exist before it is described.
 
-**Status:** ready-for-agent
 
 - [ ] The ADR exists, numbered after ADR 0006
 - [ ] It states lazy conversion as the model and names the test that already pinned it

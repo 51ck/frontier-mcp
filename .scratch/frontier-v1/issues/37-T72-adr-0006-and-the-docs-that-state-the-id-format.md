@@ -44,12 +44,12 @@ release it is settled but configurable, which is a different sentence.
 
 **Blocked by:** the mechanism has to exist before it is described, and T49 before it is priced.
 
-**Status:** ready-for-agent
 
 - [ ] ADR 0006 exists, states the guard's condition, and marks ADR 0005 superseded
 - [ ] Every figure in it is measured, or labelled as arithmetic
-- [ ] `CONTEXT.md` names `id_pattern` and no shape; **Temporary key** and **Handle** are added;
-      **Legacy Ticket** and **Edge** are corrected
+- [ ] `docs/agents/issue-tracker.md:3-4` grows to name **Handle** and **Temporary key**, the two
+      consumer-facing terms [[T50]] found missing from the list a consumer's `CONTEXT.md` is
+      expected to define
 - [ ] `AGENTS.md`'s two id bullets match the shipped behaviour
 - [ ] `docs/agents/issue-tracker.md` branches on `id_pattern`, drops the sentence describing no code
       path, fixes the guard filename, and carries a version marker

@@ -18,7 +18,6 @@ the only thing that will ever touch the guards, and nothing will notice when it 
 Add a workflow that runs the Verification gate plus `pnpm test` on push and on pull request. This
 lands first, so every Ticket after it is reviewed against a green suite rather than a local run.
 
-**Status:** ready-for-agent
 
 - [ ] A workflow runs on push and on pull request, not only `workflow_dispatch`
 - [ ] It runs typecheck, lint, format:check and `pnpm test` on Node 24

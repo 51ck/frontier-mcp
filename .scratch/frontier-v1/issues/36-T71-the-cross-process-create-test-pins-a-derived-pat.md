@@ -22,7 +22,6 @@ id-ness is now testing the default configuration, not the contract.
 
 **Blocked by:** there is no pattern to pin until minting is configurable.
 
-**Status:** ready-for-agent
 
 - [ ] `cross-process-create.test.ts` pins a `<N>` pattern explicitly and still proves distinct ids
       across four processes

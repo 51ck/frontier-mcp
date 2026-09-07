@@ -19,7 +19,6 @@ The Map catches up on a later successful refresh or Map mutation.
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
 
 - [x] Resolving or dropping a Ticket succeeds when Map derived regeneration fails after the Ticket
       write

@@ -29,7 +29,6 @@ that scan and the write, and the write's path is `<NN>-<id>-<slug>.md` inside an
 
 **Blocked by:** which strings count as one id is the driver's question now.
 
-**Status:** ready-for-agent
 
 - [ ] A read warns on a duplicate id and names every claimant file, not the first
 - [ ] A write refuses and names both files

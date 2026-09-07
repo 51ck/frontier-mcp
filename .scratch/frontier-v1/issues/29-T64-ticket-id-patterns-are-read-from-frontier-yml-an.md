@@ -32,7 +32,6 @@ caller cares about — does minting need coordination, does identity survive a m
 properties of the token list, so both are answered statically at compile time and neither is a
 runtime branch.
 
-**Status:** ready-for-agent
 
 - [ ] `<storageDir>/frontier.yml` is read at driver construction; `id_pattern` is its only
       recognized key
