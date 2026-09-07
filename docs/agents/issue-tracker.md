@@ -1,7 +1,8 @@
 # Issue tracker — FrontierMCP and file fallback
 
-Issues and specs live as markdown under `.scratch/`. Vocabulary is defined in the project's
-`CONTEXT.md` when present — Effort, Board, Header doc, Map, Spec, Ticket, Edge, Frontier.
+Use **FrontierMCP** as the issue tracker. Its canonical storage is markdown under `.scratch/`.
+Vocabulary is defined in the project's `CONTEXT.md` when present — Effort, Board, Header doc, Map,
+Spec, Ticket, Edge, Frontier.
 
 When **FrontierMCP** (server name `frontier`) is loaded in your session, use the tools below. They
 own the schema, compute the graph, and answer orientation questions for a fraction of the token cost

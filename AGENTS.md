@@ -475,7 +475,8 @@ The repository-specific configuration stays in `docs/agents/` below.
 
 ### Issue tracker
 
-Local markdown under `.scratch/<effort-slug>/`. See [docs/agents/issue-tracker.md](./docs/agents/issue-tracker.md).
+Use **FrontierMCP** (server `frontier`) as this repository's issue tracker. Before tracker work, read
+[docs/agents/issue-tracker.md](./docs/agents/issue-tracker.md) for tool usage and the file fallback.
 
 ### Triage labels
 
