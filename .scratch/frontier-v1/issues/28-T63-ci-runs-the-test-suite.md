@@ -2,9 +2,10 @@
 id: T63
 title: CI runs the test suite
 kind: build
-status: open
+status: resolved
 triage: ready-for-agent
 blocked_by: []
+answer_gist: Extended the existing Node 24 check/test/build workflow to every push; PR coverage and release workflow preserved.
 ---
 
 **What to build:** nothing in CI runs the tests. `.github/workflows/release.yml` is the only
@@ -19,7 +20,15 @@ Add a workflow that runs the Verification gate plus `pnpm test` on push and on p
 lands first, so every Ticket after it is reviewed against a green suite rather than a local run.
 
 
-- [ ] A workflow runs on push and on pull request, not only `workflow_dispatch`
-- [ ] It runs typecheck, lint, format:check and `pnpm test` on Node 24
-- [ ] `release.yml` is unchanged, or its duplication with the new job is deliberate and recorded
-- [ ] A failing test fails the job
+- [x] A workflow runs on push and on pull request, not only `workflow_dispatch`
+- [x] It runs typecheck, lint, format:check and `pnpm test` on Node 24
+- [x] `release.yml` is unchanged, or its duplication with the new job is deliberate and recorded
+- [x] A failing test fails the job
+
+## Comments
+
+2026-09-10 — T63 implementation prepared: the existing runtime workflow now also runs on feature-branch pushes. Verification is blocked before execution: project dependencies are absent, the network approval request timed out, and offline installation against both local pnpm stores lacks package metadata. `git diff --check` passed; typecheck, lint, format, tests, and build have not run. Claim released; leave this Ticket open until the required checks and review pass.
+
+2026-09-11 — Dependencies restored. Verification now passes: pnpm run check; pnpm test (28 files, 248 tests); pnpm run build. Existing runtime development job already runs the gate on Node 24; removed its master-only push filter so feature pushes are covered. release.yml unchanged. Awaiting independent review.
+
+Independent review PASS. All acceptance criteria verified; normal test-step exit status fails the development job and blocks its dependent jobs.

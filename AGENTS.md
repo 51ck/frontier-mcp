@@ -386,6 +386,11 @@ pnpm run build        # tsc emit to dist/
 pnpm run release:dry  # needs a clean tree and an upstream branch
 ```
 
+`.github/workflows/runtime.yml` runs `check`, `test`, and `build` on Node 24 for every push
+and pull request. Its development job is the test gate; keep failures blocking the downstream
+package compatibility jobs. Reuse this gate rather than adding a second test workflow. The release
+workflow remains a separate manual publish path.
+
 `release:dry` is the odd one out: `.release-it.json` sets `requireCleanWorkingDir` and
 `requireUpstream`, so unlike the three above it will not run against uncommitted work. Commit first.
 It skips the `before:init` hooks rather than running them — release-it prints a skipped command with
@@ -495,6 +500,9 @@ See [docs/agents/frontier-consumer.md](./docs/agents/frontier-consumer.md).
 
 When the user requests a durable behavior change, record it here or in the relevant child AGENTS.md.
 
+- Overnight auto shipping processes takeable `ready-for-agent` Tickets sequentially, using builders,
+  reviewers, required checks, and commits. Re-evaluate the Frontier after each Ticket; leave existing
+  claims and human decisions pending.
 - Runtime setup must preserve the consumer project's Node version, discover existing version
   managers, and recommend fnm when no manager or suitable Node is available. Prefer a project's
   Bun or Deno only after FrontierMCP compatibility is verified. Recommend automated setup in the
