@@ -2,8 +2,8 @@
   "mcpServers": {
     "frontier": {
       "type": "stdio",
-      "command": "node",
-      "args": ["src/bin.ts"]
+      "command": "pnpm",
+      "args": ["dlx", "frontier-mcp@latest"]
     }
   }
 }
