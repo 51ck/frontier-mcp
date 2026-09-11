@@ -3,9 +3,10 @@ id: T41
 title: Where the people who already run this workflow gather
 kind: decision
 type: research
-status: open
+status: resolved
 triage: ready-for-agent
 blocked_by: []
+answer_gist: Inventoried 19 launch venues with primary-source entry rules, activity evidence, promotion limits and dead ends; no channel chosen.
 ---
 
 ## Question
@@ -31,3 +32,11 @@ Record dead ends explicitly — a venue that turns out to be inactive or hostile
 useful finding, and stops a later session re-investigating it.
 
 Use high-trust primary sources: the venues' own rules and submission docs, not blog posts about them.
+
+## Answer
+
+See [launch venue research](../../../docs/research/2026-09-10-launch-venues.md). The inventory covers MCP registries and marketplaces, Matt Pocock's skills community, agent-tooling communities, and launch aggregators. Audience and conversion evidence gaps are explicit. Independent review: PASS. Workspace checks and local link validation passed; no external submission was made.
+
+## Comments
+
+2026-09-11 — Inventory drafted in [launch venue research](../../../docs/research/2026-09-10-launch-venues.md), covering entry requirements, activity, moderation and dead ends. No channel selected or external submission made. Awaiting independent review.

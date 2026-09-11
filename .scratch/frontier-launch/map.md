@@ -40,6 +40,7 @@ for the research tickets; `/prototype` where a draft artifact raises the fidelit
 ## Decisions so far
 
 <!-- GENERATED: overwritten on every mutation through the server. Do not hand-edit. -->
+- [T41 — Where the people who already run this workflow gather](issues/01-T41-where-the-people-who-already-run-this-workflow-g.md) — Inventoried 19 launch venues with primary-source entry rules, activity evidence, promotion limits and dead ends; no channel chosen.
 <!-- /GENERATED -->
 
 ## Not yet specified
