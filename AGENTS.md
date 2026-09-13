@@ -529,6 +529,10 @@ When the user requests a durable behavior change, record it here or in the relev
   release-it bullet in Work Guidance before editing either), [bench/](./bench/) (throwaway harnesses
   behind a measured claim — typechecked and linted with everything else, deliberately absent from
   `package.json`'s `files`, and never a place results are committed).
+- `pnpm run bench:scan --group=create` compares current driver creation with an independent
+  single scan on disposable copies. Its difference of medians is arithmetic, not a measurement of
+  another allocation strategy. Dated create-path findings live in `docs/research/`; the scan
+  measurements in Work Guidance remain their original snapshot.
 - **`docs/research/` is dated snapshots, not contracts.** `docs/adr/` and `docs/agents/` are current
   by construction — an ADR holds until superseded, and the agent docs are the shipped contract. A
   research document is neither. It records what primary sources said on a stated date, as the
