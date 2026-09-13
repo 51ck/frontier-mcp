@@ -17,7 +17,7 @@ try {
   const installation = join(temporaryDirectory, 'installation');
   await mkdir(installation, { recursive: true });
   await writeFile(join(installation, 'package.json'), '{"private":true}\n', 'utf8');
-  await runPnpm(['add', '--prod', '--ignore-scripts', packageTarball], { cwd: installation });
+  await runPnpm(['add', '--save-prod', '--ignore-scripts', packageTarball], { cwd: installation });
   const entry = join(installation, 'node_modules', 'frontier-mcp', 'dist', 'bin.js');
   await Promise.all(
     runtimes.map(async runtime => {
@@ -84,7 +84,11 @@ function runPnpm(args, options) {
       'Run this check through pnpm so its cross-platform executable path is available.',
     );
   }
-  return run(process.execPath, [executable, ...args], options);
+  // pnpm's JavaScript distribution needs Node (including on Windows), while
+  // standalone pnpm supplies a native executable in the same environment field.
+  return /\.(?:c?js|mjs)$/i.test(executable)
+    ? run(process.execPath, [executable, ...args], options)
+    : run(executable, args, options);
 }
 
 async function findTarball(path) {

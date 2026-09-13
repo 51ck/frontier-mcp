@@ -151,7 +151,13 @@ async function verifyCrossProcessClaim(root) {
     const winners = outcomes.filter(({ result }) => result.isError !== true);
     assert(
       winners.length === 1,
-      `exactly one separate server process claims a Ticket; got ${winners.length}`,
+      `exactly one separate server process claims a Ticket; got ${winners.length}\n` +
+        outcomes
+          .map(
+            ({ by, result }, index) =>
+              `${by}: ${JSON.stringify(result)}\nServer stderr:\n${servers[index].stderr()}`,
+          )
+          .join('\n'),
     );
 
     const ticketPath = join(root, '.scratch', 'alpha', 'issues', '01-T1-runtime-lifecycle.md');
