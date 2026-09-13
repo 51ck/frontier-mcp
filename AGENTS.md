@@ -284,7 +284,7 @@ Source layout:
 | `src/server.ts` | Wires the above into an `McpServer`. |
 | `src/tracker-doc.ts` | Loads the shipped tracker configuration document for the `tracker-doc` MCP resource, from beside `dist/` in the installed package rather than from the working directory. |
 | `src/index.ts` | The package's library surface. Deliberately narrow — below-seam modules are not exported. |
-| `src/bin.ts` | The stdio entry point. |
+| `src/bin.ts` | The stdio entry point. Owns process lifecycle: it exits on client disconnect — the transport closing, stdin EOF, `SIGTERM`, `SIGINT` — so every driver's watcher gets released rather than orphaning the process (T95). |
 
 Nothing under `src/tools/` may import from `src/storage/`.
 
@@ -451,12 +451,20 @@ over a linked transport pair, against a temporary fixture tree. That is the only
 spec's testing decisions. Nothing below the tool layer gets a test entry point of its own, and a test
 that would need one is a design signal, not a reason to add a seam.
 
-**The two deliberate exceptions** spawn real OS processes: `test/cross-process-claim.test.ts` for the
-compare-and-set claim, `test/cross-process-create.test.ts` for id allocation. Concurrency needs real
-concurrency — one process shares a scan, a write queue and module state, all of which hand an
-in-process test a pass it has not earned, which is how the claim guarantee came to hold only
-in-process. Both were checked against a deliberately broken implementation to confirm they bite.
-Add a third only for something with the same shape.
+**Three deliberate exceptions** spawn real OS processes. `test/cross-process-claim.test.ts` for the
+compare-and-set claim and `test/cross-process-create.test.ts` for id allocation share one shape:
+concurrency needs real concurrency — one process shares a scan, a write queue and module state, all
+of which hand an in-process test a pass it has not earned, which is how the claim guarantee came to
+hold only in-process. Both were checked against a deliberately broken implementation to confirm they
+bite. `test/exit-on-disconnect.test.ts` (T95) is a different shape: the defect it guards is in
+`dist/bin.js` itself — the file `package.json`'s `bin` field points at — not in anything the tool
+layer runs, so only spawning the packaged binary and watching the OS process die is evidence of
+anything; a mocked transport would prove the mock's callback fires, not that the shipped binary
+exits. Its `beforeAll` runs `pnpm run build` itself, since `dist/` is gitignored and
+`runtime.yml` builds after `pnpm test` — that keeps `pnpm test` on a clean clone self-contained
+rather than depending on workflow step order. Add a fourth only for something that needs the real
+process for one of these two reasons — genuine concurrency, or a defect below the in-process seam
+entirely — not merely because a test would be more convenient to write out-of-process.
 
 `test/fixtures/legacy/` holds two Efforts copied **verbatim** out of sobrina and tag-customizer.
 Never tidy them, and refresh them by re-copying rather than editing: they are the real input, and

@@ -2,9 +2,10 @@
 id: T95
 title: The server exits when its client disconnects
 kind: build
-status: open
+status: resolved
 triage: ready-for-agent
 blocked_by: []
+answer_gist: "bin.ts owns the process lifecycle: an idempotent shutdown runs the existing frontier.close() on server onclose, stdin EOF, SIGTERM and SIGINT, then exits; the spawn test asserts (code 0, signal null) because a bare did-it-exit check passed with the signal handlers deleted"
 ---
 
 ## What to build
@@ -27,11 +28,11 @@ The exit trigger is disconnect, decided in the ticket above. An idle timeout or 
 
 ## Acceptance criteria
 
-- [ ] A spawned server whose stdin reaches EOF exits within a bounded window
-- [ ] A spawned server whose transport closes exits within the same window
-- [ ] SIGTERM and SIGINT terminate the server
-- [ ] Every driver watcher is released on shutdown, so no live handle can hold the event loop open
-- [ ] A test spawns the real packaged binary as a child process, disconnects it, and asserts the pid is gone — not a unit test against a mocked transport
+- [x] A spawned server whose stdin reaches EOF exits within a bounded window
+- [x] A spawned server whose transport closes exits within the same window
+- [x] SIGTERM and SIGINT terminate the server
+- [x] Every driver watcher is released on shutdown, so no live handle can hold the event loop open
+- [x] A test spawns the real packaged binary as a child process, disconnects it, and asserts the pid is gone — not a unit test against a mocked transport
 
 ## Blocked by
 
