@@ -2,11 +2,12 @@
 id: T91
 title: Select project Bun or Deno only when FrontierMCP compatibility is verified
 kind: build
-status: claimed
-triage: ready-for-agent
+status: resolved
+triage: needs-triage
 blocked_by: [T89, T88]
 claimed_by: codex-ship
 claimed_at: 2026-09-05T10:00:07.405Z
+answer_gist: Select only an exact verified Bun or Deno tuple at launch; otherwise explain and use Node.
 ---
 
 ## What to build
@@ -17,14 +18,14 @@ Research on 2026-09-04 found that Bun 1.3.14 and Deno 2.9.6 passed MCP initializ
 
 ## Acceptance criteria
 
-- [ ] Project markers include Bun's package-manager declaration and current/legacy lockfiles, and Deno configuration/lockfiles. Search only the resolved launch workspace with documented monorepo boundaries. Conflicting markers produce an explicit choice or visible Node fallback; an override wins.
-- [ ] Bun and Deno are assessed separately against the actual pinned package, including installation/launch, MCP calls, shipped resources, lifecycle writes, nested external edits after watcher settling, newly created directories and cross-process claim/id guarantees. Declare tested versions/platforms and retain Node fallback for unverified combinations.
-- [ ] A regression reproduces the observed stale Board. Automatic selection of affected runtime versions remains disabled unless a verified fix or a newer verified runtime resolves it. This Ticket may complete with documented unsupported status and working fallback.
-- [ ] Bun execution explicitly forces Bun despite the package's Node shebang. A Node 16 executable on PATH cannot silently become the server runtime.
-- [ ] Deno execution uses isolated npm resolution and explicit noninteractive permissions for the operations actually required. It does not discover or rewrite the consumer's Deno config, lockfile or node_modules. Verify the final npm launcher separately from a local dependency-tree test.
-- [ ] Runtime verification uses throwaway storage, never mutates the consumer's tracker, and keeps diagnostics off MCP stdout. The launcher does not rerun destructive compatibility probes against real projects at each startup.
-- [ ] User-scope launch is demonstrated from a Node project and a Bun/Deno project without re-registering the server. Project pins and per-call workspace resolution remain unchanged.
-- [ ] The guide provides the tested manual Bun/Deno commands, precise limitations and Node fallback, distinguishing candidate commands from supported recipes.
+- [x] Project markers include Bun's package-manager declaration and current/legacy lockfiles, and Deno configuration/lockfiles. Search only the resolved launch workspace with documented monorepo boundaries. Conflicting markers produce an explicit choice or visible Node fallback; an override wins.
+- [x] Bun and Deno are assessed separately against the actual pinned package, including installation/launch, MCP calls, shipped resources, lifecycle writes, nested external edits after watcher settling, newly created directories and cross-process claim/id guarantees. Declare tested versions/platforms and retain Node fallback for unverified combinations.
+- [x] A regression reproduces the observed stale Board. Automatic selection of affected runtime versions remains disabled unless a verified fix or a newer verified runtime resolves it. This Ticket may complete with documented unsupported status and working fallback.
+- [x] Bun execution explicitly forces Bun despite the package's Node shebang. A Node 16 executable on PATH cannot silently become the server runtime.
+- [x] Deno execution uses isolated npm resolution and explicit noninteractive permissions for the operations actually required. It does not discover or rewrite the consumer's Deno config, lockfile or node_modules. Verify the final npm launcher separately from a local dependency-tree test.
+- [x] Runtime verification uses throwaway storage, never mutates the consumer's tracker, and keeps diagnostics off MCP stdout. The launcher does not rerun destructive compatibility probes against real projects at each startup.
+- [x] User-scope launch is demonstrated from a Node project and a Bun/Deno project without re-registering the server. Project pins and per-call workspace resolution remain unchanged.
+- [x] The guide provides the tested manual Bun/Deno commands, precise limitations and Node fallback, distinguishing candidate commands from supported recipes.
 
 ## Research
 
@@ -45,3 +46,27 @@ permissions. Full commands, limitations, and artifact checksum are recorded in
 [the dated verification](../../../docs/research/2026-09-15-t91-runtime-verification.md). Selection,
 fallback, saved-launch, and multi-project implementation remain open; no acceptance criterion is
 checked by this evidence alone.
+
+2026-09-15 implementation: the content-addressed user launcher now chooses at each start from the
+launch directory through the nearest `.scratch/` or `.git` workspace boundary. It recognizes every
+specified marker, uses Node for mixed or missing workspace markers, and honors
+`FRONTIER_RUNTIME=node|bun|deno` without letting an override bypass compatibility checks. Only the
+measured `frontier-mcp@0.3.1` + macOS arm64 + Bun 1.3.14 or Deno 2.9.6 tuples are enabled. Bun uses
+`x --bun`; Deno uses the tested isolated `npm:` flags. The selector checks markers, executable
+presence and version at startup; it never runs lifecycle probes against the consumer workspace.
+Diagnostics stay on stderr and a selected npm runner failure exits instead of switching runtimes
+after partial startup.
+
+The Node 16 process fixture applies one Cursor user entry, then starts it from Node, nested Bun, and
+Deno projects without registration changes. It covers all marker forms, monorepo boundaries, mixed
+markers, explicit and invalid overrides, unsupported and missing Bun fallback, exact commands,
+unchanged Deno sentinels, and Node 16 first on `PATH`. The dated verification supplies the real Bun
+and Deno package/lifecycle/watcher/concurrency evidence; the process fixture pins selection behavior.
+
+## Answer
+
+The saved launcher chooses Bun or Deno only for an exact verified package, runtime, platform and
+architecture tuple. Every unverified, ambiguous, missing, or invalid choice reports its reason and
+uses the compatible Node selected during setup. README documents the boundary, override, supported
+manual commands, cache/network behavior, and fixed-per-session runtime. T92 can consolidate the
+whole installation guide without changing this selection contract.

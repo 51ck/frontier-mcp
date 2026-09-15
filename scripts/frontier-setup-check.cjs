@@ -34,6 +34,11 @@ main().catch(error => {
 async function main() {
   try {
     temporary = await mkdtemp(path.join(os.tmpdir(), 'frontier-setup-test-'));
+    if (options.launcherOnly) {
+      await launcherOnlyCheck(temporary, options);
+      process.stdout.write('Frontier saved launcher check passed.\n');
+      return;
+    }
     const home = path.join(temporary, 'home with spaces');
     const projectPath = path.join(temporary, 'project Node 16');
     await mkdir(projectPath, { recursive: true });
@@ -87,7 +92,8 @@ async function main() {
       'utf8',
     );
     await chmod(shim, 0o755);
-    const basic = ['--version', options.version, '--node', shim];
+    const { bun, deno } = await createRuntimeFixtures(temporary, options.node24);
+    const basic = ['--version', options.version, '--node', shim, '--bun', bun, '--deno', deno];
 
     const manual = await bootstrap([...basic, '--client', 'manual'], project, environment);
     assert.equal(manual.code, 0, manual.stderr);
@@ -129,6 +135,19 @@ async function main() {
       },
       project,
       minimalDesktopEnvironment(options.node16, home),
+    );
+    await launcherSelectionCheck(
+      configured.mcpServers.frontier,
+      temporary,
+      home,
+      options,
+      path.join(
+        path.dirname(configured.mcpServers.frontier.command),
+        'node_modules',
+        'frontier-mcp',
+        'dist',
+        'bin.js',
+      ),
     );
 
     const again = await bootstrap([...basic, '--apply'], project, environment);
@@ -234,6 +253,213 @@ async function main() {
   } finally {
     if (temporary !== undefined) await rm(temporary, { recursive: true, force: true });
   }
+}
+
+async function launcherOnlyCheck(checkTemporary, checkOptions) {
+  const launchDirectory = path.join(checkTemporary, 'launcher installation');
+  const home = path.join(checkTemporary, 'launcher home');
+  await mkdir(launchDirectory, { recursive: true });
+  const alternatives = await createRuntimeFixtures(checkTemporary, checkOptions.node24);
+  const entry = path.join(ROOT, 'dist', 'bin.js');
+  const launch = await testing.durableLaunch(
+    { executable: checkOptions.node24 },
+    { directory: launchDirectory, entry },
+    { alternatives, version: '0.3.1' },
+  );
+  await launcherSelectionCheck(launch, checkTemporary, home, checkOptions, entry);
+}
+
+async function launcherSelectionCheck(launch, checkTemporary, home, checkOptions, entry) {
+  const bunInvocation = path.join(checkTemporary, 'bun invocation');
+  const denoInvocation = path.join(checkTemporary, 'deno invocation');
+  const environment = {
+    ...minimalDesktopEnvironment(checkOptions.node16, home),
+    FRONTIER_FAKE_ENTRY: entry,
+    FRONTIER_BUN_INVOCATION: bunInvocation,
+    FRONTIER_DENO_INVOCATION: denoInvocation,
+  };
+
+  const nodeProject = path.join(checkTemporary, 'saved launch node project');
+  const bunProject = path.join(checkTemporary, 'saved launch monorepo', 'packages', 'bun app');
+  const denoProject = path.join(checkTemporary, 'saved launch deno project');
+  await mkdir(path.join(nodeProject, '.git'), { recursive: true });
+  await mkdir(path.join(bunProject, 'nested'), { recursive: true });
+  await mkdir(path.join(checkTemporary, 'saved launch monorepo', '.git'), { recursive: true });
+  await mkdir(path.join(denoProject, '.git'), { recursive: true });
+  await writeFile(path.join(bunProject, 'bun.lock'), 'fixture\n');
+  await writeFile(path.join(denoProject, 'deno.json'), '{}\n');
+
+  const verifiedAlternativeHost = process.platform === 'darwin' && process.arch === 'arm64';
+  await protocolCase('plain Node project', launch, nodeProject, environment);
+  const bunResult = await protocolCase(
+    'nested Bun project',
+    launch,
+    path.join(bunProject, 'nested'),
+    environment,
+  );
+  const denoResult = await protocolCase('Deno project', launch, denoProject, environment);
+  if (verifiedAlternativeHost) {
+    assert.equal((await readFile(bunInvocation, 'utf8')).trim(), 'x --bun frontier-mcp@0.3.1');
+    assert.equal(
+      (await readFile(denoInvocation, 'utf8')).trim(),
+      'run --no-config --no-lock --node-modules-dir=none --no-prompt --allow-read --allow-write --allow-env npm:frontier-mcp@0.3.1',
+    );
+  } else {
+    assert.match(bunResult.stderr, /Bun is not verified.*using configured Node/i);
+    assert.match(denoResult.stderr, /Deno is not verified.*using configured Node/i);
+    await assertMissing(bunInvocation);
+    await assertMissing(denoInvocation);
+  }
+  assert.equal(await readFile(path.join(denoProject, 'deno.json'), 'utf8'), '{}\n');
+  await assert.rejects(readFile(path.join(denoProject, 'deno.lock')), { code: 'ENOENT' });
+  await assert.rejects(readFile(path.join(denoProject, 'node_modules')), { code: 'ENOENT' });
+
+  const markerCases = [
+    ['bun legacy lock', 'bun.lockb', 'fixture\n', 'FRONTIER_BUN_INVOCATION'],
+    [
+      'bun package manager',
+      'package.json',
+      '{"packageManager":"bun@1.3.14"}\n',
+      'FRONTIER_BUN_INVOCATION',
+    ],
+    ['deno jsonc', 'deno.jsonc', '{}\n', 'FRONTIER_DENO_INVOCATION'],
+    ['deno lock', 'deno.lock', 'fixture\n', 'FRONTIER_DENO_INVOCATION'],
+  ];
+  await runMarkerCases(markerCases, launch, checkTemporary, environment, verifiedAlternativeHost);
+
+  await writeFile(path.join(bunProject, 'deno.lock'), 'fixture\n');
+  const mixed = await protocolCase('mixed markers', launch, bunProject, environment);
+  assert.match(mixed.stderr, /both Bun and Deno markers.*using configured Node/i);
+  await rm(path.join(bunProject, 'deno.lock'));
+
+  const overridden = await protocolCase('Bun override', launch, denoProject, {
+    ...environment,
+    FRONTIER_RUNTIME: 'bun',
+  });
+  if (verifiedAlternativeHost) assert.doesNotMatch(overridden.stderr, /using configured Node/i);
+  else assert.match(overridden.stderr, /Bun is not verified.*using configured Node/i);
+  await rm(bunInvocation, { force: true });
+  const nodeOverride = await protocolCase('Node override', launch, bunProject, {
+    ...environment,
+    FRONTIER_RUNTIME: 'node',
+  });
+  assert.equal(nodeOverride.stderr, '');
+  await assertMissing(bunInvocation);
+
+  const invalidOverride = await protocolCase('invalid override', launch, nodeProject, {
+    ...environment,
+    FRONTIER_RUNTIME: 'ruby',
+  });
+  assert.match(invalidOverride.stderr, /FRONTIER_RUNTIME=ruby is invalid.*configured Node/i);
+
+  if (verifiedAlternativeHost) {
+    const unsupported = await protocolCase('unsupported Bun version', launch, bunProject, {
+      ...environment,
+      FRONTIER_FAKE_BUN_VERSION: '1.3.15',
+      FRONTIER_RUNTIME: 'bun',
+    });
+    assert.match(unsupported.stderr, /Bun 1\.3\.15 is not verified.*using configured Node/i);
+  }
+
+  const outsideWorkspace = path.join(checkTemporary, 'no workspace marker');
+  await mkdir(outsideWorkspace);
+  const unrooted = await protocolCase('missing workspace', launch, outsideWorkspace, environment);
+  assert.match(unrooted.stderr, /no launch workspace marker.*using configured Node/i);
+
+  const ancestor = path.join(checkTemporary, 'outside ancestor');
+  const bounded = path.join(ancestor, 'workspace');
+  await mkdir(path.join(bounded, '.git'), { recursive: true });
+  await writeFile(path.join(ancestor, 'bun.lockb'), 'outside\n');
+  const boundary = await protocolCase('workspace boundary', launch, bounded, environment);
+  assert.doesNotMatch(boundary.stderr, /Bun/);
+
+  if (verifiedAlternativeHost) {
+    const missingDirectory = path.join(checkTemporary, 'missing candidate launcher');
+    await mkdir(missingDirectory);
+    const missingLaunch = await testing.durableLaunch(
+      { executable: checkOptions.node24 },
+      { directory: missingDirectory, entry },
+      {
+        alternatives: { bun: path.join(missingDirectory, 'missing bun') },
+        version: '0.3.1',
+      },
+    );
+    const missing = await protocolCase('missing Bun executable', missingLaunch, bunProject, {
+      ...environment,
+      FRONTIER_RUNTIME: 'bun',
+    });
+    assert.match(missing.stderr, /no saved executable.*using configured Node/i);
+  }
+}
+
+async function runMarkerCases(cases, launch, checkTemporary, environment, verifiedHost, index = 0) {
+  const markerCase = cases[index];
+  if (markerCase === undefined) return;
+  const [name, marker, contents, invocationVariable] = markerCase;
+  const markerProject = path.join(checkTemporary, name);
+  const invocation = path.join(checkTemporary, `${name} invocation`);
+  await mkdir(path.join(markerProject, '.git'), { recursive: true });
+  await writeFile(path.join(markerProject, marker), contents);
+  const result = await protocolCase(name, launch, markerProject, {
+    ...environment,
+    [invocationVariable]: invocation,
+  });
+  if (verifiedHost) assert.notEqual((await readFile(invocation, 'utf8')).trim(), '');
+  else {
+    assert.match(result.stderr, /(?:Bun|Deno) is not verified.*using configured Node/i);
+    await assertMissing(invocation);
+  }
+  return runMarkerCases(cases, launch, checkTemporary, environment, verifiedHost, index + 1);
+}
+
+async function createRuntimeFixtures(checkTemporary, node) {
+  const bun = path.join(checkTemporary, 'bun-1.3.14');
+  const deno = path.join(checkTemporary, 'deno-2.9.6');
+  await writeRuntimeFixture(
+    bun,
+    'FRONTIER_FAKE_BUN_VERSION',
+    '1.3.14',
+    'x --bun frontier-mcp@0.3.1',
+    'FRONTIER_BUN_INVOCATION',
+    node,
+  );
+  await writeRuntimeFixture(
+    deno,
+    'FRONTIER_FAKE_DENO_VERSION',
+    'deno 2.9.6',
+    'run --no-config --no-lock --node-modules-dir=none --no-prompt --allow-read --allow-write --allow-env npm:frontier-mcp@0.3.1',
+    'FRONTIER_DENO_INVOCATION',
+    node,
+  );
+  return { bun, deno };
+}
+
+async function writeRuntimeFixture(
+  target,
+  versionVariable,
+  defaultVersion,
+  expectedArguments,
+  invocationVariable,
+  node,
+) {
+  await writeFile(
+    target,
+    `#!/bin/sh\nif [ "$1" = --version ]; then printf '%s\\n' "\${${versionVariable}:-${defaultVersion}}"; exit 0; fi\nprintf '%s\\n' "$*" > "$${invocationVariable}"\n[ "$*" = '${expectedArguments}' ] || exit 93\nexec '${node}' "$FRONTIER_FAKE_ENTRY"\n`,
+    'utf8',
+  );
+  await chmod(target, 0o755);
+}
+
+function protocolCase(label, launch, cwd, environment) {
+  return testing.protocolCheck(launch, cwd, environment, {
+    label: `launcher case ${label}`,
+    shutdownTimeout: 2000,
+    timeout: 10_000,
+  });
+}
+
+async function assertMissing(target) {
+  await assert.rejects(readFile(target), { code: 'ENOENT' });
 }
 
 async function managerDiscoveryCheck(checkTemporary, home, checkOptions) {
@@ -500,6 +726,7 @@ async function writeManager(target, source) {
 
 function parseArguments(args) {
   const values = {
+    launcherOnly: false,
     node16: process.env.FRONTIER_NODE16,
     node24: process.env.FRONTIER_NODE24,
     version: process.env.FRONTIER_SETUP_RELEASE ?? '0.3.1',
@@ -516,9 +743,11 @@ function parseArguments(args) {
     } else if (argument === '--version' && value !== undefined) {
       values.version = value;
       index += 1;
+    } else if (argument === '--launcher-only') {
+      values.launcherOnly = true;
     } else {
       throw new Error(
-        'Usage: frontier-setup-check.cjs --node16 PATH --node24 PATH [--version X.Y.Z]',
+        'Usage: frontier-setup-check.cjs --node16 PATH --node24 PATH [--version X.Y.Z] [--launcher-only]',
       );
     }
   }

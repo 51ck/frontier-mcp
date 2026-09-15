@@ -31,7 +31,7 @@ on macOS, Linux, and Windows. This verifies the package; manager setup has separ
 
 The released `0.3.1` package still declares `Node >=24`. The source checkout contains a bootstrap for
 testing the next installation path; it is not yet a downloadable released artifact. The release-ready
-package includes bootstrap revision 1, but a public versioned download can exist only after a release
+package includes bootstrap revision 2, but a public versioned download can exist only after a release
 has an actual tag or asset. It runs under Node 16, installs the requested released package outside the
 project, and saves an absolute compatible Node path for Cursor. It never changes the project's Node
 pin, package files, or lockfile. The bootstrap is tested on Node 16.20.2; the setup smoke selects
@@ -83,6 +83,41 @@ repair command to stderr; rerun setup after repairing it. Use the automatic setu
 it verifies this exact command before saving it.
 Windows uses a `.cmd` launcher and requires a client with batch-file support, such as clients built
 with the MCP SDK's stdio transport. Setup checks that launcher through the system `cmd.exe`.
+
+The same user-scope launcher chooses Bun or Deno when the server starts. It resolves the nearest
+workspace by walking up from the launch directory to a `.scratch/` directory or `.git` file or
+directory. It inspects runtime markers from the launch directory through that workspace root,
+inclusive. It never scans sibling packages or ancestors above the workspace root. With no workspace
+marker it reports the reason on stderr and uses the configured Node.
+
+Bun markers are `packageManager: "bun@..."` in `package.json`, `bun.lock`, and the legacy
+`bun.lockb`. Deno markers are `deno.json`, `deno.jsonc`, and `deno.lock`. Mixed markers use Node and
+report the conflict. Set `FRONTIER_RUNTIME=node`, `bun`, or `deno` in the MCP server environment to
+make an explicit choice; an invalid or unsupported choice reports why it used Node. The runtime is
+fixed when that server starts. A later `root` tool argument changes the served workspace, not the
+running process.
+
+Automatic Bun/Deno selection has one exact allowlist: `frontier-mcp@0.3.1`, macOS arm64, Bun
+`1.3.14` or Deno `2.9.6`. Setup saves Bun and Deno executables found on its `PATH`; use `--bun PATH`
+or `--deno PATH` when a desktop environment would not find them. Every other package version,
+runtime version, platform, or architecture uses Node. The allowlist is tied to the package pin, so
+the successful `0.3.1` checks do not authorize a later release automatically.
+
+The tested commands are:
+
+```sh
+bun x --bun frontier-mcp@0.3.1
+deno run --no-config --no-lock --node-modules-dir=none --no-prompt \
+  --allow-read --allow-write --allow-env npm:frontier-mcp@0.3.1
+```
+
+`--bun` forces Bun despite the package's Node shebang. Deno's command ignores project config and
+lockfiles and does not create a project `node_modules`. Both npm launchers may need registry access
+when the exact package is absent from their cache. If package resolution fails after an allowed
+runtime starts, the launcher reports the failing runtime and exits; it does not start Node after a
+partial alternate-runtime launch. Selection checks only markers, executable presence, and the
+runtime version at startup. Compatibility probes always use temporary repositories during
+development and never run against the opened project.
 
 For a terminal-only manual launch, resolve the package entry once and make the manager choose an
 installed version explicitly. Replace `ENTRY` with the absolute `dist/bin.js` path of the pinned

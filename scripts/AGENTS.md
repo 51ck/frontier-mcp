@@ -27,7 +27,7 @@ These scripts provide runtime probes and setup helpers for T88–T91.
   installs directly into a unique immutable user-data directory, verifies real MCP initialization
   and `tools/list`, then previews or applies only Cursor user configuration. It never relocates that
   directory after pnpm runs because pnpm's Windows directory junctions retain their absolute target.
-  It ships in the package as bootstrap revision 1. Its private `testing` export exists solely for the
+  It ships in the package as bootstrap revision 2. Its private `testing` export exists solely for the
   adjacent process-level check to force races and protocol failures; it is not a supported interface.
 - Cursor configuration writes back up the previous file, refuse malformed JSON and changes detected
   by the final read, then replace by rename. The setup guard serializes cooperating setup processes;
@@ -46,6 +46,21 @@ These scripts provide runtime probes and setup helpers for T88–T91.
   Launcher filenames derive from their contents so a preview cannot rewrite an already configured
   launch. Windows uses a batch launcher; preflight invokes system `cmd.exe`, as the SDK transport's
   batch-file support does. Keep Windows claims limited to fixtures until measured there.
+- The saved launcher resolves the nearest launch workspace by walking from its working directory to
+  a `.scratch/` directory or `.git` file/directory. It inspects markers only along that path through
+  the resolved root; siblings and ancestors above the root cannot select a runtime. Bun markers are
+  `packageManager: "bun@..."`, `bun.lock`, and `bun.lockb`; Deno markers are `deno.json`,
+  `deno.jsonc`, and `deno.lock`. Mixed markers and a missing workspace marker fall back to Node with
+  stderr diagnostics. `FRONTIER_RUNTIME=node|bun|deno` overrides marker choice, but never bypasses
+  compatibility checks.
+- Alternate-runtime compatibility is version-coupled. Only `frontier-mcp@0.3.1` with Bun 1.3.14 or
+  Deno 2.9.6 on macOS arm64 is enabled. Every other package/runtime/platform tuple uses the saved
+  Node. Bun launches with `x --bun`; Deno launches with `run --no-config --no-lock
+  --node-modules-dir=none --no-prompt --allow-read --allow-write --allow-env` and the exact `npm:`
+  pin. These package runners may use the network when their cache lacks the pin. A failure after an
+  allowed runner starts exits with stderr guidance rather than starting Node after partial startup.
+  Startup reads markers and runtime versions only; destructive compatibility probes stay in
+  disposable verification fixtures.
 - `frontier-setup-check.cjs` runs that bootstrap under Node 16 against an explicit newer Node and the
   released pin named by `FRONTIER_SETUP_RELEASE` (default `0.3.1`). It requires `FRONTIER_NODE16` and
   `FRONTIER_NODE24`, uses a temporary home and project, and needs registry access.

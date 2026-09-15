@@ -3,7 +3,7 @@
 
 // This file deliberately has no dependencies and uses syntax Node 16 accepts.
 // It must choose a runtime before FrontierMCP itself is installed or imported.
-// FrontierMCP setup bootstrap revision 1.
+// FrontierMCP setup bootstrap revision 2.
 
 const { spawn } = require('node:child_process');
 const { createHash } = require('node:crypto');
@@ -58,7 +58,11 @@ async function main(args) {
   const release = await readRelease(options.version);
   const runtime = await selectRuntime(options.node, release.engines.node);
   const installation = await findOrInstall(runtime, options.version);
-  const launch = await durableLaunch(runtime, installation);
+  const alternatives = await resolveAlternativeRuntimes(options);
+  const launch = await durableLaunch(runtime, installation, {
+    alternatives,
+    version: options.version,
+  });
 
   // The preflight starts in a disposable empty directory. It proves the exact
   // saved executable and entry work without creating or changing a tracker in
@@ -81,7 +85,15 @@ async function main(args) {
 }
 
 function parseArguments(args) {
-  const options = { apply: false, client: 'cursor', help: false, node: undefined, replace: false };
+  const options = {
+    apply: false,
+    bun: undefined,
+    client: 'cursor',
+    deno: undefined,
+    help: false,
+    node: undefined,
+    replace: false,
+  };
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     const value = args[index + 1];
@@ -96,6 +108,12 @@ function parseArguments(args) {
       index += 1;
     } else if (argument === '--node' && value !== undefined) {
       options.node = value;
+      index += 1;
+    } else if (argument === '--bun' && value !== undefined) {
+      options.bun = value;
+      index += 1;
+    } else if (argument === '--deno' && value !== undefined) {
+      options.deno = value;
       index += 1;
     } else if (argument === '--client' && value !== undefined) {
       options.client = value;
@@ -120,12 +138,14 @@ function parseArguments(args) {
 }
 
 function printUsage() {
-  process.stdout.write(`FrontierMCP setup bootstrap revision 1
+  process.stdout.write(`FrontierMCP setup bootstrap revision 2
 
 Usage: node scripts/frontier-setup.cjs --version X.Y.Z [options]
 
 Options:
   --node PATH       Use this Node executable instead of the current one.
+  --bun PATH        Save this Bun candidate for verified project launches.
+  --deno PATH       Save this Deno candidate for verified project launches.
   --client NAME     cursor (default) writes Cursor user scope; manual prints an entry.
   --apply           Write the previewed Cursor entry.
   --replace         Replace an existing different frontier entry, with a backup.
@@ -714,27 +734,64 @@ async function firstAccessible(candidates) {
   return checks.find(Boolean);
 }
 
-async function durableLaunch(runtime, installation) {
+async function resolveAlternativeRuntimes(options, environment = process.env) {
+  return {
+    bun: await resolveAlternativeRuntime('bun', options.bun, environment),
+    deno: await resolveAlternativeRuntime('deno', options.deno, environment),
+  };
+}
+
+async function resolveAlternativeRuntime(name, override, environment) {
+  const requested =
+    override === undefined
+      ? await firstAccessible(commandCandidatesOnPath(name, environment, process.platform))
+      : path.resolve(override);
+  if (requested === undefined) return undefined;
+  try {
+    return await realpath(requested);
+  } catch (error) {
+    if (override === undefined) return undefined;
+    throw new Error(`Could not resolve the requested ${name} executable ${requested}.`, {
+      cause: error,
+    });
+  }
+}
+
+async function durableLaunch(runtime, installation, options = {}) {
+  const selector = launcherSelectorSource({
+    alternatives: options.alternatives ?? {},
+    entry: installation.entry,
+    node: runtime.executable,
+    packageVersion: options.version,
+    repairCommand: runtime.repairCommand ?? 'fnm install 24',
+  });
+  const selectorDigest = createHash('sha256').update(selector).digest('hex').slice(0, 24);
+  const selectorPath = path.join(installation.directory, `frontier-select-${selectorDigest}.cjs`);
+  await writeImmutable(selectorPath, selector);
   const contents =
     process.platform === 'win32'
-      ? windowsLaunchWrapper(runtime, installation.entry)
-      : posixLaunchWrapper(runtime, installation.entry);
+      ? windowsLaunchWrapper(runtime, selectorPath)
+      : posixLaunchWrapper(runtime, selectorPath);
   const digest = createHash('sha256').update(contents).digest('hex').slice(0, 24);
   const wrapper = path.join(
     installation.directory,
     `frontier-launch-${digest}${process.platform === 'win32' ? '.cmd' : ''}`,
   );
   // A preview must never redirect a launcher already named by saved configuration.
-  try {
-    await writeFile(wrapper, contents, { encoding: 'utf8', flag: 'wx' });
-  } catch (error) {
-    if (error.code !== 'EEXIST' || (await readFile(wrapper, 'utf8')) !== contents) throw error;
-  }
+  await writeImmutable(wrapper, contents);
   if (process.platform !== 'win32') await chmod(wrapper, 0o755);
   return { command: wrapper, args: [] };
 }
 
-function posixLaunchWrapper(runtime, entry) {
+async function writeImmutable(target, contents) {
+  try {
+    await writeFile(target, contents, { encoding: 'utf8', flag: 'wx' });
+  } catch (error) {
+    if (error.code !== 'EEXIST' || (await readFile(target, 'utf8')) !== contents) throw error;
+  }
+}
+
+function posixLaunchWrapper(runtime, selector) {
   const repair = runtime.repairCommand ?? 'fnm install 24';
   return `#!/bin/sh
 if [ ! -x ${shellQuote(runtime.executable)} ]; then
@@ -742,7 +799,7 @@ if [ ! -x ${shellQuote(runtime.executable)} ]; then
   printf '%s\\n' ${shellQuote(`Repair it with ${repair}, then rerun FrontierMCP setup.`)} >&2
   exit 127
 fi
-exec ${shellQuote(runtime.executable)} ${shellQuote(entry)} "$@"
+exec ${shellQuote(runtime.executable)} ${shellQuote(selector)} "$@"
 `;
 }
 
@@ -750,9 +807,9 @@ function shellQuote(value) {
   return `'${String(value).replace(/'/g, `'"'"'`)}'`;
 }
 
-function windowsLaunchWrapper(runtime, entry) {
+function windowsLaunchWrapper(runtime, selector) {
   const node = windowsBatchQuote(runtime.executable);
-  const quotedEntry = windowsBatchQuote(entry);
+  const quotedSelector = windowsBatchQuote(selector);
   const repair = runtime.repairCommand ?? 'fnm install 24';
   return `@echo off
 setlocal DisableDelayedExpansion
@@ -761,8 +818,166 @@ if not exist ${node} (
   >&2 echo Repair it with ${windowsBatchText(repair)}, then rerun FrontierMCP setup.
   exit /b 127
 )
-${node} ${quotedEntry} %*
+${node} ${quotedSelector} %*
 exit /b %ERRORLEVEL%
+`;
+}
+
+function launcherSelectorSource(configuration) {
+  return `'use strict';
+const { spawn, spawnSync } = require('node:child_process');
+const { existsSync, readFileSync, realpathSync, statSync } = require('node:fs');
+const path = require('node:path');
+const configuration = ${JSON.stringify(configuration)};
+
+const choice = chooseRuntime();
+if (choice.message) process.stderr.write(\`FrontierMCP: \${choice.message}\\n\`);
+const child = spawn(choice.command, choice.args.concat(process.argv.slice(2)), {
+  cwd: process.cwd(),
+  env: process.env,
+  stdio: 'inherit',
+});
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => child.kill(signal));
+}
+child.on('error', error => {
+  process.stderr.write(\`FrontierMCP could not start \${choice.runtime}: \${error.message}\\n\`);
+  process.exitCode = 127;
+});
+child.on('exit', (code, signal) => {
+  if (code !== null && code !== 0 && choice.runtime !== 'configured Node') {
+    process.stderr.write(\`FrontierMCP: the \${choice.runtime} npm launcher exited \${code}; check that the pinned package is cached or the registry is reachable\\n\`);
+  }
+  process.exitCode = code ?? (signal ? 1 : 0);
+});
+
+function chooseRuntime() {
+  const node = {
+    runtime: 'configured Node',
+    command: configuration.node,
+    args: [configuration.entry],
+  };
+  const requested = process.env.FRONTIER_RUNTIME?.toLowerCase();
+  if (requested !== undefined && !['node', 'bun', 'deno'].includes(requested)) {
+    return fallback(node, \`FRONTIER_RUNTIME=\${requested} is invalid; expected node, bun, or deno; using configured Node\`);
+  }
+  if (requested === 'node') return node;
+
+  const workspace = resolveLaunchWorkspace(process.cwd());
+  if (workspace === undefined && requested === undefined) {
+    return fallback(node, 'no launch workspace marker was found; using configured Node');
+  }
+  const markers = workspace === undefined ? { bun: false, deno: false } : findMarkers(process.cwd(), workspace);
+  let selected = requested;
+  if (selected === undefined) {
+    if (markers.bun && markers.deno) {
+      return fallback(node, 'both Bun and Deno markers were found; using configured Node unless FRONTIER_RUNTIME chooses one');
+    }
+    if (markers.bun) selected = 'bun';
+    else if (markers.deno) selected = 'deno';
+    else return node;
+  }
+  return alternative(selected, node);
+}
+
+function alternative(runtime, node) {
+  if (configuration.packageVersion !== '0.3.1' || process.platform !== 'darwin' || process.arch !== 'arm64') {
+    return fallback(node, \`\${runtimeName(runtime)} is not verified for frontier-mcp@\${configuration.packageVersion} on \${process.platform}/\${process.arch}; using configured Node\`);
+  }
+  const executable = configuration.alternatives[runtime];
+  if (!executable || !existsSync(executable)) {
+    return fallback(node, \`\${runtimeName(runtime)} was selected but no saved executable is available; using configured Node\`);
+  }
+  const probe = spawnSync(executable, ['--version'], { encoding: 'utf8', timeout: 3000 });
+  const output = \`\${probe.stdout ?? ''} \${probe.stderr ?? ''}\`;
+  const version = runtime === 'bun'
+    ? /(?:^|\\s)(\\d+\\.\\d+\\.\\d+)(?:\\s|$)/.exec(output)?.[1]
+    : /(?:^|\\s)deno\\s+(\\d+\\.\\d+\\.\\d+)(?:\\s|$)/i.exec(output)?.[1];
+  const expected = runtime === 'bun' ? '1.3.14' : '2.9.6';
+  if (probe.status !== 0 || version !== expected) {
+    return fallback(node, \`\${runtimeName(runtime)} \${version ?? 'with an unreadable version'} is not verified (expected \${expected}); using configured Node\`);
+  }
+  if (runtime === 'bun') {
+    return {
+      runtime: 'Bun',
+      command: executable,
+      args: ['x', '--bun', \`frontier-mcp@\${configuration.packageVersion}\`],
+    };
+  }
+  return {
+    runtime: 'Deno',
+    command: executable,
+    args: [
+      'run',
+      '--no-config',
+      '--no-lock',
+      '--node-modules-dir=none',
+      '--no-prompt',
+      '--allow-read',
+      '--allow-write',
+      '--allow-env',
+      \`npm:frontier-mcp@\${configuration.packageVersion}\`,
+    ],
+  };
+}
+
+function resolveLaunchWorkspace(start) {
+  let current;
+  try {
+    current = realpathSync(start);
+  } catch {
+    return undefined;
+  }
+  while (true) {
+    if (isDirectory(path.join(current, '.scratch')) || existsSync(path.join(current, '.git'))) return current;
+    const parent = path.dirname(current);
+    if (parent === current) return undefined;
+    current = parent;
+  }
+}
+
+function findMarkers(start, workspace) {
+  let current = realpathSync(start);
+  const found = { bun: false, deno: false };
+  while (true) {
+    found.bun ||= existsSync(path.join(current, 'bun.lock')) || existsSync(path.join(current, 'bun.lockb')) || hasBunPackageManager(current);
+    found.deno ||= ['deno.json', 'deno.jsonc', 'deno.lock'].some(name => existsSync(path.join(current, name)));
+    if (current === workspace) return found;
+    const parent = path.dirname(current);
+    if (parent === current || !isWithin(parent, workspace)) return found;
+    current = parent;
+  }
+}
+
+function hasBunPackageManager(directory) {
+  try {
+    const manifest = JSON.parse(readFileSync(path.join(directory, 'package.json'), 'utf8'));
+    return typeof manifest.packageManager === 'string' && manifest.packageManager.startsWith('bun@');
+  } catch {
+    return false;
+  }
+}
+
+function isWithin(candidate, workspace) {
+  const relative = path.relative(workspace, candidate);
+  return relative === '' || (!relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative));
+}
+
+function isDirectory(target) {
+  try {
+    return statSync(target).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function runtimeName(runtime) {
+  return runtime === 'bun' ? 'Bun' : 'Deno';
+}
+
+function fallback(node, message) {
+  return { ...node, message };
+}
 `;
 }
 
@@ -928,7 +1143,12 @@ async function verifyLaunch(launch) {
   }
 }
 
-function protocolCheck(launch, cwd, environment = minimalLaunchEnvironment(launch.command)) {
+function protocolCheck(
+  launch,
+  cwd,
+  environment = minimalLaunchEnvironment(launch.command),
+  options = {},
+) {
   return new Promise((resolve, reject) => {
     const batch = process.platform === 'win32' && launch.command.endsWith('.cmd');
     if (batch && launch.args.length !== 0)
@@ -952,8 +1172,9 @@ function protocolCheck(launch, cwd, environment = minimalLaunchEnvironment(launc
     let settled = false;
     let initialized = false;
     const timeout = setTimeout(
-      () => finish(new Error('Timed out waiting for the MCP handshake.')),
-      REQUEST_TIMEOUT_MS,
+      () =>
+        finish(new Error(`${options.label ?? 'MCP launch'} timed out waiting for the handshake.`)),
+      options.timeout ?? REQUEST_TIMEOUT_MS,
     );
 
     child.stderr.setEncoding('utf8');
@@ -1020,9 +1241,21 @@ function protocolCheck(launch, cwd, environment = minimalLaunchEnvironment(launc
       clearTimeout(timeout);
       child.kill('SIGTERM');
       const detail = stderr.trim();
-      if (error !== undefined)
-        reject(new Error(detail ? `${error.message}\nServer stderr: ${detail}` : error.message));
-      else resolve();
+      const shutdown = setTimeout(() => {
+        child.kill('SIGKILL');
+        reject(
+          new Error(
+            `${options.label ?? 'MCP launch'} did not exit after SIGTERM.` +
+              (detail ? `\nServer stderr: ${detail}` : ''),
+          ),
+        );
+      }, options.shutdownTimeout ?? 2000);
+      child.once('close', () => {
+        clearTimeout(shutdown);
+        if (error !== undefined)
+          reject(new Error(detail ? `${error.message}\nServer stderr: ${detail}` : error.message));
+        else resolve({ stderr: detail });
+      });
     }
   });
 }
@@ -1189,6 +1422,7 @@ module.exports = {
     durableLaunch,
     prepareConfig,
     protocolCheck,
+    resolveAlternativeRuntimes,
     selectManagedRuntime,
     selectRuntime,
     stableRuntimePath,
