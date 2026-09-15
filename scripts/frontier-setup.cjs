@@ -302,6 +302,7 @@ async function discoverFnm(environment, platform) {
     path.join(homeDirectory(environment), '.fnm'),
   ]);
   const command = await managerCommand('fnm', roots, environment, platform);
+  const listed = await managerListedVersions(command, ['list'], environment);
   const runtimes = await runtimesFromLayouts(
     roots.map(root => ({
       root: path.join(root, 'node-versions'),
@@ -310,6 +311,7 @@ async function discoverFnm(environment, platform) {
     'fnm',
     repairCommand,
     environment,
+    listed,
   );
   return managerResult(
     'fnm',
@@ -330,11 +332,31 @@ async function discoverNvm(environment, platform) {
       : path.join(environment.XDG_CONFIG_HOME, 'nvm'),
     path.join(homeDirectory(environment), '.nvm'),
   ]);
+  const listed =
+    script === undefined
+      ? undefined
+      : await managerListedVersions(
+          '/bin/bash',
+          [
+            '--noprofile',
+            '--norc',
+            '-c',
+            '. "$1" --no-use; nvm ls --no-colors',
+            'frontier-setup',
+            script,
+          ],
+          {
+            ...environment,
+            NVM_DIR: path.dirname(script),
+            PATH: `${environment.PATH ?? ''}:/usr/bin:/bin`,
+          },
+        );
   const runtimes = await runtimesFromLayouts(
     roots.map(root => ({ root: path.join(root, 'versions', 'node'), suffix: ['bin', 'node'] })),
     'nvm',
     repairCommand,
     environment,
+    listed,
   );
   return managerResult('nvm', repairCommand, script !== undefined || runtimes.length > 0, runtimes);
 }
@@ -357,11 +379,13 @@ async function discoverNvmWindows(environment, platform) {
   const command = await managerCommand('nvm', directRoots, environment, platform);
   const root = await nvmWindowsRoot(command, environment);
   const roots = uniquePaths([root, ...directRoots]);
+  const listed = await managerListedVersions(command, ['list'], environment);
   const runtimes = await runtimesFromLayouts(
     roots.map(candidate => ({ root: candidate, suffix: ['node.exe'] })),
     'nvm-windows',
     repairCommand,
     environment,
+    listed,
   );
   const evidence = await Promise.all(roots.map(nvmWindowsRootEvidence));
   return managerResult(
@@ -394,7 +418,12 @@ async function nvmWindowsRoot(command, environment) {
   if (environment.NVM_HOME !== undefined) return environment.NVM_HOME;
   if (command === undefined) return undefined;
   try {
-    const { stdout } = await run(command, ['root'], { env: environment, label: 'nvm root' });
+    const { stdout } = await run(command, ['root'], {
+      env: managerQueryEnvironment(environment),
+      label: 'nvm root',
+      cwd: os.tmpdir(),
+      timeout: 5000,
+    });
     return stdout.trim().replace(/^Current Root:\s*/i, '');
   } catch {
     return undefined;
@@ -439,11 +468,13 @@ async function discoverAsdf(environment, platform) {
     path.join(homeDirectory(environment), '.asdf'),
   ]);
   const command = await managerCommand('asdf', roots, environment, platform);
+  const listed = await managerListedVersions(command, ['list', 'nodejs'], environment);
   const runtimes = await runtimesFromLayouts(
     roots.map(root => ({ root: path.join(root, 'installs', 'nodejs'), suffix: ['bin', 'node'] })),
     'asdf',
     repairCommand,
     environment,
+    listed,
   );
   return managerResult(
     'asdf',
@@ -462,6 +493,11 @@ async function discoverMise(environment, platform) {
     path.join(homeDirectory(environment), '.local', 'share', 'mise'),
   ]);
   const command = await managerCommand('mise', roots, environment, platform);
+  const listed = await managerListedVersions(
+    command,
+    ['ls', '--installed', '--no-header', 'node'],
+    environment,
+  );
   const runtimes = await runtimesFromLayouts(
     roots.map(root => ({
       root: path.join(root, 'installs', 'node'),
@@ -470,6 +506,7 @@ async function discoverMise(environment, platform) {
     'mise',
     repairCommand,
     environment,
+    listed,
   );
   return managerResult(
     'mise',
@@ -570,13 +607,37 @@ function voltaInstalledNodeVersions(output) {
 async function voltaListedVersions(command, environment) {
   try {
     const { stdout } = await run(command, ['list', 'all', '--format', 'plain'], {
-      env: environment,
+      env: managerQueryEnvironment(environment),
       label: 'volta list',
+      cwd: os.tmpdir(),
+      timeout: 5000,
     });
     return voltaInstalledNodeVersions(stdout);
   } catch {
     return [];
   }
+}
+
+// Commands are read-only installed-version queries. Missing commands, older CLI
+// syntax, and unrecognized output fall back to probing the known local layouts.
+async function managerListedVersions(command, args, environment) {
+  if (command === undefined) return undefined;
+  try {
+    const { stdout } = await run(command, args, {
+      cwd: os.tmpdir(),
+      env: managerQueryEnvironment(environment),
+      timeout: 5000,
+    });
+    return listedVersions(stdout);
+  } catch {
+    return undefined;
+  }
+}
+
+function managerQueryEnvironment(environment) {
+  // A manager executable may itself be a Bash script. Noninteractive Bash
+  // sources BASH_ENV even when no shell profile was requested.
+  return { ...environment, BASH_ENV: '', NO_COLOR: '1' };
 }
 
 function deduplicateRuntimes(runtimes) {
@@ -1092,6 +1153,7 @@ function run(command, args, options = {}) {
       cwd: options.cwd,
       env: options.env,
       stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: options.timeout,
     });
     let stdout = '';
     let stderr = '';

@@ -145,15 +145,15 @@ async function main() {
       }),
       'utf8',
     );
+    const previousConfig = await readFile(configPath, 'utf8');
     const refused = await bootstrap([...basic, '--apply'], project, environment);
     assert.notEqual(refused.code, 0);
     assert.match(refused.stderr, /--replace/);
     const replaced = await bootstrap([...basic, '--apply', '--replace'], project, environment);
     assert.equal(replaced.code, 0, replaced.stderr);
-    assert.equal(
-      (await readdir(path.dirname(configPath))).some(name => name.includes('frontier-backup-')),
-      true,
-    );
+    const replacementBackup = replaced.stdout.match(/^Backup: (.+)$/m)?.[1];
+    assert.notEqual(replacementBackup, undefined);
+    assert.equal(await readFile(replacementBackup, 'utf8'), previousConfig);
 
     const stableConfig = await readFile(configPath, 'utf8');
     const identicalPreview = await testing.prepareConfig(configPath, {
@@ -242,11 +242,20 @@ async function managerDiscoveryCheck(checkTemporary, home, checkOptions) {
     checkOptions.node24,
     path.join(nvmDirectory, 'versions', 'node', 'v24.15.0', 'bin', 'node'),
   );
-  await writeFile(path.join(nvmDirectory, 'nvm.sh'), 'nvm() { :; }\n', 'utf8');
+  await writeFile(
+    path.join(nvmDirectory, 'nvm.sh'),
+    '[ "$1" = --no-use ] || return 91\nnvm() { [ "$*" = "ls --no-colors" ] || return 92; printf queried > "$NVM_DIR/queried"; printf "v24.15.0\\n"; }\n',
+  );
+  const bashStartup = path.join(checkTemporary, 'inherited bash startup');
+  await writeFile(bashStartup, 'printf sourced > "$FRONTIER_STARTUP_MARKER"\n');
   const fnmDirectory = path.join(checkTemporary, 'custom fnm directory');
   await linkNode(
     checkOptions.node24,
     path.join(fnmDirectory, 'node-versions', 'v24.15.0', 'installation', 'bin', 'node'),
+  );
+  await writeManager(
+    path.join(fnmDirectory, 'bin/fnm'),
+    '#!/bin/bash\n[ "$*" = list ] || exit 91\nprintf queried > "$FNM_DIR/queried"\nprintf "v24.15.0\\n"\n',
   );
   const voltaDirectory = path.join(checkTemporary, 'custom volta directory');
   await linkNode(
@@ -255,23 +264,33 @@ async function managerDiscoveryCheck(checkTemporary, home, checkOptions) {
   );
   await writeManager(
     path.join(voltaDirectory, 'bin', 'volta'),
-    '#!/bin/sh\nif [ "$1" = list ]; then printf "Node runtimes:\\n  v24.15.0\\nPackage binaries:\\n"; else exit 91; fi\n',
+    '#!/bin/bash\nif [ "$1" = list ]; then printf "Node runtimes:\\n  v24.15.0\\nPackage binaries:\\n"; else exit 91; fi\n',
   );
   const asdfDirectory = path.join(checkTemporary, 'custom asdf directory');
   await linkNode(
     checkOptions.node24,
     path.join(asdfDirectory, 'installs', 'nodejs', '24.15.0', 'bin', 'node'),
   );
-  await writeManager(path.join(asdfDirectory, 'bin', 'asdf'), '#!/bin/sh\nexit 91\n');
+  await writeManager(
+    path.join(asdfDirectory, 'bin/asdf'),
+    '#!/bin/bash\n[ "$*" = "list nodejs" ] || exit 91\nprintf queried > "$ASDF_DATA_DIR/queried"\nprintf "24.15.0\\n"\n',
+  );
   const miseDirectory = path.join(checkTemporary, 'custom mise directory');
   await linkNode(
     checkOptions.node24,
     path.join(miseDirectory, 'installs', 'node', '24.15.0', 'bin', 'node'),
   );
-  await writeManager(path.join(miseDirectory, 'bin', 'mise'), '#!/bin/sh\nexit 91\n');
+  await writeManager(
+    path.join(miseDirectory, 'bin/mise'),
+    '#!/bin/bash\n[ "$*" = "ls --installed --no-header node" ] || exit 91\nprintf queried > "$MISE_DATA_DIR/queried"\nprintf "node 24.15.0\\n"\n',
+  );
   const windowsNvmDirectory = path.join(checkTemporary, 'custom nvm-windows directory');
   await linkNode(checkOptions.node24, path.join(windowsNvmDirectory, 'v24.15.0', 'node.exe'));
   await writeFile(path.join(windowsNvmDirectory, 'settings.txt'), 'root: fixture\n', 'utf8');
+  await writeManager(
+    path.join(windowsNvmDirectory, 'nvm.exe'),
+    '#!/bin/bash\n[ "$*" = list ] || exit 91\nprintf queried > "$NVM_HOME/queried"\nprintf "24.15.0\\n"\n',
+  );
 
   const layouts = [
     ['fnm', 'FNM_DIR', fnmDirectory, 'darwin', 'fnm install 24'],
@@ -283,14 +302,23 @@ async function managerDiscoveryCheck(checkTemporary, home, checkOptions) {
   ];
   await Promise.all(
     layouts.map(async ([manager, variable, root, platform, repair]) => {
-      const isolated = { ...isolatedManagerEnvironment(home), [variable]: root };
+      const bashMarker = path.join(root, 'unexpected-startup');
+      const isolated = {
+        ...isolatedManagerEnvironment(home),
+        [variable]: root,
+        BASH_ENV: bashStartup,
+        FRONTIER_STARTUP_MARKER: bashMarker,
+      };
       const selected = await testing.selectRuntime(undefined, '^24.15.0', {
         currentExecutable: checkOptions.node16,
         environment: isolated,
         platform,
       });
+      await assert.rejects(readFile(bashMarker), { code: 'ENOENT' });
       assert.equal(selected.manager, manager, `Individual ${manager} discovery`);
       assert.equal(selected.repairCommand, repair);
+      if (manager !== 'volta')
+        assert.match(await readFile(path.join(root, 'queried'), 'utf8'), /queried/);
       const emptyRoot = path.join(checkTemporary, `empty ${manager}`);
       await mkdir(emptyRoot, { recursive: true });
       if (manager === 'nvm') await writeFile(path.join(emptyRoot, 'nvm.sh'), 'nvm() { :; }\n');
@@ -308,6 +336,51 @@ async function managerDiscoveryCheck(checkTemporary, home, checkOptions) {
       );
     }),
   );
+
+  const nvmWindowsDefault = path.join(checkTemporary, 'nvm-windows default');
+  const nvmWindowsListedRoot = path.join(checkTemporary, 'nvm-windows listed root');
+  const nvmWindowsRootMarker = path.join(nvmWindowsDefault, 'unexpected-startup');
+  await linkNode(checkOptions.node24, path.join(nvmWindowsListedRoot, 'v24.15.0', 'node.exe'));
+  await writeManager(
+    path.join(nvmWindowsDefault, 'nvm', 'nvm.exe'),
+    `#!/bin/bash\ncase "$*" in\n  root) printf "Current Root: %s\\n" "$FRONTIER_NVM_ROOT" ;;\n  list) printf "24.15.0\\n" ;;\n  *) exit 91 ;;\nesac\n`,
+  );
+  const nvmWindowsRootEnvironment = {
+    ...isolatedManagerEnvironment(home),
+    APPDATA: nvmWindowsDefault,
+    BASH_ENV: bashStartup,
+    FRONTIER_NVM_ROOT: nvmWindowsListedRoot,
+    FRONTIER_STARTUP_MARKER: nvmWindowsRootMarker,
+  };
+  delete nvmWindowsRootEnvironment.NVM_HOME;
+  const rootSelected = await testing.selectRuntime(undefined, '^24.15.0', {
+    currentExecutable: checkOptions.node16,
+    environment: nvmWindowsRootEnvironment,
+    platform: 'win32',
+  });
+  assert.equal(rootSelected.manager, 'nvm-windows');
+  await assert.rejects(readFile(nvmWindowsRootMarker), { code: 'ENOENT' });
+
+  // A recognized manager listing controls selection; a failing old CLI uses the
+  // probed layout fallback. These assertions fail if the list call is cosmetic.
+  const fnmCommand = path.join(fnmDirectory, 'bin', 'fnm');
+  const fnmSource = await readFile(fnmCommand, 'utf8');
+  const selectionOptions = {
+    currentExecutable: checkOptions.node16,
+    environment: { ...isolatedManagerEnvironment(home), FNM_DIR: fnmDirectory },
+    platform: 'darwin',
+  };
+  await writeManager(fnmCommand, '#!/bin/sh\nprintf "v16.20.2\\n"\n');
+  await assert.rejects(
+    testing.selectRuntime(undefined, '^24.15.0', selectionOptions),
+    /No compatible installed Node/,
+  );
+  await writeManager(fnmCommand, '#!/bin/sh\nexit 91\n');
+  assert.equal(
+    (await testing.selectRuntime(undefined, '^24.15.0', selectionOptions)).manager,
+    'fnm',
+  );
+  await writeManager(fnmCommand, fnmSource);
 
   const noManager = await testing.discoverManagedRuntimes(
     { ...isolatedManagerEnvironment(home), APPDATA: path.join(checkTemporary, 'empty roaming') },

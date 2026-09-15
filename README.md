@@ -24,8 +24,8 @@ compatible with the compiled package but is end-of-life. Developing FrontierMCP 
 `dist/bin.js` instead.
 
 The package-runtime check has been run on macOS arm64 with Node 20.20.2, 22.17.1, and 24.15.0.
-Compatibility CI is configured for those versions on macOS, Linux, and Windows; until those jobs run,
-that matrix is configured coverage rather than measured platform support.
+[Compatibility CI](https://github.com/51ck/frontier-mcp/actions/runs/34771254854) passed those versions
+on macOS, Linux, and Windows. This verifies the package; manager setup has separate checks.
 
 ## Set up from a Node 16 project (source checkout)
 
@@ -43,17 +43,38 @@ From this source checkout, choose an already installed compatible Node and an ex
 node scripts/frontier-setup.cjs --version 0.3.1 --node /absolute/path/to/node --apply
 ```
 
+For a release that contains `scripts/frontier-setup.cjs`, the bootstrap can be extracted directly
+from its registry tarball without installing the server or evaluating its engine requirement. This
+is the distribution procedure for the next release; `0.3.1` does not contain the file. Set
+`VERSION` to the exact published version after confirming that its tarball includes the bootstrap:
+
+```bash
+VERSION=X.Y.Z
+curl --fail --location "https://registry.npmjs.org/frontier-mcp/-/frontier-mcp-${VERSION}.tgz" --output frontier-mcp.tgz
+tar -xzf frontier-mcp.tgz package/scripts/frontier-setup.cjs
+node package/scripts/frontier-setup.cjs --version "$VERSION" --node /absolute/path/to/node
+```
+
+Review the preview, then repeat the last command with `--apply` for Cursor user scope. For another
+client, replace `--apply` with `--client manual` and copy the printed `frontier` entry into its user
+configuration. Downloads and extraction run in a temporary directory outside the consumer project;
+run the bootstrap with the consumer project as the working directory if its runtime needs discovery.
+The commands above are a release procedure, not a working quick-start for `0.3.1`.
+
 When the current Node is too old, omit `--node` and setup looks only at already installed releases
 from fnm, nvm, nvm-windows, Volta, asdf, and mise. It keeps the current Node if it is suitable;
 otherwise it prefers Node 24 LTS, then the highest compatible managed version. An explicit `--node`
-always wins. Discovery never installs a runtime, changes a manager's default, writes a project pin,
+always wins. Setup queries installed-version commands first, then probes the known local layouts if
+the command is unavailable, fails, or returns unrecognized output. nvm runs in a child shell loaded
+with `--no-use`; no startup profile is sourced. Discovery never installs a runtime, changes a manager's default, writes a project pin,
 or loads a shell profile. If no detected manager has a suitable release, setup prints that manager's
 Node 24 installation command. With no manager, it recommends `fnm install 24`.
 
 The setup smoke has verified fnm discovery on macOS arm64. Its nvm, nvm-windows, Volta, asdf, and
 mise layouts are simulated from their documented on-disk locations; Windows and Linux manager behavior
 has not been measured locally. The runtime compatibility CI matrix is configured separately from these
-manager fixtures.
+manager fixtures. The setup CI matrix provisions real fnm on all three operating systems and checks
+registration and the saved launcher; its first successful run is still pending.
 
 The saved entry runs a generated launcher that holds the real Node executable and package entry, so
 `.nvmrc`, `.tool-versions`, `mise.toml`, Volta pins, and an editor's stripped `PATH` cannot select the
@@ -93,7 +114,9 @@ The script runs its exact saved command through MCP initialization and `tools/li
 directory before it touches Cursor. It refuses malformed Cursor JSON and changes detected after it
 prepares the backup and replacement file. An unrelated editor can still write in the one final-read to
 rename syscall interval; the bootstrap cannot make that uncooperative writer participate in its guard.
-An explicit replacement has a backup of the prior config.
+Each changed existing configuration has a backup of the prior file. To restore it, stop concurrent
+configuration edits and copy the printed `Backup:` path over `~/.cursor/mcp.json`, then restart Cursor.
+That backup cannot recover an unrelated edit made after the final check.
 
 ## Install once (user scope)
 

@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -115,6 +115,9 @@ async function verifyWatcher(root) {
   await withServer(root, 'watcher', async client => {
     await call(client, 'get_board', { effort: 'alpha' });
     await sleep(WATCHER_SETTLE_MS);
+    // Settle timers invalidate the first scan even if the runtime never delivers
+    // a filesystem event. Prime it again so the edit must trigger invalidation.
+    await call(client, 'get_board', { effort: 'alpha' });
 
     const ticketPath = join(root, '.scratch', 'alpha', 'issues', '01-T1-runtime-lifecycle.md');
     const original = await readFile(ticketPath, 'utf8');
@@ -128,6 +131,36 @@ async function verifyWatcher(root) {
       async () => call(client, 'get_board', { effort: 'alpha' }),
       board => board.includes('Changed outside the server'),
       'an external nested Ticket edit reaches the Board after watcher settling',
+    );
+
+    const issues = join(root, '.scratch', 'external', 'issues');
+    await mkdir(issues, { recursive: true });
+    await writeFile(
+      join(issues, '01-T100-external.md'),
+      '---\nid: T100\ntitle: New external directory\nkind: build\nstatus: open\nblocked_by: []\n---\n',
+      'utf8',
+    );
+    await waitFor(
+      async () => call(client, 'list_efforts', {}),
+      efforts => efforts.includes('external'),
+      'an Effort created outside the server after watcher settling becomes visible',
+    );
+    await call(client, 'get_board', { effort: 'external' });
+    await sleep(WATCHER_SETTLE_MS);
+    await call(client, 'get_board', { effort: 'external' });
+    const newTicketPath = join(issues, '01-T100-external.md');
+    await writeFile(
+      newTicketPath,
+      (await readFile(newTicketPath, 'utf8')).replace(
+        'New external directory',
+        'Edited new directory',
+      ),
+      'utf8',
+    );
+    await waitFor(
+      async () => call(client, 'get_board', { effort: 'external' }),
+      board => board.includes('Edited new directory'),
+      'an external edit inside a newly created directory reaches its Board',
     );
   });
 }

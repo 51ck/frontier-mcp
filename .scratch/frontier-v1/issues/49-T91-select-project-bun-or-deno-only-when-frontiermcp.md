@@ -29,3 +29,19 @@ Research on 2026-09-04 found that Bun 1.3.14 and Deno 2.9.6 passed MCP initializ
 ## Research
 
 See [runtime setup research](../../../docs/research/2026-09-04-runtime-setup.md).
+
+## Comments
+
+2026-09-15 evidence slice: strengthened `runtime-check.mjs` now primes each Board after watcher
+settling and covers a newly created Effort plus a later edit inside its new directory. On macOS
+arm64, Node 24.15.0, Bun 1.3.14, and Deno 2.9.6 passed the compiled-package probe under unrestricted
+filesystem access; disabling watcher event invalidation made the Node baseline fail. Released 0.3.1
+also passed installed-entry and final `bun x --bun` / isolated Deno `npm:` probes. With Node 16.20.2
+first on `PATH`, both final launchers claimed and resolved a Legacy Ticket without losing its body.
+Malformed consumer `deno.json` and `deno.lock` files stayed byte-identical and no consumer
+`node_modules` appeared. Sandbox watcher errors caused reattachment timers that could hide a broken
+Node watcher, while Bun/Deno went stale there, so runtime comparisons must use matched filesystem
+permissions. Full commands, limitations, and artifact checksum are recorded in
+[the dated verification](../../../docs/research/2026-09-15-t91-runtime-verification.md). Selection,
+fallback, saved-launch, and multi-project implementation remain open; no acceptance criterion is
+checked by this evidence alone.

@@ -388,7 +388,8 @@ pnpm run release:dry  # needs a clean tree and an upstream branch
 
 `.github/workflows/runtime.yml` runs `check`, `test`, and `build` on Node 24 for every push
 and pull request. Its development job is the test gate; keep failures blocking the downstream
-package compatibility jobs. Reuse this gate rather than adding a second test workflow. The release
+package compatibility and setup jobs. The setup matrix provisions real fnm and verifies registration
+and saved launches on macOS, Linux, and Windows; scripts DOX owns the checks. Reuse this gate rather than adding a second test workflow. The release
 workflow remains a separate manual publish path.
 
 `release:dry` is the odd one out: `.release-it.json` sets `requireCleanWorkingDir` and
