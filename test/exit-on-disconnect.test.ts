@@ -2,6 +2,7 @@ import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { join } from 'node:path';
+import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
@@ -85,13 +86,55 @@ function spawnBinary(cwd: string): ChildProcessWithoutNullStreams {
   return spawn(process.execPath, [DIST_BIN], { cwd, stdio: ['pipe', 'pipe', 'pipe'] });
 }
 
-/** A plain delay — `bin.js` never writes a startup banner, so there is no
- * stdout event worth waiting on instead. Long enough for Node's own startup
- * and this repo's ~13ms warm-up scan (see the scan-cost paragraph in
- * AGENTS.md) to finish and `bin.ts` to reach its own listener registration,
- * so a signal sent afterward exercises that handler rather than racing it. */
-function settled(ms = 300): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+/** A protocol response proves startup finished, even on a contended runner.
+ * The signal tests must reach the registered handlers before sending a signal. */
+function ready(child: ChildProcessWithoutNullStreams): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const lines = createInterface({ input: child.stdout });
+    const timer = setTimeout(() => fail(new Error('Binary did not initialize within 5s')), 5_000);
+    function cleanup(): void {
+      clearTimeout(timer);
+      lines.close();
+      child.off('error', fail);
+      child.off('exit', earlyExit);
+    }
+    function fail(error: Error): void {
+      cleanup();
+      child.kill('SIGKILL');
+      reject(error);
+    }
+    function earlyExit(): void {
+      fail(new Error('Binary exited before initialization'));
+    }
+    child.once('error', fail);
+    child.once('exit', earlyExit);
+    lines.on('line', line => {
+      try {
+        const response: { id?: unknown; result?: unknown; error?: unknown } = JSON.parse(line);
+        if (response.id !== 'ready') return;
+        if (response.error !== undefined || response.result === undefined) {
+          fail(new Error(`Binary initialization failed: ${line}`));
+          return;
+        }
+        cleanup();
+        resolve();
+      } catch (error) {
+        fail(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+    child.stdin.write(
+      `${JSON.stringify({
+        jsonrpc: '2.0',
+        id: 'ready',
+        method: 'initialize',
+        params: {
+          protocolVersion: '2025-11-25',
+          capabilities: {},
+          clientInfo: { name: 'signal-readiness-test', version: '0.0.0' },
+        },
+      })}\n`,
+    );
+  });
 }
 
 /** The child's own reported exit, so a caller can tell a clean `process.exit(0)`
@@ -244,11 +287,8 @@ describe('the packaged binary exits when its client disconnects', () => {
     async () => {
       const cwd = await workspaceWithAnEffort();
       const child = spawnBinary(cwd);
+      await ready(child);
       const waiting = exitsWithin(child);
-
-      // A live child, not one already dying: SIGTERM racing process startup
-      // would test Node's startup path more than the signal handler.
-      await settled();
       child.kill('SIGTERM');
 
       const { code, signal } = await waiting;
@@ -276,9 +316,8 @@ describe('the packaged binary exits when its client disconnects', () => {
     async () => {
       const cwd = await workspaceWithAnEffort();
       const child = spawnBinary(cwd);
+      await ready(child);
       const waiting = exitsWithin(child);
-
-      await settled();
       child.kill('SIGINT');
 
       const { code, signal } = await waiting;
