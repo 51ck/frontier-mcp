@@ -23,10 +23,12 @@ These scripts provide runtime probes and setup helpers for T88–T91.
   already-built `--tarball`. The package check accepts pnpm distributed as JavaScript or a native
   executable.
 - `frontier-setup.cjs` is a dependency-free Node 16 bootstrap. It reads the exact released pin's
-  engine declaration, uses a resolved compatible Node plus its pnpm/Corepack JavaScript entry, stages
-  an immutable user-data install, verifies real MCP initialization and `tools/list`, then previews or
-  applies only Cursor user configuration. It ships in the package as bootstrap revision 1. Its private `testing` export exists solely for the adjacent
-  process-level check to force races and protocol failures; it is not a supported interface.
+  engine declaration, uses a resolved compatible Node plus its pnpm/Corepack JavaScript entry,
+  installs directly into a unique immutable user-data directory, verifies real MCP initialization
+  and `tools/list`, then previews or applies only Cursor user configuration. It never relocates that
+  directory after pnpm runs because pnpm's Windows directory junctions retain their absolute target.
+  It ships in the package as bootstrap revision 1. Its private `testing` export exists solely for the
+  adjacent process-level check to force races and protocol failures; it is not a supported interface.
 - Cursor configuration writes back up the previous file, refuse malformed JSON and changes detected
   by the final read, then replace by rename. The setup guard serializes cooperating setup processes;
   an unrelated editor can still write between that final read and rename. This accepted limit must

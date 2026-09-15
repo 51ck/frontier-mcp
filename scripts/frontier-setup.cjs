@@ -791,16 +791,17 @@ async function findOrInstall(runtime, version) {
   const existing = await verifiedInstallation(root, runtime);
   if (existing !== undefined) return existing;
 
-  const stage = await mkdtemp(path.join(root, '.stage-'));
+  // pnpm uses absolute directory junctions on Windows. Installing under one
+  // parent and renaming that parent leaves those junctions aimed at the old
+  // path, so create the unique immutable destination before pnpm runs.
+  const destination = await mkdtemp(path.join(root, 'installed-'));
   try {
-    await installPackage(stage, runtime, version);
-    const entry = packageEntry(stage);
+    await installPackage(destination, runtime, version);
+    const entry = packageEntry(destination);
     await verifyLaunch({ command: runtime.executable, args: [entry] });
-    const destination = path.join(root, `installed-${Date.now()}-${process.pid}`);
-    await rename(stage, destination);
-    return { directory: destination, entry: packageEntry(destination), reused: false };
+    return { directory: destination, entry, reused: false };
   } catch (error) {
-    await rm(stage, { recursive: true, force: true });
+    await rm(destination, { recursive: true, force: true });
     throw error;
   }
 }

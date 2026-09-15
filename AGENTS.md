@@ -329,6 +329,10 @@ Write rules, equally load-bearing:
 
 - **Atomic or not at all.** Write a temporary file in the same directory, rename over the target.
   No lock files, ever — a crashed session must never be able to wedge the tracker.
+- **A transient Windows `EPERM` retries the filesystem replace, not the write.** Ticket replacement
+  keeps the same staged file and revision guard, rechecks the expected revision before each retry,
+  and stops after 10, 20, 40, and 80ms delays. A changed target becomes a revision mismatch; every
+  other error and every write without an expected revision fails on its first rename.
 - **Claims are guarded by a revision-keyed exclusive create**, per [ADR 0004](./docs/adr/0004-claims-are-guarded-by-a-revision-keyed-exclusive-create.md). An optimistic check alone is not compare-and-set across processes — measured, four sessions claiming one Ticket produced three false winners.
 - **Every write carries the revision it read.** `TicketSummary.revision` is opaque above the seam;
   the markdown driver builds it from modification time and size, a SQLite driver would use a
