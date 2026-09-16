@@ -2,6 +2,26 @@
 
 Package release notes for `frontier-mcp` (npm). Not part of the `.scratch/` issue tracker.
 
+## [0.4.0](https://github.com/51ck/frontier-mcp/compare/v0.3.1...v0.4.0) (2026-09-16)
+
+### Features
+
+* add standalone runtime setup ([73f0396](https://github.com/51ck/frontier-mcp/commit/73f03967aa2809c1cd02242e1978380b9da2c45b))
+* detect foreign fences; add reopen/release ([7147352](https://github.com/51ck/frontier-mcp/commit/7147352e86ec2248bd6baded5002a5b91befdc56))
+* discover managed Node runtimes ([abf92c6](https://github.com/51ck/frontier-mcp/commit/abf92c6802650004471ab9ac37affe400e4ec4f9))
+* **setup:** select verified project runtimes ([0fa6029](https://github.com/51ck/frontier-mcp/commit/0fa602906b3c3d2fd10075daf4f3bc9512d7cc2a))
+* **setup:** verify managed runtimes ([dcc9a0a](https://github.com/51ck/frontier-mcp/commit/dcc9a0a801aedb26a1529f9ee8f8d7c49e6c30e0))
+
+### Bug Fixes
+
+* diagnose runtime CI and support native pnpm ([2190503](https://github.com/51ck/frontier-mcp/commit/219050356763db96afc77a2dc51292dc0ac11d3e))
+* exit when the stdio client disconnects ([eb00c0f](https://github.com/51ck/frontier-mcp/commit/eb00c0f3736574521d5870b0c15392c09e387832))
+* handle Windows filesystem races ([6c57a2d](https://github.com/51ck/frontier-mcp/commit/6c57a2d560c5cb4da6bd599e63380ff4696e5d6b))
+* initialize tracker before id reservation ([d087c8e](https://github.com/51ck/frontier-mcp/commit/d087c8eb1249faa10c2cbfb13f41ee9025758147))
+* **setup:** accept bounded launcher shutdown ([0d76b67](https://github.com/51ck/frontier-mcp/commit/0d76b678e1fee5f44ae9c981014e98ef26e2dc7e))
+* **setup:** close Windows launcher trees ([b180317](https://github.com/51ck/frontier-mcp/commit/b180317c16d625bbdd6403584cbcbcff139e45fd))
+* **setup:** retry transient preflight cleanup ([664d7e6](https://github.com/51ck/frontier-mcp/commit/664d7e6844035beb3ac9a254e205bfccc7593772))
+
 ## [0.3.1](https://github.com/51ck/frontier-mcp/compare/v0.3.0...v0.3.1) (2026-08-20)
 
 ### Bug Fixes
