@@ -21,6 +21,7 @@
  *   than the one the Ticket asks.
  *
  * Run: `pnpm run bench:scan [--out=<path>] [--no-gc]`
+ * T49 create-only comparison: add `--group=create` (raw samples included).
  */
 /*
  * `no-await-in-loop` is right about production code and wrong about this file.
@@ -36,6 +37,7 @@ import { cpus, release, tmpdir, totalmem } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { createMarkdownDriver } from '../src/storage/markdown/driver.ts';
+import { planBatch } from '../src/tools/create-tickets.ts';
 
 /**
  * Outside the repo on purpose. A results blob committed next to the harness
@@ -376,7 +378,10 @@ async function ticketStats(
   return { count, bytes, efforts: slugs.length };
 }
 
-async function buildFixtures(scratch: string): Promise<{ dir: string; fixtures: Fixture[] }> {
+async function buildFixtures(
+  scratch: string,
+  marker = true,
+): Promise<{ dir: string; fixtures: Fixture[] }> {
   const dir = await mkdtemp(join(tmpdir(), 'frontier-bench-'));
 
   // The real Effort is copied rather than benchmarked in place: a concurrent
@@ -393,7 +398,7 @@ async function buildFixtures(scratch: string): Promise<{ dir: string; fixtures: 
     trials: number;
   }> = [
     {
-      name: 'real .scratch (frontier-v1 + hive + web)',
+      name: 'real .scratch snapshot',
       root: realRoot,
       issues: join(realRoot, '.scratch', 'frontier-v1', 'issues'),
       iterations: 30,
@@ -424,7 +429,7 @@ async function buildFixtures(scratch: string): Promise<{ dir: string; fixtures: 
   for (const entry of plan) {
     // Seeded before anything is counted, so the ticket count the harness reports
     // is the one every group actually scanned.
-    await writeMarker(entry.issues, 'marker-0');
+    if (marker) await writeMarker(entry.issues, 'marker-0');
     const stats = await ticketStats(entry.root);
     fixtures.push({
       name: entry.name,
@@ -729,6 +734,117 @@ async function runSession(): Promise<void> {
 // ----------------------------------------------------------- the report
 
 /**
+ * Current driver create, including guard scans, validation, staging and readback.
+ * Each call gets a fresh clone so neither the Ticket count nor abandoned guards
+ * accumulate. Copying and cleanup are outside the timer and prime the OS cache.
+ * The independent scan uses the unchanged base fixture and a fresh driver.
+ * Alternating which timer goes first reduces systematic ordering bias.
+ */
+async function measureCreates(fixture: Fixture, batchSize: number) {
+  const samples: Array<{ scanMs: number; createMs: number }> = [];
+  const batch = planBatch(
+    Array.from({ length: batchSize }, (_, index) => ({
+      title: `Benchmark creation ${String(index)}`,
+      body: prose(TARGET_TICKET_BYTES, index),
+    })),
+    [],
+  );
+  const effort = fixture.name.startsWith('real') ? 'frontier-v1' : 'bench-1';
+
+  for (let i = 0; i < SCAN_WARMUPS + fixture.iterations; i += 1) {
+    const trial = await mkdtemp(join(tmpdir(), 'frontier-create-trial-'));
+    try {
+      await cp(join(fixture.root, '.scratch'), join(trial, '.scratch'), { recursive: true });
+      const scanner = createMarkdownDriver(fixture.root, { watcherSettleMs: [] });
+      const writer = createMarkdownDriver(trial, { watcherSettleMs: [] });
+      let scanMs = 0;
+      let createMs = 0;
+      const scan = async () => {
+        scanMs = await timed(() => scanner.listTickets());
+      };
+      const create = async () => {
+        createMs = await timed(async () => {
+          const created = await writer.createTickets(effort, batch.drafts, {
+            createEffort: false,
+            validate: batch.validate,
+          });
+          if (created.length !== batchSize) throw new Error('Incomplete benchmark batch.');
+        });
+      };
+      try {
+        if (i % 2 === 0) {
+          await scan();
+          await create();
+        } else {
+          await create();
+          await scan();
+        }
+      } finally {
+        scanner.close();
+        writer.close();
+      }
+      const after = await ticketStats(trial);
+      if (after.count !== fixture.ticketCount + batchSize) {
+        throw new Error('Benchmark fixture Ticket count changed unexpectedly.');
+      }
+      if (i >= SCAN_WARMUPS) samples.push({ scanMs, createMs });
+    } finally {
+      await rm(trial, { recursive: true, force: true });
+    }
+  }
+
+  const scan = summarize(samples.map(sample => sample.scanMs));
+  const create = summarize(samples.map(sample => sample.createMs));
+  return {
+    fixture: fixture.name,
+    batchSize,
+    targetEffort: effort,
+    warmupsDiscarded: SCAN_WARMUPS,
+    scan,
+    create,
+    // Arithmetic only: neither this difference nor paired differences time a
+    // random-id implementation or isolate the scan occurring under a guard.
+    differenceOfMediansMs: create.median - scan.median,
+    samples,
+  };
+}
+
+async function runCreateBenchmark(): Promise<void> {
+  const machine = attribution();
+  const out = option('out') ?? join(tmpdir(), 'frontier-create-cost.json');
+  const { dir, fixtures: all } = await buildFixtures(
+    join(import.meta.dirname, '../.scratch'),
+    false,
+  );
+  const fixtures = all.filter(fixture => !fixture.name.includes('~200 '));
+  try {
+    say(`T49 current create path — ${JSON.stringify(machine)}`);
+    say('OS-warm clones; no contention; fresh drivers; watcher settle disabled.');
+    say('Driver call only: includes production validation hook, excludes MCP transport/planning.');
+    const creates = [];
+    for (const fixture of fixtures) {
+      for (const batchSize of [1, 3]) {
+        say(`${fixture.name}: ${String(fixture.ticketCount)} Tickets; batch ${String(batchSize)}`);
+        const run = await measureCreates(fixture, batchSize);
+        creates.push(run);
+        say(HEADER);
+        say(row(run.scan, 'single scan'));
+        say(row(run.create, 'create'));
+        say(`Arithmetic difference of medians: ${ms(run.differenceOfMediansMs)}`);
+      }
+    }
+    await mkdir(dirname(out), { recursive: true });
+    await writeFile(
+      out,
+      `${JSON.stringify({ attribution: machine, fixtures, creates }, null, 2)}\n`,
+    );
+    say(`Raw results: ${out}`);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/**
  * A fixed unit of the work a scan actually spends its time on, timed so that
  * two result files can be told apart.
  *
@@ -916,4 +1032,5 @@ async function runBenchmark(): Promise<void> {
 const role = option('role') ?? 'benchmark';
 if (role === 'session') await runSession();
 else if (role === 'memory') await runMemoryProbe();
+else if (option('group') === 'create') await runCreateBenchmark();
 else await runBenchmark();

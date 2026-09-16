@@ -1,0 +1,103 @@
+name: Runtime compatibility
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+jobs:
+  development:
+    name: Development (Node 24)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run check
+      - run: pnpm test
+      - run: pnpm run build
+      - run: pnpm pack --pack-destination package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontier-mcp-package
+          path: package/*.tgz
+
+  package-runtime:
+    name: Package (Node ${{ matrix.node }}, ${{ matrix.os }})
+    needs: development
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20.20.2, 22.17.1, 24.15.0]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.15.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontier-mcp-package
+          path: package
+      - run: pnpm run test:runtime:package -- --tarball package
+
+  setup-runtime:
+    name: Setup (fnm, ${{ matrix.os }})
+    needs: development
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            archive: fnm-linux.zip
+          - os: macos-latest
+            archive: fnm-macos.zip
+          - os: windows-latest
+            archive: fnm-windows.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Provision real fnm and two installed Node versions
+        shell: pwsh
+        env:
+          FNM_ARCHIVE: ${{ matrix.archive }}
+        run: |
+          $manager = Join-Path $env:RUNNER_TEMP 'fnm manager with spaces'
+          $archive = Join-Path $env:RUNNER_TEMP 'fnm.zip'
+          Invoke-WebRequest "https://github.com/Schniz/fnm/releases/download/v1.39.0/$env:FNM_ARCHIVE" -OutFile $archive
+          Expand-Archive $archive -DestinationPath $manager
+          $fnm = Join-Path $manager $(if ($IsWindows) { 'fnm.exe' } else { 'fnm' })
+          if (-not $IsWindows) { chmod +x $fnm }
+          $env:FNM_DIR = Join-Path $env:RUNNER_TEMP 'fnm data with spaces'
+          & $fnm install 16.20.2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $fnm install 24.15.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $node16 = & $fnm exec --using 16.20.2 node -p process.execPath
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $node24 = & $fnm exec --using 24.15.0 node -p process.execPath
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "FRONTIER_FNM=$fnm" >> $env:GITHUB_ENV
+          "FNM_DIR=$env:FNM_DIR" >> $env:GITHUB_ENV
+          "FRONTIER_NODE16=$node16" >> $env:GITHUB_ENV
+          "FRONTIER_NODE24=$node24" >> $env:GITHUB_ENV
+      - name: Verify Node 16 bootstrap and saved launcher
+        shell: pwsh
+        run: |
+          & $env:FRONTIER_NODE24 scripts/frontier-setup-platform-check.cjs
+          exit $LASTEXITCODE

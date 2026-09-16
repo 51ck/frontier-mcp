@@ -23,7 +23,6 @@ valid.
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
 
 - [x] `edit_map` with `create: true` and no section fields returns the existing Map when one is
       already present, without requiring `expected_revision`

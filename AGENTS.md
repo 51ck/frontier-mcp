@@ -16,7 +16,9 @@ Vocabulary is defined in [CONTEXT.md](./CONTEXT.md) and is binding on code, tool
 
 ## Ownership
 
-Root owns everything in this repository. No child `AGENTS.md` yet.
+Root owns the application, tracker, and project configuration. The children
+[.agents/skills/AGENTS.md](./.agents/skills/AGENTS.md) and [scripts/AGENTS.md](./scripts/AGENTS.md)
+own installed upstream skills and runtime/setup scripts respectively.
 
 ## Core Contract
 
@@ -162,7 +164,9 @@ Anything else in an effort directory is ignored, never an error.
 
 ## Work Guidance
 
-TypeScript, Node 24, stdio MCP server. pnpm — never npm or yarn.
+TypeScript, Node 24 development, stdio MCP server. pnpm — never npm or yarn. The emitted package
+supports Node 20.20.2+ on 20.x, 22.17.1+ on 22.x, and 24.15.0+ on 24.x; `src/` still requires Node
+24's native TypeScript execution.
 
 Stack, settled:
 
@@ -191,9 +195,9 @@ Stack, settled:
 - **`oxlint`** for linting and **`oxfmt`** for formatting. No ESLint, no Prettier.
   - `oxfmt` is configured to the style the repo already had — single quotes, `printWidth` 100 to
     match the prose in these docs, `arrowParens: avoid` — rather than the other way round.
-  - It never touches markdown. `**/*.md` and `.scratch/**` are in `ignorePatterns`, because
-    `.scratch/` is the tracker data this server exists to serve and becomes T2's fixtures; a
-    formatter rewrapping it would corrupt the input under test.
+  - It never touches markdown or installed upstream skills. `**/*.md`, `.scratch/**`, and
+    `.agents/skills/**` are in `ignorePatterns`: tracker data is input under test, and skill files
+    stay as their upstream copies.
   - `oxfmt` sorts `package.json` keys by default. That is left on.
   - Lint categories are `correctness`, `suspicious`, and `perf`. `pedantic`, `style`, and
     `restriction` are off — they need a suppression list before they say anything useful.
@@ -280,7 +284,7 @@ Source layout:
 | `src/server.ts` | Wires the above into an `McpServer`. |
 | `src/tracker-doc.ts` | Loads the shipped tracker configuration document for the `tracker-doc` MCP resource, from beside `dist/` in the installed package rather than from the working directory. |
 | `src/index.ts` | The package's library surface. Deliberately narrow — below-seam modules are not exported. |
-| `src/bin.ts` | The stdio entry point. |
+| `src/bin.ts` | The stdio entry point. Owns process lifecycle: it exits on client disconnect — the transport closing, stdin EOF, `SIGTERM`, `SIGINT` — so every driver's watcher gets released rather than orphaning the process (T95). |
 
 Nothing under `src/tools/` may import from `src/storage/`.
 
@@ -311,6 +315,8 @@ Rendering rules that are load-bearing, not cosmetic:
   reference form, so the Board is the only thing that can make a foreign Edge followable.
 - **An unresolvable Edge renders `T9?`** and is counted in the warnings block. It never silently
   makes a Ticket look takeable.
+- **An unrecognized status is counted in the warnings block and is never takeable.** The Board line
+  may still show `/open`, but the Ticket is kept off the Frontier until a write normalizes it.
 - **Every Ticket is nameable.** A Legacy Ticket with no id gets an `<effort>#<order>` handle, which
   `get_tickets` accepts. It is an address, not an id — not repo-stable, and never usable as an Edge —
   but without it a whole Effort has no route to its own bodies.
@@ -323,6 +329,10 @@ Write rules, equally load-bearing:
 
 - **Atomic or not at all.** Write a temporary file in the same directory, rename over the target.
   No lock files, ever — a crashed session must never be able to wedge the tracker.
+- **A transient Windows `EPERM` retries the filesystem replace, not the write.** Ticket replacement
+  keeps the same staged file and revision guard, rechecks the expected revision before each retry,
+  and stops after 10, 20, 40, and 80ms delays. A changed target becomes a revision mismatch; every
+  other error and every write without an expected revision fails on its first rename.
 - **Claims are guarded by a revision-keyed exclusive create**, per [ADR 0004](./docs/adr/0004-claims-are-guarded-by-a-revision-keyed-exclusive-create.md). An optimistic check alone is not compare-and-set across processes — measured, four sessions claiming one Ticket produced three false winners.
 - **Every write carries the revision it read.** `TicketSummary.revision` is opaque above the seam;
   the markdown driver builds it from modification time and size, a SQLite driver would use a
@@ -340,7 +350,7 @@ Write rules, equally load-bearing:
   failure. The tool returns success with a warning that those blocks may be stale; a later
   successful refresh or Map mutation catches them up.
 - **A write normalizes the Legacy file it touches**, and keeps the prose it inferred from verbatim.
-- **Claims are flagged when stale, never released.** 24h; auto-expiry is out of scope.
+- **Claims are flagged when stale, never auto-released.** 24h; use `release` to drop a claim explicitly.
 - **A batch creation is all or none.** Every reference resolves before anything is written, so an
   undeclared temporary key or a cycle leaves the workspace untouched. Temporary keys exist for the
   length of the call and never reach a file.
@@ -379,6 +389,12 @@ pnpm test             # vitest, the MCP tool layer only
 pnpm run build        # tsc emit to dist/
 pnpm run release:dry  # needs a clean tree and an upstream branch
 ```
+
+`.github/workflows/runtime.yml` runs `check`, `test`, and `build` on Node 24 for every push
+and pull request. Its development job is the test gate; keep failures blocking the downstream
+package compatibility and setup jobs. The setup matrix provisions real fnm and verifies registration
+and saved launches on macOS, Linux, and Windows; scripts DOX owns the checks. Reuse this gate rather than adding a second test workflow. The release
+workflow remains a separate manual publish path.
 
 `release:dry` is the odd one out: `.release-it.json` sets `requireCleanWorkingDir` and
 `requireUpstream`, so unlike the three above it will not run against uncommitted work. Commit first.
@@ -440,12 +456,20 @@ over a linked transport pair, against a temporary fixture tree. That is the only
 spec's testing decisions. Nothing below the tool layer gets a test entry point of its own, and a test
 that would need one is a design signal, not a reason to add a seam.
 
-**The two deliberate exceptions** spawn real OS processes: `test/cross-process-claim.test.ts` for the
-compare-and-set claim, `test/cross-process-create.test.ts` for id allocation. Concurrency needs real
-concurrency — one process shares a scan, a write queue and module state, all of which hand an
-in-process test a pass it has not earned, which is how the claim guarantee came to hold only
-in-process. Both were checked against a deliberately broken implementation to confirm they bite.
-Add a third only for something with the same shape.
+**Three deliberate exceptions** spawn real OS processes. `test/cross-process-claim.test.ts` for the
+compare-and-set claim and `test/cross-process-create.test.ts` for id allocation share one shape:
+concurrency needs real concurrency — one process shares a scan, a write queue and module state, all
+of which hand an in-process test a pass it has not earned, which is how the claim guarantee came to
+hold only in-process. Both were checked against a deliberately broken implementation to confirm they
+bite. `test/exit-on-disconnect.test.ts` (T95) is a different shape: the defect it guards is in
+`dist/bin.js` itself — the file `package.json`'s `bin` field points at — not in anything the tool
+layer runs, so only spawning the packaged binary and watching the OS process die is evidence of
+anything; a mocked transport would prove the mock's callback fires, not that the shipped binary
+exits. Its `beforeAll` runs `pnpm run build` itself, since `dist/` is gitignored and
+`runtime.yml` builds after `pnpm test` — that keeps `pnpm test` on a clean clone self-contained
+rather than depending on workflow step order. Add a fourth only for something that needs the real
+process for one of these two reasons — genuine concurrency, or a defect below the in-process seam
+entirely — not merely because a test would be more convenient to write out-of-process.
 
 `test/fixtures/legacy/` holds two Efforts copied **verbatim** out of sobrina and tag-customizer.
 Never tidy them, and refresh them by re-copying rather than editing: they are the real input, and
@@ -463,9 +487,14 @@ project existing, so they are checked rather than restated.
 
 ## Agent skills
 
+Matt Pocock's skills are installed for Codex in `.agents/skills/`; `skills-lock.json` records their
+upstream source and hashes. See [.agents/skills/AGENTS.md](./.agents/skills/AGENTS.md) for maintenance.
+The repository-specific configuration stays in `docs/agents/` below.
+
 ### Issue tracker
 
-Local markdown under `.scratch/<effort-slug>/`. See [docs/agents/issue-tracker.md](./docs/agents/issue-tracker.md).
+Use **FrontierMCP** (server `frontier`) as this repository's issue tracker. Before tracker work, read
+[docs/agents/issue-tracker.md](./docs/agents/issue-tracker.md) for tool usage and the file fallback.
 
 ### Triage labels
 
@@ -484,23 +513,41 @@ See [docs/agents/frontier-consumer.md](./docs/agents/frontier-consumer.md).
 
 When the user requests a durable behavior change, record it here or in the relevant child AGENTS.md.
 
+- Overnight auto shipping processes takeable `ready-for-agent` Tickets sequentially, using builders,
+  reviewers, required checks, and commits. Re-evaluate the Frontier after each Ticket; leave existing
+  claims and human decisions pending.
+- Runtime setup must preserve the consumer project's Node version, discover existing version
+  managers, and recommend fnm when no manager or suitable Node is available. Prefer a project's
+  Bun or Deno only after FrontierMCP compatibility is verified. Recommend automated setup in the
+  installation guide and retain complete manual instructions. T88 verifies the emitted package on
+  the 20.x, 22.x, and 24.x release lines from floors 20.20.2, 22.17.1, and 24.15.0; T89–T92 build
+  the installation flow around that contract.
+
 ## Child DOX Index
 
-- No child AGENTS.md files are needed for the current repository structure. `src/` and `test/` are
-  small enough that Work Guidance above covers them; `src/storage/` earns its own doc the day a second
-  driver lands.
+- [.agents/skills/AGENTS.md](./.agents/skills/AGENTS.md) covers installed upstream skills and their
+  maintenance. Root retains ownership of `.agents/mcp.json`, `skills-lock.json`, and `docs/agents/`.
+- `src/` and `test/` remain root-owned; Work Guidance above covers them. `src/storage/` earns its own
+  doc the day a second driver lands.
+- [scripts/AGENTS.md](./scripts/AGENTS.md) covers runtime compatibility and setup scripts.
 - Root-owned files: [CONTEXT.md](./CONTEXT.md) (glossary), [docs/adr/](./docs/adr/) (decision records),
   [docs/agents/](./docs/agents/) (skill configuration — tracker conventions, triage labels, domain docs,
   FrontierMCP consumer friction), [docs/research/](./docs/research/) (dated findings behind a decision
   — see the rule below), [README.md](./README.md) (the package's public face — install, pinning,
-  and how a release is cut), [CHANGELOG.md](./CHANGELOG.md) (package release notes, generated by
+  and how a release is cut), [docs/installation.md](./docs/installation.md) (the detailed public
+  setup guide — automatic and manual runtime selection, client configuration, and recovery),
+  [CHANGELOG.md](./CHANGELOG.md) (package release notes, generated by
   release-it; not tracker vocabulary), [LICENSE](./LICENSE) (the MIT grant itself — `package.json`'s
   SPDX string and the README's License section are declarations, not the grant, and npm ships this
   file whatever `files` says), [.release-it.json](./.release-it.json) and
-  [.github/workflows/release.yml](./.github/workflows/release.yml) (the release itself — read the
+  [.github/workflows/](./.github/workflows/) (release and runtime CI — read the
   release-it bullet in Work Guidance before editing either), [bench/](./bench/) (throwaway harnesses
   behind a measured claim — typechecked and linted with everything else, deliberately absent from
   `package.json`'s `files`, and never a place results are committed).
+- `pnpm run bench:scan --group=create` compares current driver creation with an independent
+  single scan on disposable copies. Its difference of medians is arithmetic, not a measurement of
+  another allocation strategy. Dated create-path findings live in `docs/research/`; the scan
+  measurements in Work Guidance remain their original snapshot.
 - **`docs/research/` is dated snapshots, not contracts.** `docs/adr/` and `docs/agents/` are current
   by construction — an ADR holds until superseded, and the agent docs are the shipped contract. A
   research document is neither. It records what primary sources said on a stated date, as the

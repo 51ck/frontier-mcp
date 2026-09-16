@@ -6,7 +6,7 @@ type: grilling
 status: resolved
 triage: ready-for-agent
 blocked_by: [T35]
-answer_gist: All of it goes — guards, the re-scan under guards, MAX_ATTEMPTS, CANDIDATE_HEADROOM and the never-reclaim rule exist only to serialize a derived counter, so creation drops from two full workspace scans to one and ADR 0005 is superseded rather than amended
+answer_gist: Superseded on the deletion by T53 and T62; the machinery exists only to serialize a derived counter, so it survives for any pattern containing `<N>` and goes only for a random one, where creation drops from two full workspace scans to one — ADR 0005 is superseded rather than amended either way
 ---
 
 ## Question
@@ -39,3 +39,7 @@ A second, unpriced win: `.scratch/` stops accumulating guard files that a crashe
 **ADR 0005 is superseded, not amended.** Its reasoning is correct and worth keeping legible — the argument about why the exclusive create cannot sit on the Ticket file, and the argument about why no scheme for reclaiming a guard can be made safe, are both good and both stop applying. Editing them into a document about random ids would leave a text that argues for something it no longer does. A new ADR states the new mechanism and links back.
 
 Three things in ADR 0005 survive it and must be re-homed rather than lost: the **two-phase all-or-none write** (stage every file, then rename), the **Effort directory created after validation** so a refused batch invents no Effort, and the **`validate` hook** that closes the dangling-Edge-becomes-a-cycle case at mint time. None of those are about counters.
+
+## Comments
+
+T53 and T62 supersede the deletion half of this answer — guards, the re-scan under guards, `MAX_ATTEMPTS`, `CANDIDATE_HEADROOM` and the never-reclaim rule all survive for any pattern containing `<N>`, and the deletion was never carried out. The gist is amended so Decisions-so-far stops advertising it. The reason stands and is what T65 builds from: the machinery serializes a derived counter, so a pattern with no counter needs none of it.

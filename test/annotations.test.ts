@@ -356,7 +356,7 @@ describe('status', () => {
       status: 'resolved',
     });
 
-    expect(error).toContain('claim, resolve, or drop');
+    expect(error).toContain('claim, resolve, drop, reopen, or release');
   });
 });
 

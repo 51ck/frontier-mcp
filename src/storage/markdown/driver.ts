@@ -24,7 +24,13 @@ import { NoSuchEffort, NoSuchMap, NoSuchSpec, NoSuchTicket, RevisionMismatch } f
 import { createTicketFiles } from './create.ts';
 import { migrateEffortFiles } from './migrate.ts';
 import { applyEdit, type Defaults } from './serialize.ts';
-import { currentRevision, GuardHeld, withGuard, writeAtomically } from './write.ts';
+import {
+  AtomicWriteConflict,
+  currentRevision,
+  GuardHeld,
+  withGuard,
+  writeAtomically,
+} from './write.ts';
 import {
   applyMapEdit,
   type DerivedPointer,
@@ -320,12 +326,14 @@ async function write(
       // Re-check inside the guard: holding it means nobody else can be writing
       // this revision, so a mismatch now is a genuinely earlier write.
       if ((await currentRevision(path)) !== expectedRevision) throw new RevisionMismatch(handle);
-      await writeAtomically(path, updated);
+      await writeAtomically(path, updated, expectedRevision);
     });
   } catch (error) {
     // Losing the guard and losing the revision race mean the same thing to a
     // caller: somebody else got there first, and nothing of theirs was touched.
-    if (error instanceof GuardHeld) throw new RevisionMismatch(handle);
+    if (error instanceof GuardHeld || error instanceof AtomicWriteConflict) {
+      throw new RevisionMismatch(handle);
+    }
     throw error;
   }
 
@@ -334,13 +342,16 @@ async function write(
   )?.ticket;
   if (written === undefined) throw new NoSuchTicket(handle);
 
-  // Resolving or dropping moves what the Map's derived blocks must show. Refresh
-  // them here so a session that never touches edit_map still leaves the file
-  // truthful for a human reading it on GitHub. Best-effort: the Ticket Status is
-  // already on disk, so a refresh failure must not make the lifecycle change look
-  // like it failed — the Map catches up on a later successful refresh or edit.
+  // Resolving or dropping moves what the Map's derived blocks must show; reopening
+  // clears a gist or dropped_reason that those blocks may still list. Refresh them
+  // here so a session that never touches edit_map still leaves the file truthful
+  // for a human reading it on GitHub. Best-effort: the Ticket Status is already
+  // on disk, so a refresh failure must not make the lifecycle change look like it
+  // failed — the Map catches up on a later successful refresh or edit.
   const warnings: string[] = [];
-  if (edit.status === 'resolved' || edit.status === 'dropped') {
+  const reopenClearsDerived =
+    edit.status === 'open' && (edit.answerGist === null || edit.droppedReason === null);
+  if (edit.status === 'resolved' || edit.status === 'dropped' || reopenClearsDerived) {
     try {
       await refreshMapDerived(storage, effort);
     } catch {

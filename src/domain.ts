@@ -118,6 +118,9 @@ export interface Effort {
  * opaque apart from the three places the schema says are edited.
  */
 export interface TicketEdit {
+  readonly title?: string;
+  readonly kind?: Kind;
+  readonly type?: string | null;
   readonly status?: Status;
   readonly triage?: TriageRole;
   readonly claimedBy?: string | null;

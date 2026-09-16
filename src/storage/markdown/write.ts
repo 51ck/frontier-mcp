@@ -30,6 +30,9 @@ export async function currentRevision(path: string): Promise<string | undefined>
  */
 let sequence = 0;
 
+/** Short enough to keep a claim responsive; long enough for a Windows file handle to close. */
+const EPERM_RETRY_DELAYS_MS = [10, 20, 40, 80] as const;
+
 /**
  * How long a guard may sit before it is assumed to belong to a crashed process.
  * Only ever consulted for a guard whose revision is still current, which is a
@@ -84,6 +87,14 @@ export class GuardHeld extends Error {
   }
 }
 
+/** Raised when an atomic replace retry discovers that its target moved underneath it. */
+export class AtomicWriteConflict extends Error {
+  constructor() {
+    super('the target changed while waiting to replace it');
+    this.name = 'AtomicWriteConflict';
+  }
+}
+
 async function breakIfStale(guard: string): Promise<boolean> {
   try {
     const info = await stat(guard);
@@ -104,14 +115,47 @@ function guardPath(path: string, revision: string): string {
   return join(dirname(path), `.${basename(path)}.${revision.replace(/[^\w.-]/g, '_')}.guard`);
 }
 
-export async function writeAtomically(path: string, contents: string): Promise<void> {
+export async function writeAtomically(
+  path: string,
+  contents: string,
+  expectedRevision?: string,
+): Promise<void> {
   const temporary = await stage(path, contents);
 
   try {
-    await rename(temporary, path);
+    await replaceStaged(temporary, path, expectedRevision);
   } catch (error) {
     await unstage(temporary);
     throw error;
+  }
+}
+
+async function replaceStaged(
+  temporary: string,
+  target: string,
+  expectedRevision: string | undefined,
+  attempt = 0,
+): Promise<void> {
+  try {
+    await rename(temporary, target);
+  } catch (error) {
+    const delay = EPERM_RETRY_DELAYS_MS[attempt];
+    if (
+      (error as NodeJS.ErrnoException | null)?.code !== 'EPERM' ||
+      delay === undefined ||
+      expectedRevision === undefined
+    ) {
+      throw error;
+    }
+
+    // Windows can hold the destination open for a moment after a reader closes
+    // it. Wait that out, then preserve compare-and-set by checking for a hand
+    // edit immediately before trying the same filesystem operation again.
+    await new Promise(resolve => setTimeout(resolve, delay));
+    if ((await currentRevision(target)) !== expectedRevision) {
+      throw new AtomicWriteConflict();
+    }
+    await replaceStaged(temporary, target, expectedRevision, attempt + 1);
   }
 }
 

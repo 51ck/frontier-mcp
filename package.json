@@ -12,7 +12,8 @@
   },
   "files": [
     "dist",
-    "docs/agents/issue-tracker.md"
+    "docs/agents/issue-tracker.md",
+    "scripts/frontier-setup.cjs"
   ],
   "type": "module",
   "main": "./dist/index.js",
@@ -33,6 +34,9 @@
     "format:check": "oxfmt --check",
     "check": "pnpm run typecheck && pnpm run lint && pnpm run format:check",
     "test": "vitest run",
+    "test:runtime": "pnpm run build && node scripts/package-runtime-check.mjs",
+    "test:runtime:package": "node scripts/package-runtime-check.mjs",
+    "test:setup": "node scripts/frontier-setup-check.cjs",
     "test:watch": "vitest",
     "start": "node src/bin.ts",
     "prepare": "git config core.hooksPath .githooks || exit 0",
@@ -55,6 +59,6 @@
     "vitest": "^4.1.10"
   },
   "engines": {
-    "node": ">=24"
+    "node": "^20.20.2 || ^22.17.1 || ^24.15.0"
   }
 }

@@ -38,7 +38,6 @@ bypasses a proxy exactly as it bypasses the guards.
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
 
 - [x] The File conventions preamble states that when FrontierMCP is loaded, ids come from
       `create_tickets` and are never derived by scanning

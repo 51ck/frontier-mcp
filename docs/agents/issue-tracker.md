@@ -1,7 +1,8 @@
 # Issue tracker — FrontierMCP and file fallback
 
-Issues and specs live as markdown under `.scratch/`. Vocabulary is defined in the project's
-`CONTEXT.md` when present — Effort, Board, Header doc, Map, Spec, Ticket, Edge, Frontier.
+Use **FrontierMCP** as the issue tracker. Its canonical storage is markdown under `.scratch/`.
+Vocabulary is defined in the project's `CONTEXT.md` when present — Effort, Board, Header doc, Map,
+Spec, Ticket, Edge, Frontier.
 
 When **FrontierMCP** (server name `frontier`) is loaded in your session, use the tools below. They
 own the schema, compute the graph, and answer orientation questions for a fraction of the token cost
@@ -47,7 +48,7 @@ Eight tools permanently. Optional arguments extend an existing tool; there is no
 | `get_board` | See the whole Effort cheaply — Destination, one summary line per Ticket, Frontier marked. Never returns bodies. |
 | `get_tickets` | Fetch full bodies for specific ids after the Board tells you which Tickets matter. |
 | `create_tickets` | Publish a breakdown in one call. Declare Edges with temporary keys; the server assigns ids and numbers. |
-| `update_ticket` | Claim, resolve, drop, set triage, replace Edges, comment, or tick acceptance criteria. One Ticket per call. |
+| `update_ticket` | Claim, resolve, drop, reopen, release, set title/kind/type, set triage, replace Edges, comment, or tick acceptance criteria. One Ticket per call. |
 | `edit_map` | Edit Map sections — Destination, Notes, fog, Out of scope. Decisions-so-far regenerates from resolved Tickets. |
 | `spec` | Read or write a Spec as a whole document. |
 | `migrate_effort` | Normalize Legacy Tickets in an Effort. Preview writes nothing; filename rename is opt-in. |
@@ -58,7 +59,7 @@ Eight tools permanently. Optional arguments extend an existing tool; there is no
 2. `get_board` on that Effort — read the Frontier (`>` marker).
 3. `get_tickets` on the ids you will work — read bodies only for those Tickets.
 4. `update_ticket` with `claim` before starting work.
-5. `update_ticket` with `resolve` or `drop` when done; tick criteria and comment as you go.
+5. `update_ticket` with `resolve` or `drop` when done; `reopen` when a closed Ticket needs another pass; `release` when a claim should be dropped without closing; tick criteria and comment as you go.
 6. `create_tickets` when a skill publishes a new breakdown; `edit_map` / `spec` for header docs.
 
 ### Skill mapping
@@ -71,6 +72,8 @@ Eight tools permanently. Optional arguments extend an existing tool; there is no
 | claim before work | `update_ticket` with `claim` |
 | resolve with an answer | `update_ticket` with `resolve` |
 | rule out of scope | `update_ticket` with `drop`, then `edit_map` `rule_out` if needed |
+| reopen closed work | `update_ticket` with `reopen` |
+| release a stale claim | `update_ticket` with `{ release: true }` |
 | edit the Map | `edit_map` |
 | write or read the Spec | `spec` |
 | normalize legacy files | `migrate_effort` |

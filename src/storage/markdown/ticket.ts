@@ -6,6 +6,24 @@ import { splitFrontmatter } from './frontmatter.ts';
 /** `<NN>-<rest>.md` — `NN` carries sort order and nothing else. */
 const FILENAME_ORDER = /^(\d+)/;
 
+/**
+ * Keys a schema Ticket may carry. Same set as FIELD_ORDER in serialize.ts,
+ * duplicated here so parse does not depend on the write module.
+ */
+const SCHEMA_KEYS = new Set([
+  'id',
+  'title',
+  'kind',
+  'type',
+  'status',
+  'triage',
+  'blocked_by',
+  'answer_gist',
+  'dropped_reason',
+  'claimed_by',
+  'claimed_at',
+]);
+
 export interface TicketFile {
   readonly filename: string;
   readonly contents: string;
@@ -33,6 +51,10 @@ export function parseTicketSummary(
   if (fields === undefined) return parseLegacy(effort, order, file.contents, revision);
 
   const id = text(fields['id']);
+  const rawStatus = text(fields['status']);
+  const mappedStatus = readStatus(rawStatus);
+  const unrecognizedStatus =
+    rawStatus !== undefined && mappedStatus === undefined ? rawStatus : undefined;
 
   return {
     id,
@@ -40,7 +62,7 @@ export function parseTicketSummary(
     title: text(fields['title']) ?? '(untitled)',
     kind: readKind(fields['kind']),
     type: text(fields['type']),
-    status: readStatus(text(fields['status'])) ?? 'open',
+    status: mappedStatus ?? 'open',
     triage: text(fields['triage']),
     answerGist: text(fields['answer_gist']),
     droppedReason: text(fields['dropped_reason']),
@@ -49,8 +71,8 @@ export function parseTicketSummary(
     blockedBy: readEdgeList(fields['blocked_by']),
     effort,
     order,
-    legacy: false,
-    unrecognizedStatus: undefined,
+    legacy: isForeignFence(fields),
+    unrecognizedStatus,
     collapsedRefs: [],
     revision,
   };
@@ -115,6 +137,12 @@ function readOrder(filename: string): number | undefined {
 
 function readKind(value: unknown): Kind {
   return text(value) === 'decision' ? 'decision' : 'build';
+}
+
+/** No id and at least one key outside {@link SCHEMA_KEYS} — a foreign export, not our schema. */
+function isForeignFence(fields: Record<string, unknown>): boolean {
+  if (text(fields['id']) !== undefined) return false;
+  return Object.keys(fields).some(key => !SCHEMA_KEYS.has(key));
 }
 
 function readStatus(value: string | undefined): Status | undefined {

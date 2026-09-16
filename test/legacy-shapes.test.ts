@@ -75,6 +75,7 @@ describe('Legacy Status shapes', () => {
 
     expect(line(board)).toContain('/open');
     expect(board).toContain('unrecognized status');
+    expect(board.split('\n').filter(entry => entry.startsWith('> '))).toEqual([]);
   });
 
   it('surfaces a status it cannot map rather than trusting it', async () => {
@@ -82,6 +83,7 @@ describe('Legacy Status shapes', () => {
 
     expect(line(board)).toContain('/open');
     expect(board).toContain('unrecognized status');
+    expect(board.split('\n').filter(entry => entry.startsWith('> '))).toEqual([]);
   });
 });
 

@@ -3,9 +3,10 @@ id: T49
 title: What the drop to one scan actually costs, measured
 kind: decision
 type: prototype
-status: open
+status: resolved
 triage: ready-for-agent
 blocked_by: []
+answer_gist: The create benchmark measures current guarded creation and an independent scan at 95 and 1000 Tickets, including background-QoS and threadpool-one runs; subtraction remains arithmetic, never a measured random-id path.
 ---
 
 ## Question
@@ -29,9 +30,15 @@ observed quantities the ADR can subtract, rather than one quantity halved.
 
 ## Acceptance criteria
 
-- [ ] Whether `bench/scan-cost.ts` gains a create-path group is decided, and it is built if so
-- [ ] Today's `createTickets` cost is measured at the real workspace size and at 1000 Tickets
-- [ ] The run is done at the slow end — `taskpolicy -b`, plus `UV_THREADPOOL_SIZE=1` for the
+- [x] Whether `bench/scan-cost.ts` gains a create-path group is decided, and it is built if so
+- [x] Today's `createTickets` cost is measured at the real workspace size and at 1000 Tickets
+- [x] The run is done at the slow end — `taskpolicy -b`, plus `UV_THREADPOOL_SIZE=1` for the
       disk-bound question — with the attribution block recorded alongside the figures
-- [ ] The figure the new ADR is allowed to quote is written down, together with whatever part of it
+- [x] The figure the new ADR is allowed to quote is written down, together with whatever part of it
       remains arithmetic rather than observation
+
+## Answer
+
+Keep the `--group=create` benchmark. The completed [2026-09-13 evidence report](../../../docs/research/2026-09-13-create-path-cost.md) supersedes the incomplete 2026-09-11 snapshot and records all four saved run configurations, machine calibration, 16 groups, and limitations. All summaries were recomputed from the 960 retained timing samples. `pnpm run check` passes.
+
+For T72, quote current driver creation and standalone scan as separate observations with their run attribution. Their difference is arithmetic, not measured random-id performance or isolated guard overhead. Background QoS and background QoS plus threadpool one have different core calibrations, so their difference does not isolate disk cost. No allocation implementation or ADR was changed.

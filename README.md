@@ -14,33 +14,36 @@ wait for a major.
 
 ## Requirements
 
-- Node 24 or later
-- npx to run it; pnpm for development of this package
+- Node 24 for the current `frontier-mcp@0.3.1` release
+- `npx` for the current quick start; pnpm for development of this repository
 
-## Install once (user scope)
+The current source also supports Node 20.20.2+ on 20.x, 22.17.1+ on 22.x, and 24.15.0+ on
+24.x. That wider range takes effect only in a release that contains it. Node 24 LTS is recommended
+for new installations. The package floors passed on macOS, Linux, and Windows in
+[runtime CI](https://github.com/51ck/frontier-mcp/actions/runs/35074448965).
 
-Register FrontierMCP once in your **user-level** MCP config, pinned to a released version. Every
-repository you open then gets the server automatically — no per-repo `mcp.json` file.
+## Install
 
-In Cursor, edit `~/.cursor/mcp.json` (create the file if it does not exist); other MCP clients take the
-same command and arguments in their own user-scope server list:
+Register FrontierMCP once in the client's user scope. For the current release, Cursor users can save
+this in `~/.cursor/mcp.json`, preserving any existing servers:
 
 ```json
 {
   "mcpServers": {
     "frontier": {
       "command": "npx",
-      "args": ["-y", "frontier-mcp@x.y.z"]
+      "args": ["-y", "frontier-mcp@0.3.1"]
     }
   }
 }
 ```
 
-Replace `x.y.z` with a published version — see the
-[releases](https://github.com/51ck/frontier-mcp/releases). The pin is the version you get; nothing
-bumps it for you.
+Restart Cursor after saving. The pin is the version you get; updates remain manual.
 
-Restart your editor after saving.
+The source checkout contains an automatic setup bootstrap, but `0.3.1` does not ship it. The
+[installation guide](docs/installation.md) explains that release boundary, Node 16 projects, runtime
+managers, absolute desktop paths, Bun and Deno selection, other clients, updates, recovery, and
+removal. Use its manual path until a published release includes the bootstrap.
 
 ## First use in a repository
 
@@ -79,6 +82,8 @@ pnpm install
 pnpm test
 pnpm run check
 pnpm run build
+pnpm run test:runtime
+FRONTIER_NODE16=/path/to/node16 FRONTIER_NODE24=/path/to/node24 pnpm run test:setup
 node src/bin.ts
 ```
 
@@ -95,8 +100,8 @@ to avoid.
    last tag is releasable, `auto` exits green having shipped nothing, so confirm a new tag appeared.
 3. The workflow runs checks + tests, bumps `package.json`, updates `CHANGELOG.md`, tags
    `v*`, creates a GitHub Release, and publishes to npm with `pnpm`.
-4. Bump the pinned version in your user MCP config (`frontier-mcp@x.y.z`) when you want the
-   new build — pins stay manual on purpose.
+4. Replace the current `frontier-mcp@0.3.1` pin in your user MCP config with the exact version you
+   released when you want the new build — pins stay manual on purpose.
 
 The workflow is dispatchable from any branch but refuses to run off `master`: release-it commits,
 tags and pushes as part of the run, so a release from a feature branch would rewrite that branch.
