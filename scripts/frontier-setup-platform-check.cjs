@@ -66,7 +66,7 @@ async function main() {
     });
     assert.equal(selected.manager, 'fnm');
     assert.equal(selected.executable, await testing.stableRuntimePath(node24));
-    const args = [setup, '--version', process.env.FRONTIER_SETUP_RELEASE ?? '0.3.1', '--apply'];
+    const args = [setup, '--version', process.env.FRONTIER_SETUP_RELEASE ?? '0.4.0', '--apply'];
     const applied = await execute(node16, args, options);
     const target = path.join(home, '.cursor', 'mcp.json');
     const config = await readFile(target, 'utf8');

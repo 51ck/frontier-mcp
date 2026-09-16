@@ -6,7 +6,7 @@ changes, and pins never update themselves.
 
 ## Current release
 
-The current release is `frontier-mcp@0.3.1`. It requires Node 24. A simple Cursor user
+The current release is `frontier-mcp@0.4.0`. A simple Cursor user
 configuration is:
 
 ```json
@@ -14,7 +14,7 @@ configuration is:
   "mcpServers": {
     "frontier": {
       "command": "npx",
-      "args": ["-y", "frontier-mcp@0.3.1"]
+      "args": ["-y", "frontier-mcp@0.4.0"]
     }
   }
 }
@@ -29,10 +29,9 @@ executable or the setup bootstrap when that applies.
 
 ## Runtime requirements
 
-The current source emits a package for Node 20.20.2+ on 20.x, 22.17.1+ on 22.x, and 24.15.0+ on
-24.x. Node 24 LTS is the recommendation for a new installation. Node 20 is compatible with that
-emitted package but is end-of-life. The published `0.3.1` package predates this range and declares
-Node 24 or newer, so use Node 24 for every `0.3.1` example in this guide.
+The published 0.4.0 package supports Node 20.20.2+ on 20.x, 22.17.1+ on 22.x, and 24.15.0+ on
+24.x. Node 24 LTS is the recommendation for a new installation. Node 20 is compatible but
+end-of-life.
 
 The package-runtime matrix passed the three stated floors on macOS, Linux, and Windows in
 [runtime CI run 35074448965](https://github.com/51ck/frontier-mcp/actions/runs/35074448965). The same
@@ -49,21 +48,36 @@ engine range instead.
 
 ## Automatic setup
 
-Automated setup is the recommended installation path once a release includes
-`scripts/frontier-setup.cjs`. The current release, `0.3.1`, does not include that file, so there is no
-released bootstrap download command yet. Do not extract it from the `0.3.1` tarball.
-
-The bootstrap can currently be exercised from this source checkout with the released package pin:
+Automated setup is the recommended installation path. Download the dependency-free bootstrap from
+the published 0.4.0 tarball, then use it to install the exact 0.4.0 server:
 
 ```sh
-node scripts/frontier-setup.cjs --version 0.3.1 --node "/absolute/path/to/node" --apply
+SETUP_DIR="$(mktemp -d)"
+curl -fsSL https://registry.npmjs.org/frontier-mcp/-/frontier-mcp-0.4.0.tgz \
+  -o "$SETUP_DIR/frontier-mcp-0.4.0.tgz"
+tar -xzf "$SETUP_DIR/frontier-mcp-0.4.0.tgz" -C "$SETUP_DIR" \
+  package/scripts/frontier-setup.cjs
+node "$SETUP_DIR/package/scripts/frontier-setup.cjs" --version 0.4.0 --apply
 ```
 
-Run it from the consumer project so runtime-marker discovery starts there. Omit `--apply` to preview
-the change. Omit `--node` to let setup search installed versions from fnm, nvm, nvm-windows, Volta,
-asdf, and mise. It keeps a compatible current Node; otherwise it prefers Node 24 LTS and then the
-highest compatible managed version. Discovery never installs Node. If no suitable version exists,
-setup prints the relevant installation command. If no manager exists, install fnm and run
+PowerShell uses the same published artifact:
+
+```powershell
+$SetupDir = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid())
+New-Item -ItemType Directory -Path $SetupDir | Out-Null
+$Archive = Join-Path $SetupDir "frontier-mcp-0.4.0.tgz"
+Invoke-WebRequest https://registry.npmjs.org/frontier-mcp/-/frontier-mcp-0.4.0.tgz -OutFile $Archive
+tar -xzf $Archive -C $SetupDir package/scripts/frontier-setup.cjs
+node (Join-Path $SetupDir "package/scripts/frontier-setup.cjs") --version 0.4.0 --apply
+```
+
+Setup may run from a consumer project pinned to Node 16; its checks do not change that project's
+files or bind its runtime markers into the saved entry. Bun and Deno markers are evaluated later,
+from the MCP client's working directory each time the saved launcher starts. Omit `--apply` to
+preview the change. Omit `--node` to let setup search installed versions from fnm, nvm, nvm-windows,
+Volta, asdf, and mise. It keeps a compatible current Node; otherwise it prefers Node 24 LTS and
+then the highest compatible managed version. Discovery never installs Node. If no suitable version
+exists, setup prints the relevant installation command. If no manager exists, install fnm and run
 `fnm install 24`.
 
 Setup reads the pinned release's engine declaration, installs that exact package in an immutable
@@ -71,6 +85,10 @@ user-data directory, and verifies MCP initialization plus `tools/list`. It then 
 entry. `--apply` writes Cursor user scope. For another client, use `--client manual` and copy the
 printed `frontier` entry into that client's user configuration. Use `--replace` only after reviewing
 a different existing `frontier` entry; setup creates a backup first.
+
+The published 0.4.0 bootstrap prints `Preview only` even when `--apply` is present, then prints the
+authoritative `Applied Cursor user configuration` result after the write. The extra line is cosmetic
+and is fixed in the next patch.
 
 The generated launcher stores absolute paths, including paths with spaces, and needs no arguments in
 the client configuration:
@@ -102,9 +120,9 @@ outside the consumer project. This POSIX recipe gives the exact pin a stable dir
 the absolute `ENTRY` used below:
 
 ```sh
-INSTALL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/frontier-mcp/0.3.1"
+INSTALL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/frontier-mcp/0.4.0"
 mkdir -p "$INSTALL_DIR"
-pnpm --dir "$INSTALL_DIR" add --save-exact frontier-mcp@0.3.1
+pnpm --dir "$INSTALL_DIR" add --save-exact frontier-mcp@0.4.0
 ENTRY="$INSTALL_DIR/node_modules/frontier-mcp/dist/bin.js"
 test -f "$ENTRY" && printf '%s\n' "$ENTRY"
 ```
@@ -112,9 +130,9 @@ test -f "$ENTRY" && printf '%s\n' "$ENTRY"
 The PowerShell equivalent is:
 
 ```powershell
-$InstallDir = Join-Path $env:LOCALAPPDATA "frontier-mcp\0.3.1"
+$InstallDir = Join-Path $env:LOCALAPPDATA "frontier-mcp\0.4.0"
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-pnpm --dir "$InstallDir" add --save-exact frontier-mcp@0.3.1
+pnpm --dir "$InstallDir" add --save-exact frontier-mcp@0.4.0
 $Entry = Join-Path $InstallDir "node_modules\frontier-mcp\dist\bin.js"
 if (-not (Test-Path -LiteralPath $Entry)) { throw "FrontierMCP entry was not installed" }
 $Entry
@@ -122,7 +140,7 @@ $Entry
 
 Both commands require pnpm in that compatible Node shell and may access the npm registry. They do
 not add files to the consumer project. The examples below use 24.15.0, the supported 24.x floor in
-the current source. Commands in the last column run the absolute `ENTRY`; quotes protect paths with
+the current release. Commands in the last column run the absolute `ENTRY`; quotes protect paths with
 spaces.
 
 | Manager | Discover and install | Resolve or run 24.15.0 |
@@ -174,16 +192,19 @@ Set `FRONTIER_RUNTIME` to `node`, `bun`, or `deno` in the MCP server's environme
 selection. The override still has to pass the compatibility allowlist. Runtime selection happens
 once at server startup; changing a tool's `root` argument does not restart or retarget that process.
 
-The only measured alternate-runtime tuple is `frontier-mcp@0.3.1` on macOS arm64 with Bun 1.3.14 or
-Deno 2.9.6. Every other package version, runtime version, platform, or architecture falls back to
-the configured Node. Supply `--bun "/absolute/path/to/bun"` or
-`--deno "/absolute/path/to/deno"` during setup when a desktop application cannot see those programs
-on `PATH`.
+On macOS arm64, Bun 1.3.14 is measured with exact `frontier-mcp@0.3.1` and `0.4.0` pins. Deno 2.9.6
+remains enabled only for 0.3.1. When tested about 3.5 hours after publication, the unchanged 0.4.0
+Deno command was blocked by Deno's default minimum dependency age; a one-time override proved the
+server itself passes, but the saved launcher deliberately does not weaken that registry policy.
+The follow-up bootstrap therefore selects Bun for a 0.4.0 server and visibly falls back to Node for
+Deno. The already-published 0.4.0 bootstrap predates that selector expansion and continues to use
+Node until the follow-up bootstrap is released. Every other unmeasured package version, runtime
+version, platform, or architecture also falls back to Node.
 
-The exact measured launch commands are:
+The Bun command is measured for both pins; this Deno command remains the verified 0.3.1 recipe:
 
 ```sh
-bun x --bun frontier-mcp@0.3.1
+bun x --bun frontier-mcp@0.4.0
 deno run --no-config --no-lock --node-modules-dir=none --no-prompt \
   --allow-read --allow-write --allow-env npm:frontier-mcp@0.3.1
 ```
@@ -199,7 +220,7 @@ For a manual user-scope MCP configuration, map those commands to `command` and `
     },
     "frontier": {
       "command": "/absolute/path/to/bun",
-      "args": ["x", "--bun", "frontier-mcp@0.3.1"]
+      "args": ["x", "--bun", "frontier-mcp@0.4.0"]
     }
   }
 }
@@ -234,13 +255,15 @@ Deno:
 `--bun` overrides the package's Node shebang. The Deno command ignores project configuration and
 lockfiles, creates no project `node_modules`, grants only filesystem and environment access, and
 cannot prompt for more permissions. Either package runner may contact the registry when its cache
-lacks `0.3.1`. If an allowed alternate runtime starts and package resolution then fails, the launcher
-exits with that error instead of starting Node after a partial launch.
+lacks its exact pin. If an allowed alternate runtime starts and package resolution then fails, the
+launcher exits with that error instead of starting Node after a partial launch.
 
-On the measured tuple, Bun and Deno passed MCP initialization, tool and resource calls, filesystem
+On the enabled tuples, Bun and Deno passed MCP initialization, tool and resource calls, filesystem
 watcher invalidation after the settle period, and real cross-process claim and id-allocation checks.
-Equivalent Windows, Linux, and other-architecture behavior remains unverified. Node is the supported
-fallback for those cases.
+Deno 0.4.0 passed the same server probe with the one-time registry-age override, but its unchanged
+saved command did not start during the release verification window. That tuple is not allowlisted;
+Node is its supported path. Equivalent Windows, Linux, and other-architecture behavior remains
+unverified. Node is also the supported fallback for those cases.
 
 ## Update, recover, or remove
 
@@ -248,7 +271,7 @@ To update, choose an exact published version after reading `CHANGELOG.md`, then 
 pin. Setup installs versions in separate directories and prints a new launcher entry; it does not
 move an existing pin. Restart the MCP client after applying the new entry.
 
-For the direct `npx` configuration, replace `frontier-mcp@0.3.1` with the exact released pin and
+For the direct `npx` configuration, replace `frontier-mcp@0.4.0` with the exact released pin and
 restart. For an absolute Node/`ENTRY` configuration, repeat the manual install recipe with the new
 pin in a new versioned directory. Change the `frontier` entry's first `args` value to that new
 absolute `dist/bin.js` path. If the new package requires a different Node executable, change

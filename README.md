@@ -14,25 +14,38 @@ wait for a major.
 
 ## Requirements
 
-- Node 24 for the current `frontier-mcp@0.3.1` release
-- `npx` for the current quick start; pnpm for development of this repository
+- Node 20.20.2+ on 20.x, 22.17.1+ on 22.x, or 24.15.0+ on 24.x for `frontier-mcp@0.4.0`
+- Node 16.20.2+ to run the setup bootstrap; pnpm for development of this repository
 
-The current source also supports Node 20.20.2+ on 20.x, 22.17.1+ on 22.x, and 24.15.0+ on
-24.x. That wider range takes effect only in a release that contains it. Node 24 LTS is recommended
-for new installations. The package floors passed on macOS, Linux, and Windows in
+Node 24 LTS is recommended for new installations. The package floors passed on macOS, Linux, and Windows in
 [runtime CI](https://github.com/51ck/frontier-mcp/actions/runs/35074448965).
 
 ## Install
 
-Register FrontierMCP once in the client's user scope. For the current release, Cursor users can save
-this in `~/.cursor/mcp.json`, preserving any existing servers:
+Register FrontierMCP once in the client's user scope. The recommended setup downloads the bootstrap
+from the published 0.4.0 tarball, installs the exact 0.4.0 server outside your project, verifies its
+MCP handshake, and previews a Cursor user-scope entry before applying it:
+
+```sh
+SETUP_DIR="$(mktemp -d)"
+curl -fsSL https://registry.npmjs.org/frontier-mcp/-/frontier-mcp-0.4.0.tgz \
+  -o "$SETUP_DIR/frontier-mcp-0.4.0.tgz"
+tar -xzf "$SETUP_DIR/frontier-mcp-0.4.0.tgz" -C "$SETUP_DIR" \
+  package/scripts/frontier-setup.cjs
+node "$SETUP_DIR/package/scripts/frontier-setup.cjs" --version 0.4.0 --apply
+```
+
+It may run from a project pinned to Node 16; project runtime markers are evaluated later from the
+client's working directory when the saved launcher starts. Omit `--apply` for a preview. The 0.4.0
+bootstrap prints a stale `Preview only` line during apply, followed by the authoritative `Applied`
+result; this cosmetic output is fixed for the next patch. For a manual Cursor entry instead:
 
 ```json
 {
   "mcpServers": {
     "frontier": {
       "command": "npx",
-      "args": ["-y", "frontier-mcp@0.3.1"]
+      "args": ["-y", "frontier-mcp@0.4.0"]
     }
   }
 }
@@ -40,10 +53,9 @@ this in `~/.cursor/mcp.json`, preserving any existing servers:
 
 Restart Cursor after saving. The pin is the version you get; updates remain manual.
 
-The source checkout contains an automatic setup bootstrap, but `0.3.1` does not ship it. The
-[installation guide](docs/installation.md) explains that release boundary, Node 16 projects, runtime
-managers, absolute desktop paths, Bun and Deno selection, other clients, updates, recovery, and
-removal. Use its manual path until a published release includes the bootstrap.
+The [installation guide](docs/installation.md) covers Node 16 projects, a PowerShell bootstrap,
+runtime managers, absolute desktop paths, the follow-up selector's Bun 0.4.0 support, the published
+bootstrap boundary, Deno's Node fallback, other clients, updates, recovery, and removal.
 
 ## First use in a repository
 
@@ -100,7 +112,7 @@ to avoid.
    last tag is releasable, `auto` exits green having shipped nothing, so confirm a new tag appeared.
 3. The workflow runs checks + tests, bumps `package.json`, updates `CHANGELOG.md`, tags
    `v*`, creates a GitHub Release, and publishes to npm with `pnpm`.
-4. Replace the current `frontier-mcp@0.3.1` pin in your user MCP config with the exact version you
+4. Replace the current `frontier-mcp@0.4.0` pin in your user MCP config with the exact version you
    released when you want the new build — pins stay manual on purpose.
 
 The workflow is dispatchable from any branch but refuses to run off `master`: release-it commits,
