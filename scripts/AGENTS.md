@@ -41,8 +41,8 @@ These scripts provide runtime probes and setup helpers for T88–T91.
   probes a persistent executable, never a project-sensitive shim; manager discovery never installs,
   changes a default, or reads shell profiles. Saved launches use a generated wrapper so a deleted
   managed executable reports its manager-specific repair command on stderr. The setup fixture
-  exercises the documented on-disk layouts; only fnm discovery is measured against a local macOS
-  installation.
+  exercises every manager's documented on-disk layout. Real fnm setup is measured on macOS, Linux,
+  and Windows; the other managers remain fixture evidence.
   Launcher filenames derive from their contents so a preview cannot rewrite an already configured
   launch. Windows uses a batch launcher; preflight invokes system `cmd.exe`, as the SDK transport's
   batch-file support does. Preflight shutdown closes protocol stdin and waits for the whole launcher
@@ -50,7 +50,8 @@ These scripts provide runtime probes and setup helpers for T88–T91.
   `taskkill /t /f` on Windows. Termination after a completed handshake remains a successful
   preflight; only a process that survives the bounded fallback is a shutdown failure. Its disposable
   working directory uses bounded recursive-remove retries, and a cleanup failure never masks an
-  earlier launch or protocol error. Keep Windows claims limited to fixtures until measured there.
+  earlier launch or protocol error. The Windows batch launch and cleanup path pass the real-fnm
+  platform check.
 - The saved launcher resolves the nearest launch workspace by walking from its working directory to
   a `.scratch/` directory or `.git` file/directory. It inspects markers only along that path through
   the resolved root; siblings and ancestors above the root cannot select a runtime. Bun markers are
@@ -71,8 +72,9 @@ These scripts provide runtime probes and setup helpers for T88–T91.
   `FRONTIER_NODE24`, uses a temporary home and project, and needs registry access.
 - `frontier-setup-platform-check.cjs` verifies a real preinstalled fnm and Node 16/24 pair, including
   Cursor application, idempotence, saved-launch MCP, unchanged project pins and manager listing.
-  The `setup-runtime` CI job provisions fnm on macOS, Linux, and Windows before this check; results
-  from other managers remain fixture evidence. It installs the released package in a temporary home.
+  The `setup-runtime` CI job provisions fnm on macOS, Linux, and Windows before this check and has
+  passed on all three; results from other managers remain fixture evidence. It installs the released
+  package in a temporary home.
 - The compiled package is verified from Node 20.20.2 on 20.x, 22.17.1 on 22.x, and 24.15.0 on 24.x.
   A probe result for another major is evidence to assess, not an expansion of that contract.
 

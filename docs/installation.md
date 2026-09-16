@@ -35,8 +35,8 @@ emitted package but is end-of-life. The published `0.3.1` package predates this 
 Node 24 or newer, so use Node 24 for every `0.3.1` example in this guide.
 
 The package-runtime matrix passed the three stated floors on macOS, Linux, and Windows in
-[compatibility CI](https://github.com/51ck/frontier-mcp/actions/runs/34771254854). That result covers
-the compiled package; setup has separate checks.
+[runtime CI run 35074448965](https://github.com/51ck/frontier-mcp/actions/runs/35074448965). The same
+run passed the real-fnm setup job on all three operating systems.
 
 The bootstrap's minimum is Node 16.20.2. Older Node 16 releases are not supported. The bootstrap
 selects a separate supported Node for the server and stores that Node's absolute path. It does not
@@ -153,11 +153,10 @@ Node path and the absolute JavaScript entry rather than a manager command or shi
 ```
 
 The bootstrap has direct fixture coverage for discovery, layout fallback, absolute-path selection,
-and repair instructions for all six managers. A real fnm installation has also passed on macOS
-arm64. The other manager integrations use representative fixtures; treat them as recipes with
-automated contract coverage rather than measurements of every manager and operating-system release.
-The real-fnm setup job has passed on macOS and Linux. Its Windows run currently stops on a disposable
-preflight-directory cleanup race, so Windows setup remains unclaimed until a fixed run passes.
+and repair instructions for all six managers. Real fnm setup has passed on macOS, Linux, and Windows
+in [runtime CI run 35074448965](https://github.com/51ck/frontier-mcp/actions/runs/35074448965).
+The other manager integrations use representative fixtures; treat them as recipes with automated
+contract coverage rather than measurements of every manager and operating-system release.
 
 ## Bun and Deno projects
 

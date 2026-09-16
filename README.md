@@ -20,7 +20,7 @@ wait for a major.
 The current source also supports Node 20.20.2+ on 20.x, 22.17.1+ on 22.x, and 24.15.0+ on
 24.x. That wider range takes effect only in a release that contains it. Node 24 LTS is recommended
 for new installations. The package floors passed on macOS, Linux, and Windows in
-[compatibility CI](https://github.com/51ck/frontier-mcp/actions/runs/34771254854).
+[runtime CI](https://github.com/51ck/frontier-mcp/actions/runs/35074448965).
 
 ## Install
 
