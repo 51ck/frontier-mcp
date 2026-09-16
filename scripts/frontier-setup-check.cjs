@@ -267,6 +267,70 @@ async function launcherOnlyCheck(checkTemporary, checkOptions) {
     { alternatives, version: '0.3.1' },
   );
   await launcherSelectionCheck(launch, checkTemporary, home, checkOptions, entry);
+  await protocolShutdownCheck(checkTemporary, checkOptions.node24);
+}
+
+async function protocolShutdownCheck(checkTemporary, node) {
+  const server = path.join(checkTemporary, 'protocol-eof-server.cjs');
+  const tools = [
+    'create_tickets',
+    'edit_map',
+    'get_board',
+    'get_tickets',
+    'list_efforts',
+    'migrate_effort',
+    'spec',
+    'update_ticket',
+  ];
+  await writeFile(
+    server,
+    `'use strict';
+const { writeFileSync } = require('node:fs');
+const [marker, mode] = process.argv.slice(2);
+let input = '';
+process.on('SIGTERM', () => {});
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => {
+  input += chunk;
+  let newline;
+  while ((newline = input.indexOf('\\n')) !== -1) {
+    const line = input.slice(0, newline);
+    input = input.slice(newline + 1);
+    if (mode !== 'respond') continue;
+    const message = JSON.parse(line);
+    if (message.id === 1) send({ jsonrpc: '2.0', id: 1, result: {} });
+    if (message.id === 2) send({ jsonrpc: '2.0', id: 2, result: { tools: ${JSON.stringify(
+      tools.map(name => ({ name })),
+    )} } });
+  }
+});
+process.stdin.on('end', () => {
+  writeFileSync(marker, 'protocol EOF received\\n');
+  process.exit(0);
+});
+function send(message) { process.stdout.write(JSON.stringify(message) + '\\n'); }
+`,
+    'utf8',
+  );
+
+  const successMarker = path.join(checkTemporary, 'protocol success EOF');
+  await testing.protocolCheck(
+    { command: node, args: [server, successMarker, 'respond'] },
+    checkTemporary,
+    minimalDesktopEnvironment(node, checkTemporary),
+    { shutdownTimeout: 1000, timeout: 1000 },
+  );
+  assert.equal(await readFile(successMarker, 'utf8'), 'protocol EOF received\n');
+
+  const timeoutMarker = path.join(checkTemporary, 'protocol timeout EOF');
+  await assert.rejects(
+    testing.verifyLaunch(
+      { command: node, args: [server, timeoutMarker, 'silent'] },
+      { shutdownTimeout: 1000, timeout: 50 },
+    ),
+    /timed out waiting for the handshake/,
+  );
+  assert.equal(await readFile(timeoutMarker, 'utf8'), 'protocol EOF received\n');
 }
 
 async function launcherSelectionCheck(launch, checkTemporary, home, checkOptions, entry) {

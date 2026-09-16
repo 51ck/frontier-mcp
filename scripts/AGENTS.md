@@ -45,9 +45,11 @@ These scripts provide runtime probes and setup helpers for T88–T91.
   installation.
   Launcher filenames derive from their contents so a preview cannot rewrite an already configured
   launch. Windows uses a batch launcher; preflight invokes system `cmd.exe`, as the SDK transport's
-  batch-file support does. Its disposable working directory uses bounded recursive-remove retries so
-  a Windows process handle released just after `close` cannot turn a passed preflight into a setup
-  failure. Keep Windows claims limited to fixtures until measured there.
+  batch-file support does. Preflight shutdown closes protocol stdin and waits for the whole launcher
+  chain to exit; only a bounded failure to honor EOF escalates to `taskkill /t /f` on Windows. Its
+  disposable working directory uses bounded recursive-remove retries, and a cleanup failure never
+  masks an earlier launch or protocol error. Keep Windows claims limited to fixtures until measured
+  there.
 - The saved launcher resolves the nearest launch workspace by walking from its working directory to
   a `.scratch/` directory or `.git` file/directory. It inspects markers only along that path through
   the resolved root; siblings and ancestors above the root cannot select a runtime. Bun markers are

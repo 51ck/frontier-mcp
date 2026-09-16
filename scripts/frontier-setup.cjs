@@ -1134,16 +1134,24 @@ function homeDirectory(environment = process.env) {
   return environment.HOME ?? environment.USERPROFILE ?? os.homedir();
 }
 
-async function verifyLaunch(launch) {
+async function verifyLaunch(launch, options = {}) {
   const fixture = await mkdtemp(path.join(os.tmpdir(), 'frontier-setup-check-'));
+  let verificationError;
   try {
-    await protocolCheck(launch, fixture);
-  } finally {
+    await protocolCheck(launch, fixture, undefined, options);
+  } catch (error) {
+    verificationError = error;
+  }
+  try {
     // Windows may release the launcher's working-directory handle just after
     // the process closes. This directory is disposable, so let Node's recursive
     // remover retry only its documented transient filesystem errors.
     await rm(fixture, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch (cleanupError) {
+    if (verificationError === undefined) throw cleanupError;
+    verificationError.message += `\nPreflight cleanup also failed: ${cleanupError.message}`;
   }
+  if (verificationError !== undefined) throw verificationError;
 }
 
 function protocolCheck(
@@ -1224,6 +1232,12 @@ function protocolCheck(
     child.on('error', error =>
       finish(new Error(`Could not launch ${launch.command}: ${error.message}`, { cause: error })),
     );
+    child.stdin.on('error', error => {
+      if (!settled)
+        finish(
+          new Error(`Could not write to ${launch.command}: ${error.message}`, { cause: error }),
+        );
+    });
     child.on('exit', code => {
       if (!settled) finish(new Error(`Server exited before verification (code ${code}).`));
     });
@@ -1242,23 +1256,67 @@ function protocolCheck(
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      child.kill('SIGTERM');
-      const detail = stderr.trim();
+      let finishError = error;
+      let completed = false;
+      let forceClose;
+      child.stdin.end();
       const shutdown = setTimeout(() => {
-        child.kill('SIGKILL');
-        reject(
-          new Error(
-            `${options.label ?? 'MCP launch'} did not exit after SIGTERM.` +
-              (detail ? `\nServer stderr: ${detail}` : ''),
-          ),
+        finishError ??= new Error(
+          `${options.label ?? 'MCP launch'} did not exit after its protocol input closed.`,
         );
+        void forceProcessTree(child, environment, options.forceTimeout ?? 2000).then(() => {
+          forceClose = setTimeout(() => complete(finishError), 250);
+        });
       }, options.shutdownTimeout ?? 2000);
       child.once('close', () => {
-        clearTimeout(shutdown);
-        if (error !== undefined)
-          reject(new Error(detail ? `${error.message}\nServer stderr: ${detail}` : error.message));
-        else resolve({ stderr: detail });
+        complete(finishError);
       });
+
+      function complete(resultError) {
+        if (completed) return;
+        completed = true;
+        clearTimeout(shutdown);
+        clearTimeout(forceClose);
+        const detail = stderr.trim();
+        if (resultError !== undefined) {
+          reject(
+            new Error(
+              detail ? `${resultError.message}\nServer stderr: ${detail}` : resultError.message,
+            ),
+          );
+        } else resolve({ stderr: detail });
+      }
+    }
+  });
+}
+
+function forceProcessTree(child, environment, timeout) {
+  if (process.platform !== 'win32') {
+    child.kill('SIGKILL');
+    return Promise.resolve();
+  }
+  if (child.pid === undefined) return Promise.resolve();
+
+  return new Promise(resolve => {
+    const systemRoot = environment.SystemRoot ?? environment.SYSTEMROOT ?? 'C:\\Windows';
+    const killer = spawn(
+      path.join(systemRoot, 'System32', 'taskkill.exe'),
+      ['/pid', String(child.pid), '/t', '/f'],
+      { stdio: 'ignore', windowsHide: true },
+    );
+    let done = false;
+    const timer = setTimeout(() => {
+      killer.kill();
+      complete();
+    }, timeout);
+    killer.on('error', complete);
+    killer.on('close', complete);
+
+    function complete() {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve();
     }
   });
 }
@@ -1430,6 +1488,7 @@ module.exports = {
     selectRuntime,
     stableRuntimePath,
     supportsRange,
+    verifyLaunch,
     windowsLaunchWrapper,
   },
 };
