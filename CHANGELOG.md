@@ -2,6 +2,12 @@
 
 Package release notes for `frontier-mcp` (npm). Not part of the `.scratch/` issue tracker.
 
+## [0.4.1](https://github.com/51ck/frontier-mcp/compare/v0.4.0...v0.4.1) (2026-09-16)
+
+### Bug Fixes
+
+* **setup:** align the published bootstrap ([0db4822](https://github.com/51ck/frontier-mcp/commit/0db4822a59f6119ba4a6cfcbbe0661b272d01c50))
+
 ## [0.4.0](https://github.com/51ck/frontier-mcp/compare/v0.3.1...v0.4.0) (2026-09-16)
 
 ### Features
