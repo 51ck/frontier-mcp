@@ -1139,7 +1139,10 @@ async function verifyLaunch(launch) {
   try {
     await protocolCheck(launch, fixture);
   } finally {
-    await rm(fixture, { recursive: true, force: true });
+    // Windows may release the launcher's working-directory handle just after
+    // the process closes. This directory is disposable, so let Node's recursive
+    // remover retry only its documented transient filesystem errors.
+    await rm(fixture, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 }
 
