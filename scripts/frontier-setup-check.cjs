@@ -296,7 +296,7 @@ process.stdin.on('data', chunk => {
   while ((newline = input.indexOf('\\n')) !== -1) {
     const line = input.slice(0, newline);
     input = input.slice(newline + 1);
-    if (mode !== 'respond') continue;
+    if (mode !== 'respond' && mode !== 'respond-stay') continue;
     const message = JSON.parse(line);
     if (message.id === 1) send({ jsonrpc: '2.0', id: 1, result: {} });
     if (message.id === 2) send({ jsonrpc: '2.0', id: 2, result: { tools: ${JSON.stringify(
@@ -306,6 +306,7 @@ process.stdin.on('data', chunk => {
 });
 process.stdin.on('end', () => {
   writeFileSync(marker, 'protocol EOF received\\n');
+  if (mode === 'respond-stay') return;
   process.exit(0);
 });
 function send(message) { process.stdout.write(JSON.stringify(message) + '\\n'); }
@@ -321,6 +322,15 @@ function send(message) { process.stdout.write(JSON.stringify(message) + '\\n'); 
     { shutdownTimeout: 1000, timeout: 1000 },
   );
   assert.equal(await readFile(successMarker, 'utf8'), 'protocol EOF received\n');
+
+  const fallbackMarker = path.join(checkTemporary, 'protocol fallback EOF');
+  await testing.protocolCheck(
+    { command: node, args: [server, fallbackMarker, 'respond-stay'] },
+    checkTemporary,
+    minimalDesktopEnvironment(node, checkTemporary),
+    { forceTimeout: 100, shutdownTimeout: 50, timeout: 1000 },
+  );
+  assert.equal(await readFile(fallbackMarker, 'utf8'), 'protocol EOF received\n');
 
   const timeoutMarker = path.join(checkTemporary, 'protocol timeout EOF');
   await assert.rejects(

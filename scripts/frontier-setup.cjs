@@ -1261,11 +1261,18 @@ function protocolCheck(
       let forceClose;
       child.stdin.end();
       const shutdown = setTimeout(() => {
-        finishError ??= new Error(
-          `${options.label ?? 'MCP launch'} did not exit after its protocol input closed.`,
-        );
         void forceProcessTree(child, environment, options.forceTimeout ?? 2000).then(() => {
-          forceClose = setTimeout(() => complete(finishError), 250);
+          if (completed) return;
+          forceClose = setTimeout(
+            () =>
+              complete(
+                finishError ??
+                  new Error(
+                    `${options.label ?? 'MCP launch'} did not exit after bounded termination.`,
+                  ),
+              ),
+            250,
+          );
         });
       }, options.shutdownTimeout ?? 2000);
       child.once('close', () => {
@@ -1292,8 +1299,24 @@ function protocolCheck(
 
 function forceProcessTree(child, environment, timeout) {
   if (process.platform !== 'win32') {
-    child.kill('SIGKILL');
-    return Promise.resolve();
+    return new Promise(resolve => {
+      let done = false;
+      let timer;
+      child.once('close', complete);
+      child.kill('SIGTERM');
+      timer = setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+        complete();
+      }, timeout);
+
+      function complete() {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        child.off('close', complete);
+        resolve();
+      }
+    });
   }
   if (child.pid === undefined) return Promise.resolve();
 
