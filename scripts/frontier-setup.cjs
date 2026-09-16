@@ -75,7 +75,15 @@ async function main(args) {
     options.client === 'cursor'
       ? await prepareConfig(target, launch)
       : { desired: { command: launch.command, args: launch.args } };
-  printPreview({ runtime, release, installation, target, preview, client: options.client });
+  printPreview({
+    runtime,
+    release,
+    installation,
+    target,
+    preview,
+    client: options.client,
+    apply: options.apply,
+  });
 
   if (!options.apply || options.client === 'manual') return;
   await applyConfig(target, preview, options.replace);
@@ -126,7 +134,7 @@ function parseArguments(args) {
     !options.help &&
     (options.version === undefined || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(options.version))
   ) {
-    throw new Error('Pass an exact released version, for example --version 0.3.1.');
+    throw new Error('Pass an exact released version, for example --version 0.4.0.');
   }
   if (options.client !== 'cursor' && options.client !== 'manual') {
     throw new Error('--client must be cursor or manual.');
@@ -881,7 +889,11 @@ function chooseRuntime() {
 }
 
 function alternative(runtime, node) {
-  if (configuration.packageVersion !== '0.3.1' || process.platform !== 'darwin' || process.arch !== 'arm64') {
+  const packageVerified =
+    runtime === 'bun'
+      ? ['0.3.1', '0.4.0'].includes(configuration.packageVersion)
+      : configuration.packageVersion === '0.3.1';
+  if (!packageVerified || process.platform !== 'darwin' || process.arch !== 'arm64') {
     return fallback(node, \`\${runtimeName(runtime)} is not verified for frontier-mcp@\${configuration.packageVersion} on \${process.platform}/\${process.arch}; using configured Node\`);
   }
   const executable = configuration.alternatives[runtime];
@@ -1390,7 +1402,7 @@ function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function printPreview({ runtime, release, installation, target, preview, client }) {
+function printPreview({ runtime, release, installation, target, preview, client, apply }) {
   process.stdout.write(`Runtime: ${runtime.executable} (Node ${formatVersion(runtime.version)})\n`);
   process.stdout.write(
     `Package: ${PACKAGE}@${release.version} (requires ${release.engines.node})\n`,
@@ -1407,7 +1419,7 @@ function printPreview({ runtime, release, installation, target, preview, client 
   if (client === 'cursor' && !preview.identical && preview.existing !== undefined) {
     process.stdout.write('An existing frontier entry needs --replace before --apply.\n');
   }
-  if (client === 'cursor')
+  if (client === 'cursor' && !apply)
     process.stdout.write('Preview only. Add --apply to write this Cursor entry.\n');
 }
 

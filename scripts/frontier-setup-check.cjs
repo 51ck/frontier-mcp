@@ -117,8 +117,13 @@ async function main() {
       JSON.stringify({ mcpServers: { other: { command: 'other' } } }),
       'utf8',
     );
+    const previewed = await bootstrap(basic, project, environment);
+    assert.equal(previewed.code, 0, previewed.stderr);
+    assert.match(previewed.stdout, /Preview only\. Add --apply/);
     const applied = await bootstrap([...basic, '--apply'], project, environment);
     assert.equal(applied.code, 0, applied.stderr);
+    assert.doesNotMatch(applied.stdout, /Preview only/);
+    assert.match(applied.stdout, /Applied Cursor user configuration/);
     const configured = JSON.parse(await readFile(configPath, 'utf8'));
     assert.deepEqual(configured.mcpServers.other, { command: 'other' });
     assert.equal(configured.mcpServers.frontier.args.length, 0);
@@ -148,6 +153,7 @@ async function main() {
         'dist',
         'bin.js',
       ),
+      options.version,
     );
 
     const again = await bootstrap([...basic, '--apply'], project, environment);
@@ -266,7 +272,7 @@ async function launcherOnlyCheck(checkTemporary, checkOptions) {
     { directory: launchDirectory, entry },
     { alternatives, version: '0.3.1' },
   );
-  await launcherSelectionCheck(launch, checkTemporary, home, checkOptions, entry);
+  await launcherSelectionCheck(launch, checkTemporary, home, checkOptions, entry, '0.3.1');
   await protocolShutdownCheck(checkTemporary, checkOptions.node24);
 }
 
@@ -343,7 +349,14 @@ function send(message) { process.stdout.write(JSON.stringify(message) + '\\n'); 
   assert.equal(await readFile(timeoutMarker, 'utf8'), 'protocol EOF received\n');
 }
 
-async function launcherSelectionCheck(launch, checkTemporary, home, checkOptions, entry) {
+async function launcherSelectionCheck(
+  launch,
+  checkTemporary,
+  home,
+  checkOptions,
+  entry,
+  packageVersion,
+) {
   const bunInvocation = path.join(checkTemporary, 'bun invocation');
   const denoInvocation = path.join(checkTemporary, 'deno invocation');
   const environment = {
@@ -363,7 +376,10 @@ async function launcherSelectionCheck(launch, checkTemporary, home, checkOptions
   await writeFile(path.join(bunProject, 'bun.lock'), 'fixture\n');
   await writeFile(path.join(denoProject, 'deno.json'), '{}\n');
 
-  const verifiedAlternativeHost = process.platform === 'darwin' && process.arch === 'arm64';
+  const verifiedHost = process.platform === 'darwin' && process.arch === 'arm64';
+  const verifiedBunHost =
+    verifiedHost && (packageVersion === '0.3.1' || packageVersion === '0.4.0');
+  const verifiedDenoHost = verifiedHost && packageVersion === '0.3.1';
   await protocolCase('plain Node project', launch, nodeProject, environment);
   const bunResult = await protocolCase(
     'nested Bun project',
@@ -372,16 +388,22 @@ async function launcherSelectionCheck(launch, checkTemporary, home, checkOptions
     environment,
   );
   const denoResult = await protocolCase('Deno project', launch, denoProject, environment);
-  if (verifiedAlternativeHost) {
-    assert.equal((await readFile(bunInvocation, 'utf8')).trim(), 'x --bun frontier-mcp@0.3.1');
+  if (verifiedBunHost) {
+    assert.equal(
+      (await readFile(bunInvocation, 'utf8')).trim(),
+      `x --bun frontier-mcp@${packageVersion}`,
+    );
+  } else {
+    assert.match(bunResult.stderr, /Bun is not verified.*using configured Node/i);
+    await assertMissing(bunInvocation);
+  }
+  if (verifiedDenoHost) {
     assert.equal(
       (await readFile(denoInvocation, 'utf8')).trim(),
       'run --no-config --no-lock --node-modules-dir=none --no-prompt --allow-read --allow-write --allow-env npm:frontier-mcp@0.3.1',
     );
   } else {
-    assert.match(bunResult.stderr, /Bun is not verified.*using configured Node/i);
     assert.match(denoResult.stderr, /Deno is not verified.*using configured Node/i);
-    await assertMissing(bunInvocation);
     await assertMissing(denoInvocation);
   }
   assert.equal(await readFile(path.join(denoProject, 'deno.json'), 'utf8'), '{}\n');
@@ -389,17 +411,18 @@ async function launcherSelectionCheck(launch, checkTemporary, home, checkOptions
   await assert.rejects(readFile(path.join(denoProject, 'node_modules')), { code: 'ENOENT' });
 
   const markerCases = [
-    ['bun legacy lock', 'bun.lockb', 'fixture\n', 'FRONTIER_BUN_INVOCATION'],
+    ['bun legacy lock', 'bun.lockb', 'fixture\n', 'FRONTIER_BUN_INVOCATION', verifiedBunHost],
     [
       'bun package manager',
       'package.json',
       '{"packageManager":"bun@1.3.14"}\n',
       'FRONTIER_BUN_INVOCATION',
+      verifiedBunHost,
     ],
-    ['deno jsonc', 'deno.jsonc', '{}\n', 'FRONTIER_DENO_INVOCATION'],
-    ['deno lock', 'deno.lock', 'fixture\n', 'FRONTIER_DENO_INVOCATION'],
+    ['deno jsonc', 'deno.jsonc', '{}\n', 'FRONTIER_DENO_INVOCATION', verifiedDenoHost],
+    ['deno lock', 'deno.lock', 'fixture\n', 'FRONTIER_DENO_INVOCATION', verifiedDenoHost],
   ];
-  await runMarkerCases(markerCases, launch, checkTemporary, environment, verifiedAlternativeHost);
+  await runMarkerCases(markerCases, launch, checkTemporary, environment);
 
   await writeFile(path.join(bunProject, 'deno.lock'), 'fixture\n');
   const mixed = await protocolCase('mixed markers', launch, bunProject, environment);
@@ -410,7 +433,7 @@ async function launcherSelectionCheck(launch, checkTemporary, home, checkOptions
     ...environment,
     FRONTIER_RUNTIME: 'bun',
   });
-  if (verifiedAlternativeHost) assert.doesNotMatch(overridden.stderr, /using configured Node/i);
+  if (verifiedBunHost) assert.doesNotMatch(overridden.stderr, /using configured Node/i);
   else assert.match(overridden.stderr, /Bun is not verified.*using configured Node/i);
   await rm(bunInvocation, { force: true });
   const nodeOverride = await protocolCase('Node override', launch, bunProject, {
@@ -426,7 +449,7 @@ async function launcherSelectionCheck(launch, checkTemporary, home, checkOptions
   });
   assert.match(invalidOverride.stderr, /FRONTIER_RUNTIME=ruby is invalid.*configured Node/i);
 
-  if (verifiedAlternativeHost) {
+  if (verifiedBunHost) {
     const unsupported = await protocolCase('unsupported Bun version', launch, bunProject, {
       ...environment,
       FRONTIER_FAKE_BUN_VERSION: '1.3.15',
@@ -447,7 +470,7 @@ async function launcherSelectionCheck(launch, checkTemporary, home, checkOptions
   const boundary = await protocolCase('workspace boundary', launch, bounded, environment);
   assert.doesNotMatch(boundary.stderr, /Bun/);
 
-  if (verifiedAlternativeHost) {
+  if (verifiedBunHost) {
     const missingDirectory = path.join(checkTemporary, 'missing candidate launcher');
     await mkdir(missingDirectory);
     const missingLaunch = await testing.durableLaunch(
@@ -466,10 +489,10 @@ async function launcherSelectionCheck(launch, checkTemporary, home, checkOptions
   }
 }
 
-async function runMarkerCases(cases, launch, checkTemporary, environment, verifiedHost, index = 0) {
+async function runMarkerCases(cases, launch, checkTemporary, environment, index = 0) {
   const markerCase = cases[index];
   if (markerCase === undefined) return;
-  const [name, marker, contents, invocationVariable] = markerCase;
+  const [name, marker, contents, invocationVariable, verified] = markerCase;
   const markerProject = path.join(checkTemporary, name);
   const invocation = path.join(checkTemporary, `${name} invocation`);
   await mkdir(path.join(markerProject, '.git'), { recursive: true });
@@ -478,12 +501,12 @@ async function runMarkerCases(cases, launch, checkTemporary, environment, verifi
     ...environment,
     [invocationVariable]: invocation,
   });
-  if (verifiedHost) assert.notEqual((await readFile(invocation, 'utf8')).trim(), '');
+  if (verified) assert.notEqual((await readFile(invocation, 'utf8')).trim(), '');
   else {
     assert.match(result.stderr, /(?:Bun|Deno) is not verified.*using configured Node/i);
     await assertMissing(invocation);
   }
-  return runMarkerCases(cases, launch, checkTemporary, environment, verifiedHost, index + 1);
+  return runMarkerCases(cases, launch, checkTemporary, environment, index + 1);
 }
 
 async function createRuntimeFixtures(checkTemporary, node) {
@@ -493,7 +516,7 @@ async function createRuntimeFixtures(checkTemporary, node) {
     bun,
     'FRONTIER_FAKE_BUN_VERSION',
     '1.3.14',
-    'x --bun frontier-mcp@0.3.1',
+    ['x --bun frontier-mcp@0.3.1', 'x --bun frontier-mcp@0.4.0'],
     'FRONTIER_BUN_INVOCATION',
     node,
   );
@@ -501,7 +524,9 @@ async function createRuntimeFixtures(checkTemporary, node) {
     deno,
     'FRONTIER_FAKE_DENO_VERSION',
     'deno 2.9.6',
-    'run --no-config --no-lock --node-modules-dir=none --no-prompt --allow-read --allow-write --allow-env npm:frontier-mcp@0.3.1',
+    [
+      'run --no-config --no-lock --node-modules-dir=none --no-prompt --allow-read --allow-write --allow-env npm:frontier-mcp@0.3.1',
+    ],
     'FRONTIER_DENO_INVOCATION',
     node,
   );
@@ -518,7 +543,7 @@ async function writeRuntimeFixture(
 ) {
   await writeFile(
     target,
-    `#!/bin/sh\nif [ "$1" = --version ]; then printf '%s\\n' "\${${versionVariable}:-${defaultVersion}}"; exit 0; fi\nprintf '%s\\n' "$*" > "$${invocationVariable}"\n[ "$*" = '${expectedArguments}' ] || exit 93\nexec '${node}' "$FRONTIER_FAKE_ENTRY"\n`,
+    `#!/bin/sh\nif [ "$1" = --version ]; then printf '%s\\n' "\${${versionVariable}:-${defaultVersion}}"; exit 0; fi\nprintf '%s\\n' "$*" > "$${invocationVariable}"\ncase "$*" in\n${expectedArguments.map(expected => `  '${expected}') ;;`).join('\n')}\n  *) exit 93 ;;\nesac\nexec '${node}' "$FRONTIER_FAKE_ENTRY"\n`,
     'utf8',
   );
   await chmod(target, 0o755);
@@ -803,7 +828,7 @@ function parseArguments(args) {
     launcherOnly: false,
     node16: process.env.FRONTIER_NODE16,
     node24: process.env.FRONTIER_NODE24,
-    version: process.env.FRONTIER_SETUP_RELEASE ?? '0.3.1',
+    version: process.env.FRONTIER_SETUP_RELEASE ?? '0.4.0',
   };
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];

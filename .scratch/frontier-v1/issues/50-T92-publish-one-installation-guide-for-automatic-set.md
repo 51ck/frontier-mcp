@@ -24,3 +24,13 @@ A new user follows the recommended automated setup or configures FrontierMCP man
 ## Research
 
 See [runtime setup research](../../../docs/research/2026-09-04-runtime-setup.md).
+
+## Comments
+
+2026-09-16: README and the guide now name the published 0.4.0 artifact, its real tarball extraction
+commands, current Node range, exact server pin, and the published bootstrap's cosmetic apply-output
+defect. Bun 1.3.14 passed the exact 0.4.0 npm launcher probe. Deno 2.9.6 passed only with a one-time
+minimum-dependency-age override; its unchanged command failed during the release verification
+window, so 0.4.0 is not allowlisted and uses the supported Node path for Deno. A later Deno
+re-evaluation is outside this Ticket. T92 stays open only for follow-up bootstrap publication and
+verification of its final real commands.

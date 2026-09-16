@@ -59,16 +59,17 @@ These scripts provide runtime probes and setup helpers for T88–T91.
   `deno.jsonc`, and `deno.lock`. Mixed markers and a missing workspace marker fall back to Node with
   stderr diagnostics. `FRONTIER_RUNTIME=node|bun|deno` overrides marker choice, but never bypasses
   compatibility checks.
-- Alternate-runtime compatibility is version-coupled. Only `frontier-mcp@0.3.1` with Bun 1.3.14 or
-  Deno 2.9.6 on macOS arm64 is enabled. Every other package/runtime/platform tuple uses the saved
-  Node. Bun launches with `x --bun`; Deno launches with `run --no-config --no-lock
+- Alternate-runtime compatibility is version-coupled. Bun 1.3.14 is enabled for exact
+  `frontier-mcp@0.3.1` and `0.4.0` pins on macOS arm64; Deno 2.9.6 remains enabled only for 0.3.1.
+  Every other package/runtime/platform tuple uses the saved Node. Bun launches with `x --bun`;
+  Deno launches with `run --no-config --no-lock
   --node-modules-dir=none --no-prompt --allow-read --allow-write --allow-env` and the exact `npm:`
   pin. These package runners may use the network when their cache lacks the pin. A failure after an
   allowed runner starts exits with stderr guidance rather than starting Node after partial startup.
   Startup reads markers and runtime versions only; destructive compatibility probes stay in
   disposable verification fixtures.
 - `frontier-setup-check.cjs` runs that bootstrap under Node 16 against an explicit newer Node and the
-  released pin named by `FRONTIER_SETUP_RELEASE` (default `0.3.1`). It requires `FRONTIER_NODE16` and
+  released pin named by `FRONTIER_SETUP_RELEASE` (default `0.4.0`). It requires `FRONTIER_NODE16` and
   `FRONTIER_NODE24`, uses a temporary home and project, and needs registry access.
 - `frontier-setup-platform-check.cjs` verifies a real preinstalled fnm and Node 16/24 pair, including
   Cursor application, idempotence, saved-launch MCP, unchanged project pins and manager listing.
