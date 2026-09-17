@@ -4,10 +4,11 @@ FrontierMCP is installed once in an MCP client's user configuration. That one se
 repository you open. Pin the package to an exact version: pre-1.0 releases may contain breaking
 changes, and pins never update themselves.
 
-## Current release
+## Current release and verified server pin
 
-The current release is `frontier-mcp@0.4.0`. A simple Cursor user
-configuration is:
+npm's current release is `frontier-mcp@0.4.1`. The installation recipes deliberately keep the
+server at `frontier-mcp@0.4.0`, the exact pin covered by the runtime measurements below. The 0.4.1
+artifact supplies the corrected setup bootstrap. A simple manual Cursor configuration is:
 
 ```json
 {
@@ -49,13 +50,13 @@ engine range instead.
 ## Automatic setup
 
 Automated setup is the recommended installation path. Download the dependency-free bootstrap from
-the published 0.4.0 tarball, then use it to install the exact 0.4.0 server:
+the published 0.4.1 tarball, then use it to install the exact 0.4.0 server:
 
 ```sh
 SETUP_DIR="$(mktemp -d)"
-curl -fsSL https://registry.npmjs.org/frontier-mcp/-/frontier-mcp-0.4.0.tgz \
-  -o "$SETUP_DIR/frontier-mcp-0.4.0.tgz"
-tar -xzf "$SETUP_DIR/frontier-mcp-0.4.0.tgz" -C "$SETUP_DIR" \
+curl -fsSL https://registry.npmjs.org/frontier-mcp/-/frontier-mcp-0.4.1.tgz \
+  -o "$SETUP_DIR/frontier-mcp-0.4.1.tgz"
+tar -xzf "$SETUP_DIR/frontier-mcp-0.4.1.tgz" -C "$SETUP_DIR" \
   package/scripts/frontier-setup.cjs
 node "$SETUP_DIR/package/scripts/frontier-setup.cjs" --version 0.4.0 --apply
 ```
@@ -65,8 +66,8 @@ PowerShell uses the same published artifact:
 ```powershell
 $SetupDir = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid())
 New-Item -ItemType Directory -Path $SetupDir | Out-Null
-$Archive = Join-Path $SetupDir "frontier-mcp-0.4.0.tgz"
-Invoke-WebRequest https://registry.npmjs.org/frontier-mcp/-/frontier-mcp-0.4.0.tgz -OutFile $Archive
+$Archive = Join-Path $SetupDir "frontier-mcp-0.4.1.tgz"
+Invoke-WebRequest https://registry.npmjs.org/frontier-mcp/-/frontier-mcp-0.4.1.tgz -OutFile $Archive
 tar -xzf $Archive -C $SetupDir package/scripts/frontier-setup.cjs
 node (Join-Path $SetupDir "package/scripts/frontier-setup.cjs") --version 0.4.0 --apply
 ```
@@ -86,9 +87,13 @@ entry. `--apply` writes Cursor user scope. For another client, use `--client man
 printed `frontier` entry into that client's user configuration. Use `--replace` only after reviewing
 a different existing `frontier` entry; setup creates a backup first.
 
-The published 0.4.0 bootstrap prints `Preview only` even when `--apply` is present, then prints the
-authoritative `Applied Cursor user configuration` result after the write. The extra line is cosmetic
-and is fixed in the next patch.
+The literal POSIX quick-start above passed on macOS arm64 with the published 0.4.1 tarball and Node
+16.20.2 running the bootstrap. Preview and apply both verified the server; apply printed `Applied
+Cursor user configuration` without a stale preview message. The PowerShell form uses the same
+archive path, extraction target, script and version pin, but the literal 0.4.1 command has not been
+run locally on Windows. Windows script behavior remains covered by the setup fixtures and runtime CI.
+The [dated verification record](research/2026-09-17-0.4.1-bootstrap-verification.md) includes the
+tarball digest and exact evidence boundary.
 
 The generated launcher stores absolute paths, including paths with spaces, and needs no arguments in
 the client configuration:
@@ -140,8 +145,8 @@ $Entry
 
 Both commands require pnpm in that compatible Node shell and may access the npm registry. They do
 not add files to the consumer project. The examples below use 24.15.0, the supported 24.x floor in
-the current release. Commands in the last column run the absolute `ENTRY`; quotes protect paths with
-spaces.
+the verified 0.4.0 server pin. Commands in the last column run the absolute `ENTRY`; quotes protect
+paths with spaces.
 
 | Manager | Discover and install | Resolve or run 24.15.0 |
 | --- | --- | --- |
@@ -174,7 +179,9 @@ The bootstrap has direct fixture coverage for discovery, layout fallback, absolu
 and repair instructions for all six managers. Real fnm setup has passed on macOS, Linux, and Windows
 in [runtime CI run 35074448965](https://github.com/51ck/frontier-mcp/actions/runs/35074448965).
 The other manager integrations use representative fixtures; treat them as recipes with automated
-contract coverage rather than measurements of every manager and operating-system release.
+contract coverage rather than measurements of every manager and operating-system release. The
+literal published-artifact check used explicit Node 24.15.0 and Bun 1.3.14 executables on macOS
+arm64; it did not repeat every manager recipe.
 
 ## Bun and Deno projects
 
@@ -196,10 +203,9 @@ On macOS arm64, Bun 1.3.14 is measured with exact `frontier-mcp@0.3.1` and `0.4.
 remains enabled only for 0.3.1. When tested about 3.5 hours after publication, the unchanged 0.4.0
 Deno command was blocked by Deno's default minimum dependency age; a one-time override proved the
 server itself passes, but the saved launcher deliberately does not weaken that registry policy.
-The follow-up bootstrap therefore selects Bun for a 0.4.0 server and visibly falls back to Node for
-Deno. The already-published 0.4.0 bootstrap predates that selector expansion and continues to use
-Node until the follow-up bootstrap is released. Every other unmeasured package version, runtime
-version, platform, or architecture also falls back to Node.
+The published 0.4.1 bootstrap therefore selects Bun for a 0.4.0 server and visibly falls back to
+Node for Deno. Every other unmeasured package version, runtime version, platform, or architecture
+also falls back to Node.
 
 The Bun command is measured for both pins; this Deno command remains the verified 0.3.1 recipe:
 

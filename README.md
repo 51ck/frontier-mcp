@@ -23,26 +23,30 @@ Node 24 LTS is recommended for new installations. The package floors passed on m
 ## Install
 
 Register FrontierMCP once in the client's user scope. The recommended setup downloads the bootstrap
-from the published 0.4.0 tarball, installs the exact 0.4.0 server outside your project, verifies its
-MCP handshake, and previews a Cursor user-scope entry before applying it:
+from the published 0.4.1 tarball, installs the exact 0.4.0 server outside your project, verifies its
+MCP handshake, and previews a Cursor user-scope entry before applying it. npm's current release is
+0.4.1; the server stays pinned to 0.4.0 here because that is the exact version covered by the runtime
+measurements in the installation guide.
 
 ```sh
 SETUP_DIR="$(mktemp -d)"
-curl -fsSL https://registry.npmjs.org/frontier-mcp/-/frontier-mcp-0.4.0.tgz \
-  -o "$SETUP_DIR/frontier-mcp-0.4.0.tgz"
-tar -xzf "$SETUP_DIR/frontier-mcp-0.4.0.tgz" -C "$SETUP_DIR" \
+curl -fsSL https://registry.npmjs.org/frontier-mcp/-/frontier-mcp-0.4.1.tgz \
+  -o "$SETUP_DIR/frontier-mcp-0.4.1.tgz"
+tar -xzf "$SETUP_DIR/frontier-mcp-0.4.1.tgz" -C "$SETUP_DIR" \
   package/scripts/frontier-setup.cjs
 node "$SETUP_DIR/package/scripts/frontier-setup.cjs" --version 0.4.0 --apply
 ```
 
 It may run from a project pinned to Node 16; project runtime markers are evaluated later from the
-client's working directory when the saved launcher starts. Omit `--apply` for a preview. The 0.4.0
-bootstrap prints a stale `Preview only` line during apply, followed by the authoritative `Applied`
-result; this cosmetic output is fixed for the next patch. For a manual Cursor entry instead:
+client's working directory when the saved launcher starts. Omit `--apply` for a preview. For a manual
+Cursor entry instead:
 
 ```json
 {
   "mcpServers": {
+    "another-server": {
+      "command": "/absolute/path/to/another-server"
+    },
     "frontier": {
       "command": "npx",
       "args": ["-y", "frontier-mcp@0.4.0"]
@@ -54,8 +58,8 @@ result; this cosmetic output is fixed for the next patch. For a manual Cursor en
 Restart Cursor after saving. The pin is the version you get; updates remain manual.
 
 The [installation guide](docs/installation.md) covers Node 16 projects, a PowerShell bootstrap,
-runtime managers, absolute desktop paths, the follow-up selector's Bun 0.4.0 support, the published
-bootstrap boundary, Deno's Node fallback, other clients, updates, recovery, and removal.
+runtime managers, absolute desktop paths, Bun 0.4.0 support, Deno's Node fallback, other clients,
+updates, recovery, and removal.
 
 ## First use in a repository
 
