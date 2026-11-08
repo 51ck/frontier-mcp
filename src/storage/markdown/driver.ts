@@ -20,8 +20,16 @@ import type {
   TicketWriteResult,
 } from '../driver.ts';
 import type { TicketEdit } from '../../domain.ts';
-import { NoSuchEffort, NoSuchMap, NoSuchSpec, NoSuchTicket, RevisionMismatch } from '../driver.ts';
+import {
+  InvalidWorkspaceConfig,
+  NoSuchEffort,
+  NoSuchMap,
+  NoSuchSpec,
+  NoSuchTicket,
+  RevisionMismatch,
+} from '../driver.ts';
 import { createTicketFiles } from './create.ts';
+import { loadIdPattern } from './id-pattern.ts';
 import { migrateEffortFiles } from './migrate.ts';
 import { applyEdit, type Defaults } from './serialize.ts';
 import {
@@ -112,6 +120,9 @@ export function createMarkdownDriver(
   }: MarkdownDriverOptions = {},
 ): StorageDriver {
   const storage = join(root, storageDir);
+  // Compiled once and not watched (T54). T65 mints from it and T66 matches ids
+  // against it; until then a broken one only warns on read and refuses writes.
+  const idPattern = loadIdPattern(storage, storageDir);
   let writes: Promise<unknown> = Promise.resolve();
 
   const walk = async (): Promise<ScannedEffort[]> => {
@@ -152,7 +163,9 @@ export function createMarkdownDriver(
    * A write moves the workspace on whether or not it succeeded partway, so the
    * next read rebuilds rather than trusting a scan taken before it.
    */
-  const moved = async <T>(operation: () => Promise<T>): Promise<T> => {
+  const moved = async <T>(operation: () => Promise<T>, writing = true): Promise<T> => {
+    if (writing && idPattern.problem !== undefined)
+      throw new InvalidWorkspaceConfig(idPattern.problem);
     try {
       return await operation();
     } finally {
@@ -172,6 +185,15 @@ export function createMarkdownDriver(
 
     async listTickets(): Promise<readonly TicketSummary[]> {
       return (await scan()).flatMap(entry => summariesOf(entry));
+    },
+
+    workspaceWarnings() {
+      return idPattern.problem === undefined
+        ? []
+        : [
+            `${idPattern.problem} Writes are refused until it is fixed and the FrontierMCP server ` +
+              'is restarted.',
+          ];
     },
 
     async readTickets(handles): Promise<readonly Ticket[]> {
@@ -215,7 +237,10 @@ export function createMarkdownDriver(
     },
 
     migrateEffort(effort, options) {
-      return moved(() => serialized(() => migrate(storage, effort, options, walk)));
+      return moved(
+        () => serialized(() => migrate(storage, effort, options, walk)),
+        options.preview !== true,
+      );
     },
 
     close() {

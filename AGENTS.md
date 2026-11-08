@@ -121,6 +121,16 @@ Design decisions settled and binding until an ADR revises them:
   alone, `true` out loud on the four that replace or remove, so that the one `false` reads as a
   decision rather than an oversight. The three readers set neither `destructiveHint` nor
   `idempotentHint`: both are meaningless under `readOnlyHint: true`. Pinned in `test/ship.test.ts`.
+- **The Ticket id pattern lives in `<storageDir>/frontier.yml`** (`id_pattern`, the only key), read
+  once at driver construction and never watched. Tokens are `<N>`, `<b36{n}>`, `<b16{n}>` and
+  literals in `[A-Za-z0-9._-]`; `<effort>` is refused, and every pattern must begin with a literal
+  letter or underscore (T55). Absent file or key is the default `T<b36{6}>`, silently. An unparseable
+  file or illegal pattern shows in the Board's warnings (`StorageDriver.workspaceWarnings()`) and
+  makes every write refuse with `InvalidWorkspaceConfig` — never a fallback to the default. Read
+  paths still work, including `migrate_effort` preview and `edit_map`/`spec` calls that change
+  nothing; a fix takes effect after a server restart. The
+  compiled pattern carries `needsCoordination` and `survivesMerge`. Minting and id matching do not
+  consume it yet (T65, T66). Rules: T52–T55 in `.scratch/ids-patterns/`.
 - **`.md` with YAML frontmatter.** Not `.mdc`.
 - **Formal metadata in frontmatter, prose in the body.** Identity, status, edges, and kind are fields.
   Everything an agent reads as prose stays prose.
@@ -277,7 +287,7 @@ Source layout:
 | `src/frontier.ts` | The Frontier computation. Takes every Ticket in the workspace, because Edges resolve repo-wide. |
 | `src/edges.ts` | Cycle detection over the Edge graph. Above the seam, because a cycle is a rule about the domain rather than about storage — the same reason the Status model is checked in the tool layer. |
 | `src/storage/driver.ts` | The ADR 0001 seam, its edit vocabulary, and its typed failures. A driver is the workspace cached and live, so `close()` sits here beside the reads and writes. |
-| `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout, which it takes as a construction parameter — `frontmatter.ts` splits the fence, `ticket.ts` parses a Ticket, `legacy.ts` infers one from prose, `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` allocates ids and writes a new batch, `migrate.ts` normalizes an Effort at once, `write.ts` renames it into place, `watcher.ts` tells the driver another process moved the workspace under it. |
+| `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout, which it takes as a construction parameter — `frontmatter.ts` splits the fence, `ticket.ts` parses a Ticket, `legacy.ts` infers one from prose, `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` allocates ids and writes a new batch, `migrate.ts` normalizes an Effort at once, `id-pattern.ts` reads `<storageDir>/frontier.yml` once at construction and compiles `id_pattern`, `write.ts` renames it into place, `watcher.ts` tells the driver another process moved the workspace under it. |
 | `src/workspace.ts` | Workspace resolution — the only module above the driver that reads a *served* repository, and only to locate its root. `.scratch` is a marker only as a directory; `.git` counts as a file too, so a worktree or submodule resolves to itself rather than to the repository enclosing it. |
 | `src/driver-registry.ts` | One driver per resolved workspace, and the `closeAll()` that shuts them. A lookup, not a layer: it hands back the driver itself, so no read or write passes through it. |
 | `src/tools/` | One module per tool: its input schema, its description, and how its result renders. `workspace-line.ts` is the exception — the single rendering of which repository a call served, shared by `list_efforts` and every write. |
