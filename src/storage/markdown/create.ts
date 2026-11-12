@@ -1,9 +1,10 @@
+import { randomInt } from 'node:crypto';
 import { mkdir, rename, rmdir, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { TicketDraft, TicketSummary } from '../../domain.ts';
-import { MINTED_ID } from '../../domain.ts';
 import { resolveDraftEdges } from '../../edges.ts';
+import type { IdPattern, IdToken } from './id-pattern.ts';
 import { serializeNew } from './serialize.ts';
 import { stage, unstage } from './write.ts';
 
@@ -23,6 +24,7 @@ const CANDIDATE_HEADROOM = 1000;
 
 interface Reservation {
   readonly id: string;
+  readonly counter: number;
   readonly guard: string;
 }
 
@@ -32,6 +34,7 @@ export type Rescan = () => Promise<readonly TicketSummary[]>;
 export interface CreateRequest {
   /** Where the id guards live: one namespace for the whole workspace. */
   readonly storage: string;
+  readonly minting: MintingPlan;
   readonly effort: string;
   /** The Effort's directory, and the directory its Tickets go in. Both owned by the driver. */
   readonly dir: string;
@@ -52,10 +55,11 @@ export interface CreateRequest {
  * Create every Ticket in the batch, or none, and return the filenames written in
  * the order asked for.
  *
- * Ids are `max + 1` over the whole workspace — derived, so there is no counter
- * file to drift — and made safe against a parallel session by an exclusive
- * create: `open(..., 'wx')` on a guard named for the candidate id, bumping to the
- * next candidate on collision. The filesystem provides the mutual exclusion.
+ * A random pattern draws ids and checks them against the scan; nothing needs
+ * coordinating. A pattern with `<N>` takes `max + 1` over the whole workspace —
+ * derived, so there is no counter file to drift — made safe against a parallel
+ * session by an exclusive create: `open(..., 'wx')` on a guard named for the
+ * candidate counter, bumping to the next on collision.
  *
  * The guard alone is not compare-and-set. A session that scanned before ours and
  * finished writing after would hand us an id it has already used, so the batch
@@ -66,14 +70,17 @@ export interface CreateRequest {
  * write X. See ADR 0005.
  */
 export async function createTicketFiles(request: CreateRequest): Promise<readonly string[]> {
-  const { storage, effort, dir, issues, drafts, rescan, validate, createEffort } = request;
+  const { storage, minting, effort, dir, issues, drafts, rescan, validate, createEffort } = request;
   // The first Effort has no storage directory yet, but allocation still starts
   // by exclusively creating its guards inside that shared namespace.
   await mkdir(storage, { recursive: true });
-  const { reservations, tickets } = await reserve(storage, drafts.length, rescan);
+  const {
+    ids,
+    tickets,
+    release: releaseIds,
+  } = await minting.reserve(storage, drafts.length, rescan);
 
   try {
-    const ids = reservations.map(entry => entry.id);
     // The last rule that can only be checked now: the ids are real, and nothing
     // has been written or even created, so a refusal leaves no trace at all.
     validate(ids, tickets);
@@ -94,15 +101,16 @@ export async function createTicketFiles(request: CreateRequest): Promise<readonl
   } finally {
     // Released only once every file is on disk. A guard held across the write is
     // the whole guarantee; releasing early would reopen the window it closes.
-    await release(reservations);
+    await releaseIds();
   }
 }
 
 /**
- * Hold exclusive id guards for `count` fresh ids, run `use`, then release.
- * Migration mints through this so a parallel create_tickets cannot collide.
+ * Hold `count` fresh ids, run `use`, then release. Migration mints through
+ * this so a parallel create_tickets cannot collide.
  */
 export async function withIdReservations<T>(
+  minting: MintingPlan,
   storage: string,
   count: number,
   rescan: Rescan,
@@ -110,29 +118,12 @@ export async function withIdReservations<T>(
 ): Promise<T> {
   if (count === 0) return use([]);
 
-  const { reservations } = await reserve(storage, count, rescan);
+  const { ids, release: releaseIds } = await minting.reserve(storage, count, rescan);
   try {
-    return await use(reservations.map(entry => entry.id));
+    return await use(ids);
   } finally {
-    await release(reservations);
+    await releaseIds();
   }
-}
-
-/**
- * The next `count` minted ids from a scan, without taking guards. Preview uses
- * this so a dry run never leaves `.frontier-id-*.guard` files behind.
- */
-export function peekMintedIds(used: ReadonlySet<string>, count: number): readonly string[] {
-  const ids: string[] = [];
-  let candidate = highestMinted(used) + 1;
-
-  while (ids.length < count) {
-    const id = `T${String(candidate)}`;
-    if (!used.has(id)) ids.push(id);
-    candidate += 1;
-  }
-
-  return ids;
 }
 
 /** The cosmetic filename convention: `<NN>-T<n>-<slug>.md`. */
@@ -243,41 +234,119 @@ async function writeAll(issues: string, files: readonly NewFile[]): Promise<void
 }
 
 interface Reserved {
-  readonly reservations: readonly Reservation[];
+  readonly ids: readonly string[];
   /** The workspace as it looked under the guards — the state this batch appends to. */
   readonly tickets: readonly TicketSummary[];
+  readonly release: () => Promise<unknown>;
 }
 
-async function reserve(
-  storage: string,
-  count: number,
-  rescan: Rescan,
-  attempt = 1,
-): Promise<Reserved> {
-  const used = idsOf(await rescan());
-  const reservations = await claim(storage, used, count, highestMinted(used) + 1, []);
+/**
+ * How a compiled pattern mints, decided once when the driver is built (T53):
+ * a pattern containing `<N>` counts under guards, any other draws at random.
+ */
+export interface MintingPlan {
+  reserve(storage: string, count: number, rescan: Rescan): Promise<Reserved>;
+  /** Advisory ids for a preview, taking no guards. */
+  peek(used: ReadonlySet<string>, count: number): readonly string[];
+}
 
-  let settled: readonly TicketSummary[];
-  try {
-    settled = await rescan();
-  } catch (error) {
-    await release(reservations);
-    throw error;
-  }
+export function mintingPlan(pattern: IdPattern): MintingPlan {
+  return pattern.needsCoordination ? derivedPlan(pattern) : randomPlan(pattern);
+}
 
-  const taken = idsOf(settled);
-  const redundant = reservations.filter(entry => taken.has(entry.id));
-  if (redundant.length === 0) return { reservations, tickets: settled };
+/**
+ * Redraws one batch tolerates in total. Only a small random space gets near it
+ * — `T<b36{1}>` is legal — and by then the space is all but full.
+ */
+const MAX_REDRAWS = 64;
 
-  await release(reservations);
-  if (attempt >= MAX_ATTEMPTS) {
-    throw new Error(
-      `Could not reserve ${String(count)} Ticket ids after ${String(MAX_ATTEMPTS)} attempts — ` +
-        'another session is creating Tickets continuously. Retry in a moment.',
-    );
-  }
+function randomPlan(pattern: IdPattern): MintingPlan {
+  const draw = (used: ReadonlySet<string>, count: number): readonly string[] => {
+    const ids: string[] = [];
+    let redraws = 0;
+    while (ids.length < count) {
+      const id = render(pattern.tokens, 0);
+      if (!used.has(id) && !ids.includes(id)) {
+        ids.push(id);
+        continue;
+      }
+      redraws += 1;
+      if (redraws > MAX_REDRAWS) {
+        throw new Error(
+          `Could not draw ${String(count)} unused Ticket ids from id_pattern ` +
+            `${JSON.stringify(pattern.source)} after ${String(MAX_REDRAWS)} redraws — its random ` +
+            'space is nearly full. Lengthen its random token in frontier.yml.',
+        );
+      }
+    }
+    return ids;
+  };
 
-  return reserve(storage, count, rescan, attempt + 1);
+  return {
+    async reserve(_storage, count, rescan) {
+      const tickets = await rescan();
+      return { ids: draw(idsOf(tickets), count), tickets, release: () => Promise.resolve() };
+    },
+    peek: draw,
+  };
+}
+
+function derivedPlan(pattern: IdPattern): MintingPlan {
+  const matcher = counterMatcher(pattern.tokens);
+  const countersOf = (tickets: Iterable<string>): ReadonlySet<number> => {
+    const counters = new Set<number>();
+    for (const id of tickets) {
+      const digits = matcher.exec(id)?.[1];
+      if (digits !== undefined) counters.add(Number(digits));
+    }
+    return counters;
+  };
+
+  const reserve = async (
+    storage: string,
+    count: number,
+    rescan: Rescan,
+    attempt: number,
+  ): Promise<Reserved> => {
+    const used = countersOf(idsOf(await rescan()));
+    const reservations = await claim(storage, pattern, used, count, highest(used) + 1, []);
+    const releaseAll = () => release(reservations);
+
+    let settled: readonly TicketSummary[];
+    try {
+      settled = await rescan();
+    } catch (error) {
+      await releaseAll();
+      throw error;
+    }
+
+    const taken = countersOf(idsOf(settled));
+    if (!reservations.some(entry => taken.has(entry.counter))) {
+      return { ids: reservations.map(entry => entry.id), tickets: settled, release: releaseAll };
+    }
+
+    await releaseAll();
+    if (attempt >= MAX_ATTEMPTS) {
+      throw new Error(
+        `Could not reserve ${String(count)} Ticket ids after ${String(MAX_ATTEMPTS)} attempts — ` +
+          'another session is creating Tickets continuously. Retry in a moment.',
+      );
+    }
+
+    return reserve(storage, count, rescan, attempt + 1);
+  };
+
+  return {
+    reserve: (storage, count, rescan) => reserve(storage, count, rescan, 1),
+    peek(usedIds, count) {
+      const used = countersOf(usedIds);
+      const ids: string[] = [];
+      for (let candidate = highest(used) + 1; ids.length < count; candidate += 1) {
+        if (!used.has(candidate)) ids.push(render(pattern.tokens, candidate));
+      }
+      return ids;
+    },
+  };
 }
 
 function release(reservations: readonly Reservation[]): Promise<unknown> {
@@ -291,14 +360,15 @@ function release(reservations: readonly Reservation[]): Promise<unknown> {
  */
 async function claim(
   storage: string,
-  used: ReadonlySet<string>,
+  pattern: IdPattern,
+  used: ReadonlySet<number>,
   count: number,
   candidate: number,
   taken: readonly Reservation[],
 ): Promise<readonly Reservation[]> {
   if (taken.length === count) return taken;
 
-  if (candidate > highestMinted(used) + CANDIDATE_HEADROOM + count) {
+  if (candidate > highest(used) + CANDIDATE_HEADROOM + count) {
     await release(taken);
     throw new Error(
       `No free Ticket id within ${String(CANDIDATE_HEADROOM)} of the highest in use. ` +
@@ -306,15 +376,16 @@ async function claim(
     );
   }
 
-  const id = `T${String(candidate)}`;
-  if (used.has(id)) return claim(storage, used, count, candidate + 1, taken);
+  const next = (held: readonly Reservation[]) =>
+    claim(storage, pattern, used, count, candidate + 1, held);
+  if (used.has(candidate)) return next(taken);
 
-  const guard = guardFor(storage, id);
+  const guard = guardFor(storage, candidate);
   // A guard we cannot take belongs to a session that is still allocating. Bump
   // rather than wait: an id may be skipped, never reused.
-  if (!(await hold(guard))) return claim(storage, used, count, candidate + 1, taken);
+  if (!(await hold(guard))) return next(taken);
 
-  return claim(storage, used, count, candidate + 1, [...taken, { id, guard }]);
+  return next([...taken, { id: render(pattern.tokens, candidate), counter: candidate, guard }]);
 }
 
 /**
@@ -349,9 +420,13 @@ async function hold(guard: string): Promise<boolean> {
  * two sessions creating into different Efforts must still collide here. Hidden
  * and not `.md`, so no scan mistakes it for a Ticket, and the storage scan
  * yields it no Effort because it is not a directory.
+ *
+ * Keyed on the `<N>` value, not the rendered id: under `T<N>-<b36{4}>` two
+ * sessions reaching 35 render different ids, and only the number makes them
+ * contend (T53).
  */
-function guardFor(storage: string, id: string): string {
-  return join(storage, `.frontier-id-${id}.guard`);
+function guardFor(storage: string, counter: number): string {
+  return join(storage, `.frontier-id-N-${String(counter)}.guard`);
 }
 
 function idsOf(tickets: readonly TicketSummary[]): ReadonlySet<string> {
@@ -359,18 +434,39 @@ function idsOf(tickets: readonly TicketSummary[]): ReadonlySet<string> {
 }
 
 /**
- * The counter, derived. Ids preserved verbatim through migration need not look
- * like `T<n>` at all; those still occupy their name but contribute no number.
+ * The counter, derived from the ids in the pattern's own namespace. Ids that
+ * do not match the pattern still occupy their name but contribute no number.
  */
-function highestMinted(used: ReadonlySet<string>): number {
-  let highest = 0;
+function highest(used: ReadonlySet<number>): number {
+  let max = 0;
+  for (const counter of used) max = Math.max(max, counter);
+  return max;
+}
 
-  for (const id of used) {
-    const digits = MINTED_ID.exec(id)?.[1];
-    if (digits !== undefined) highest = Math.max(highest, Number(digits));
-  }
+const DIGITS = '0123456789abcdefghijklmnopqrstuvwxyz';
 
-  return highest;
+function render(tokens: readonly IdToken[], counter: number): string {
+  return tokens
+    .map(token => {
+      if (token.kind === 'literal') return token.text;
+      if (token.kind === 'counter') return String(counter);
+      return Array.from({ length: token.length }, () => DIGITS.charAt(randomInt(token.base))).join(
+        '',
+      );
+    })
+    .join('');
+}
+
+/** Matches ids in the pattern's namespace, capturing the `<N>` value. */
+function counterMatcher(tokens: readonly IdToken[]): RegExp {
+  const source = tokens
+    .map(token => {
+      if (token.kind === 'literal') return token.text.replaceAll('.', '\\.');
+      if (token.kind === 'counter') return '(\\d+)';
+      return `[${token.base === 16 ? '0-9a-f' : '0-9a-z'}]{${String(token.length)}}`;
+    })
+    .join('');
+  return new RegExp(`^${source}$`);
 }
 
 /** `NN` is sort order within the Effort and nothing else, so it simply continues. */

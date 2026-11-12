@@ -2,7 +2,7 @@ import { access, readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { map } from './support/fixtures.ts';
+import { COUNTED, map } from './support/fixtures.ts';
 import {
   cleanupFixtures,
   connectFrontier,
@@ -110,6 +110,7 @@ describe('migrate_effort', () => {
 
   it('resolves bare sort-order Blocked-by Edges to the minted ids', async () => {
     const root = await makeFixtureTree({
+      ...COUNTED,
       '.scratch/alpha/map.md': map('Somewhere.'),
       '.scratch/alpha/issues/01-colour.md': LEGACY_NO_ID,
       '.scratch/alpha/issues/02-texture.md': LEGACY_NO_ID_TWO,
@@ -143,6 +144,7 @@ describe('migrate_effort', () => {
 
   it('mints repo-global ids for Tickets that have none', async () => {
     const root = await makeFixtureTree({
+      ...COUNTED,
       '.scratch/alpha/map.md': map('Somewhere.'),
       '.scratch/alpha/issues/01-colour.md': LEGACY_NO_ID,
       '.scratch/alpha/issues/02-texture.md': LEGACY_NO_ID_TWO,
@@ -248,6 +250,7 @@ blocked_by: []
     // No dangling Depends-on:T31 here — colour mints as T31 (max+1 after T30),
     // and a prose Edge naming T31 would make the report ambiguous.
     const root = await makeFixtureTree({
+      ...COUNTED,
       '.scratch/alpha/map.md': map('Somewhere.'),
       '.scratch/alpha/issues/01-grammy-group-boot.md': `# T30 — Grammy group boot
 
@@ -350,7 +353,7 @@ Body.
     await frontier.call('migrate_effort', { effort: 'alpha' });
 
     const onDisk = await readFile(join(root, '.scratch/alpha/issues/01-no-id.md'), 'utf8');
-    expect(onDisk).toMatch(/^id: T\d+$/m);
+    expect(onDisk).toMatch(/^id: T[0-9a-z]{6}$/m);
     expect(onDisk).toContain('claimed_by: agent-7');
 
     const board = await frontier.call('get_board', { effort: 'alpha' });

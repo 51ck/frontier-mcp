@@ -28,8 +28,8 @@ import {
   NoSuchTicket,
   RevisionMismatch,
 } from '../driver.ts';
-import { createTicketFiles } from './create.ts';
-import { loadIdPattern } from './id-pattern.ts';
+import { createTicketFiles, mintingPlan, type MintingPlan } from './create.ts';
+import { compileIdPattern, DEFAULT_ID_PATTERN, loadIdPattern } from './id-pattern.ts';
 import { migrateEffortFiles } from './migrate.ts';
 import { applyEdit, type Defaults } from './serialize.ts';
 import {
@@ -120,9 +120,14 @@ export function createMarkdownDriver(
   }: MarkdownDriverOptions = {},
 ): StorageDriver {
   const storage = join(root, storageDir);
-  // Compiled once and not watched (T54). T65 mints from it and T66 matches ids
-  // against it; until then a broken one only warns on read and refuses writes.
+  // Compiled once and not watched (T54); a broken one warns on read and refuses
+  // writes. T66 matches ids against it.
   const idPattern = loadIdPattern(storage, storageDir);
+  // Under a broken pattern every write is refused before it mints, so the
+  // default plan here only ever feeds a migrate_effort preview.
+  const minting = mintingPlan(
+    idPattern.pattern ?? compileIdPattern(DEFAULT_ID_PATTERN).pattern ?? unreachable(),
+  );
   let writes: Promise<unknown> = Promise.resolve();
 
   const walk = async (): Promise<ScannedEffort[]> => {
@@ -213,7 +218,7 @@ export function createMarkdownDriver(
       // The scan is deliberately not the cached one: allocation re-reads under
       // its own guards, and a walk started before them would defeat the check
       // it exists to make.
-      return moved(() => serialized(() => create(storage, effort, drafts, options, walk)));
+      return moved(() => serialized(() => create(storage, minting, effort, drafts, options, walk)));
     },
 
     readMap(effort) {
@@ -238,7 +243,7 @@ export function createMarkdownDriver(
 
     migrateEffort(effort, options) {
       return moved(
-        () => serialized(() => migrate(storage, effort, options, walk)),
+        () => serialized(() => migrate(storage, minting, effort, options, walk)),
         options.preview !== true,
       );
     },
@@ -264,8 +269,13 @@ export function createMarkdownDriver(
   }
 }
 
+function unreachable(): never {
+  throw new Error(`The default id pattern ${DEFAULT_ID_PATTERN} does not compile.`);
+}
+
 async function migrate(
   storage: string,
+  minting: MintingPlan,
   effort: string,
   options: MigrateOptions,
   walk: () => Promise<ScannedEffort[]>,
@@ -279,6 +289,7 @@ async function migrate(
 
   return migrateEffortFiles({
     storage,
+    minting,
     effort,
     issues,
     entries,
@@ -294,6 +305,7 @@ async function migrate(
 
 async function create(
   storage: string,
+  minting: MintingPlan,
   effort: string,
   drafts: readonly TicketDraft[],
   options: CreateOptions,
@@ -307,6 +319,7 @@ async function create(
   // then refused would show up in list_efforts as an empty one nobody asked for.
   const filenames = await createTicketFiles({
     storage,
+    minting,
     effort,
     dir,
     issues: join(dir, ISSUES_DIR),

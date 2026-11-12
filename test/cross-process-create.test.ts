@@ -56,8 +56,10 @@ blocked_by: []
 Body.
 `;
 
-const IN_FILENAME = /-(T\d+)-/;
 const IN_FRONTMATTER = /^id:[ \t]*(\S+)$/m;
+
+// Pinned: the random default needs no guard, so it would test nothing here.
+const COUNTED = 'id_pattern: T<N>\n';
 
 let workspace: string | undefined;
 
@@ -67,59 +69,75 @@ afterEach(async () => {
 });
 
 describe('creation from separate processes', () => {
-  it('never issues one id twice', async () => {
-    workspace = await mkdtemp(join(tmpdir(), 'frontier-alloc-'));
-    const issues = join(workspace, '.scratch/alpha/issues');
-    await mkdir(issues, { recursive: true });
-    await writeFile(join(issues, '01-T1-already-here.md'), SEED, 'utf8');
+  // The mixed pattern is the guard-keying case: racers reaching one counter
+  // render different ids, so only a guard keyed on <N> keeps the counters apart.
+  it.each([
+    ['T<N>', /^\d+-(T\d+)-/],
+    // Optional suffix: the seed is a plain T1.
+    ['T<N>-<b36{4}>', /^\d+-(T\d+(?:-[0-9a-z]{4})?)-/],
+  ])(
+    'never issues one counter twice under %s',
+    async (pattern, inFilename) => {
+      workspace = await mkdtemp(join(tmpdir(), 'frontier-alloc-'));
+      const issues = join(workspace, '.scratch/alpha/issues');
+      await mkdir(issues, { recursive: true });
+      await writeFile(join(workspace, '.scratch/frontier.yml'), `id_pattern: ${pattern}\n`, 'utf8');
+      await writeFile(join(issues, '01-T1-already-here.md'), SEED, 'utf8');
 
-    // The script lives inside the project so it can resolve the SDK, and points
-    // at the temporary workspace rather than living in it.
-    const scripts = join(import.meta.dirname, '..', 'node_modules', '.frontier-test');
-    await mkdir(scripts, { recursive: true });
-    const script = join(scripts, `creator-${String(process.pid)}.mjs`);
-    const src = join(import.meta.dirname, '..', 'src', 'server.ts');
-    await writeFile(script, CREATOR.replace('%SRC%', src), 'utf8');
+      // The script lives inside the project so it can resolve the SDK, and points
+      // at the temporary workspace rather than living in it.
+      const scripts = join(import.meta.dirname, '..', 'node_modules', '.frontier-test');
+      await mkdir(scripts, { recursive: true });
+      const script = join(scripts, `creator-${String(process.pid)}.mjs`);
+      const src = join(import.meta.dirname, '..', 'src', 'server.ts');
+      await writeFile(script, CREATOR.replace('%SRC%', src), 'utf8');
 
-    // Every process busy-waits to the same instant, so they collide for real.
-    const at = Date.now() + 1500;
-    const outcomes = await Promise.all(
-      Array.from({ length: SESSIONS }, async (_, index) => {
-        const { stdout } = await run(process.execPath, [
-          script,
-          `agent-${String(index)}`,
-          String(at),
-          workspace ?? '',
-        ]);
-        return stdout.trim();
-      }),
-    );
+      // Every process busy-waits to the same instant, so they collide for real.
+      const at = Date.now() + 1500;
+      const outcomes = await Promise.all(
+        Array.from({ length: SESSIONS }, async (_, index) => {
+          const { stdout } = await run(process.execPath, [
+            script,
+            `agent-${String(index)}`,
+            String(at),
+            workspace ?? '',
+          ]);
+          return stdout.trim();
+        }),
+      );
 
-    // Contention is resolved by bumping, never by refusing: every session gets
-    // the whole batch it asked for.
-    expect(outcomes).toEqual(Array.from({ length: SESSIONS }, () => 'OK'));
+      // Contention is resolved by bumping, never by refusing: every session gets
+      // the whole batch it asked for.
+      expect(outcomes).toEqual(Array.from({ length: SESSIONS }, () => 'OK'));
 
-    const files = (await readdir(issues)).filter(name => name.endsWith('.md'));
-    expect(files).toHaveLength(SESSIONS * PER_SESSION + 1);
+      const files = (await readdir(issues)).filter(name => name.endsWith('.md'));
+      expect(files).toHaveLength(SESSIONS * PER_SESSION + 1);
 
-    // The frontmatter is the authority and the filename is cosmetic, so both are
-    // read: an id issued twice shows up in either, and a disagreement between
-    // them is its own defect.
-    const ids = await Promise.all(
-      files.map(async name => ({
-        inFilename: IN_FILENAME.exec(name)?.[1],
-        inFrontmatter: IN_FRONTMATTER.exec(await readFile(join(issues, name), 'utf8'))?.[1],
-      })),
-    );
+      // The frontmatter is the authority and the filename is cosmetic, so both are
+      // read: an id issued twice shows up in either, and a disagreement between
+      // them is its own defect.
+      const ids = await Promise.all(
+        files.map(async name => ({
+          inFilename: inFilename.exec(name)?.[1],
+          inFrontmatter: IN_FRONTMATTER.exec(await readFile(join(issues, name), 'utf8'))?.[1],
+        })),
+      );
 
-    expect(ids.filter(entry => entry.inFrontmatter === undefined)).toEqual([]);
-    expect(ids.filter(entry => entry.inFilename !== entry.inFrontmatter)).toEqual([]);
-    expect(new Set(ids.map(entry => entry.inFrontmatter)).size).toBe(ids.length);
-  }, 60_000);
+      expect(ids.filter(entry => entry.inFrontmatter === undefined)).toEqual([]);
+      expect(ids.filter(entry => entry.inFilename !== entry.inFrontmatter)).toEqual([]);
+      expect(new Set(ids.map(entry => entry.inFrontmatter)).size).toBe(ids.length);
+      // The seed is outside a mixed pattern's namespace, so only minted ids count.
+      const minted = ids.filter(entry => entry.inFrontmatter !== 'T1');
+      const counters = minted.map(entry => /^T(\d+)/.exec(entry.inFrontmatter ?? '')?.[1]);
+      expect(new Set(counters).size).toBe(minted.length);
+    },
+    60_000,
+  );
 
   it('leaves no allocation guard behind', async () => {
     workspace = await mkdtemp(join(tmpdir(), 'frontier-alloc-'));
     await mkdir(join(workspace, '.scratch/alpha/issues'), { recursive: true });
+    await writeFile(join(workspace, '.scratch/frontier.yml'), COUNTED, 'utf8');
 
     const scripts = join(import.meta.dirname, '..', 'node_modules', '.frontier-test');
     await mkdir(scripts, { recursive: true });
@@ -131,6 +149,9 @@ describe('creation from separate processes', () => {
 
     // A guard is held only across the write. One surviving it would name an id
     // that can never be minted again until it is swept.
-    expect(await readdir(join(workspace, '.scratch'))).toEqual(['alpha']);
+    expect((await readdir(join(workspace, '.scratch'))).toSorted()).toEqual([
+      'alpha',
+      'frontier.yml',
+    ]);
   }, 60_000);
 });

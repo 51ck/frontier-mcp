@@ -4,11 +4,12 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { cleanupFixtures, connectFrontier, makeFixtureTree } from './support/harness.ts';
-import { map, ticket } from './support/fixtures.ts';
+import { COUNTED, map, ticket } from './support/fixtures.ts';
 
 afterEach(cleanupFixtures);
 
 const WORKSPACE = {
+  ...COUNTED,
   '.git/HEAD': 'ref: refs/heads/main\n',
   '.scratch/alpha/map.md': map('Ship alpha.'),
   '.scratch/alpha/issues/01-T1-first.md': ticket('T1', 'First'),
@@ -90,6 +91,7 @@ describe('create_tickets', () => {
 
   it('starts at T1 in a workspace holding no ids yet', async () => {
     const root = await makeFixtureTree({
+      ...COUNTED,
       '.git/HEAD': 'ref: refs/heads/main\n',
       '.scratch/alpha/map.md': map('Ship alpha.'),
     });
@@ -115,8 +117,8 @@ describe('create_tickets', () => {
       tickets: [{ title: 'Runtime probe' }],
     });
 
-    expect(await frontier.call('get_board', { effort: 'probe' })).toContain(
-      'T1  Runtime probe  build/open',
+    expect(await frontier.call('get_board', { effort: 'probe' })).toMatch(
+      /T[0-9a-z]{6} {2}Runtime probe {2}build\/open/,
     );
   });
 
