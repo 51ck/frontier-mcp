@@ -383,6 +383,8 @@ Write rules, equally load-bearing:
   `destination`, `notes`, `add_fog` or `rule_out` — matched by the reader's own section-break regex,
   fenced code included — fails with `SectionBreakInValue` and writes nothing (T96). So does a
   GENERATED marker in any of the four, which the reader would take for a block the server owns.
+  A newline in `add_fog` or `rule_out` fails with `MultiLineBullet` (T98): a bullet is one line
+  to the reader, so the rest could never be graduated. Both name the argument, not the section.
 - **A write addressed to a duplicated id refuses** with `DuplicateId`, naming every file, before
   any other rule judges one claimant. `update_ticket` asks `StorageDriver.assertAddressable()`
   first, which never writes. A real `migrate_effort` refuses the same way when an inferred id is

@@ -289,15 +289,26 @@ export class NoSuchFogPatch extends Error {
 
 /** Thrown when a Map value holds text the Map reader would take as structure rather than prose. */
 export class SectionBreakInValue extends Error {
-  constructor(section: string, line: string, kind: 'heading' | 'marker' = 'heading') {
+  constructor(argument: string, line: string, kind: 'heading' | 'marker' = 'heading') {
     super(
       kind === 'heading'
-        ? `Nothing was written: ${section} cannot contain a level-2 heading ('${line}') — it ` +
+        ? `Nothing was written: ${argument} cannot contain a level-2 heading ('${line}') — it ` +
             'would split off as its own section. Use ### or deeper.'
-        : `Nothing was written: ${section} cannot contain a GENERATED marker ('${line}') — the ` +
+        : `Nothing was written: ${argument} cannot contain a GENERATED marker ('${line}') — the ` +
             'server owns those blocks and would hide or overwrite the text beside one.',
     );
     this.name = 'SectionBreakInValue';
+  }
+}
+
+/** Thrown when an `add_fog` or `rule_out` value spans lines: a bullet is one line to the reader. */
+export class MultiLineBullet extends Error {
+  constructor(argument: string) {
+    super(
+      `Nothing was written: ${argument} must be a single line — a newline would split the ` +
+        'bullet, and the lines after the first could never be removed by value.',
+    );
+    this.name = 'MultiLineBullet';
   }
 }
 

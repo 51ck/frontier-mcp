@@ -829,7 +829,7 @@ describe('edit_map refuses values the Map reader would split (T96)', () => {
       notes: '## Sub A\n\n- one\n\n## Sub B\n\n- two',
       expected_revision: rev,
     });
-    expect(error).toContain("Notes cannot contain a level-2 heading ('## Sub A')");
+    expect(error).toContain("notes cannot contain a level-2 heading ('## Sub A')");
     expect(error).toContain('###');
     expect(await readFile(path, 'utf8')).toBe(before);
 
@@ -863,11 +863,7 @@ describe('edit_map refuses values the Map reader would split (T96)', () => {
     expect(await readFile(path, 'utf8')).toBe(before);
   });
 
-  it.each([
-    ['destination', 'Destination'],
-    ['add_fog', 'Not yet specified'],
-    ['rule_out', 'Out of scope'],
-  ])('refuses ## in %s', async (field, section) => {
+  it.each(['destination', 'add_fog', 'rule_out'])('refuses ## in %s', async field => {
     const { frontier, path, rev } = await freshMap();
     const before = await readFile(path, 'utf8');
     const error = await frontier.callExpectingError('edit_map', {
@@ -875,9 +871,24 @@ describe('edit_map refuses values the Map reader would split (T96)', () => {
       [field]: 'first line\n## Orphan',
       expected_revision: rev,
     });
-    expect(error).toContain(`${section} cannot contain a level-2 heading ('## Orphan')`);
+    expect(error).toContain(`${field} cannot contain a level-2 heading ('## Orphan')`);
     expect(await readFile(path, 'utf8')).toBe(before);
   });
+
+  it.each(['add_fog', 'rule_out'])(
+    'refuses a multi-line %s and writes nothing (T98)',
+    async field => {
+      const { frontier, path, rev } = await freshMap();
+      const before = await readFile(path, 'utf8');
+      const error = await frontier.callExpectingError('edit_map', {
+        effort: 'fresh',
+        [field]: 'a\nb\n- c',
+        expected_revision: rev,
+      });
+      expect(error).toContain(`${field} must be a single line`);
+      expect(await readFile(path, 'utf8')).toBe(before);
+    },
+  );
 
   it('refuses on create without making the Effort', async () => {
     const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
