@@ -45,7 +45,7 @@ export function parseTicketSummary(
   file: TicketFile,
   fallbackOrder: number,
   revision: string,
-): TicketSummary {
+): ParsedTicket {
   const { fields } = splitFrontmatter(file.contents);
   const order = readOrder(file.filename) ?? fallbackOrder;
 
@@ -57,7 +57,7 @@ export function parseTicketSummary(
   const unrecognizedStatus =
     rawStatus !== undefined && mappedStatus === undefined ? rawStatus : undefined;
 
-  return {
+  const ticket: TicketSummary = {
     id,
     handle: handleFor(id, effort, order),
     title: text(fields['title']) ?? '(untitled)',
@@ -76,8 +76,54 @@ export function parseTicketSummary(
     foreignFenced: isForeignFence(fields),
     unrecognizedStatus,
     collapsedRefs: [],
+    keptSubSlices: [],
     revision,
   };
+  return { ticket, subSlices: [] };
+}
+
+/**
+ * A Ticket as one file reads, before its Effort is known: prose sub-slice
+ * references are still as declared, because only the siblings can say whether
+ * `T38.1` names a slice of a Ticket here.
+ */
+export interface ParsedTicket {
+  readonly ticket: TicketSummary;
+  readonly subSlices: readonly string[];
+}
+
+/**
+ * Decided once, over one Effort, so the Board, the Frontier, a lazy write and
+ * migration all see the same Edges (T82). A prose `T38.1` coarsens to `T38`
+ * only when `T38` is a Ticket of this Effort — ids read from prose headings
+ * included, which is why this runs after every file is parsed. Otherwise it
+ * stays as declared and dangles: a milestone label coarsened onto another
+ * Effort's resolved `T1` grants an Edge the file never declared.
+ */
+export function resolveSubSlices(parsed: readonly ParsedTicket[]): TicketSummary[] {
+  const local = new Set(parsed.map(entry => entry.ticket.id).filter(id => id !== undefined));
+  return parsed.map(({ ticket, subSlices }) => {
+    if (subSlices.length === 0) return ticket;
+    const slices = new Set(subSlices);
+    const collapsed: string[] = [];
+    const kept: string[] = [];
+    const edges = ticket.blockedBy.map(edge => {
+      if (!slices.has(edge)) return edge;
+      const parent = edge.slice(0, edge.indexOf('.'));
+      if (!local.has(parent)) {
+        kept.push(edge);
+        return edge;
+      }
+      collapsed.push(edge);
+      return parent;
+    });
+    return {
+      ...ticket,
+      blockedBy: [...new Set(edges)],
+      collapsedRefs: collapsed,
+      keptSubSlices: kept,
+    };
+  });
 }
 
 /**
@@ -135,10 +181,10 @@ function parseUnfenced(
   order: number,
   contents: string,
   revision: string,
-): TicketSummary {
+): ParsedTicket {
   const inferred = parseProseBody(contents);
 
-  return {
+  const ticket: TicketSummary = {
     id: inferred.id,
     handle: handleFor(inferred.id, effort, order),
     title: inferred.title,
@@ -157,9 +203,11 @@ function parseUnfenced(
     foreign: true,
     foreignFenced: false,
     unrecognizedStatus: inferred.unrecognizedStatus,
-    collapsedRefs: inferred.collapsedRefs,
+    collapsedRefs: [],
+    keptSubSlices: [],
     revision,
   };
+  return { ticket, subSlices: inferred.subSlices };
 }
 
 /**

@@ -42,7 +42,7 @@ const STRIKETHROUGH = /~~[\s\S]*?~~/g;
  */
 const MARKDOWN_LINK = /\[[^\]]*\]\([^)]*\)/g;
 
-/** `T31`, and `T38.1` — a sub-slice of T38, which is the Ticket that exists. */
+/** `T31`, and `T38.1` — a sub-slice of T38, which may or may not be a Ticket. */
 const TICKET_REF = /\bT(\d+)(\.\d+)?\b/g;
 
 /**
@@ -95,15 +95,19 @@ export interface ProseTicket {
   readonly blockedBy: readonly string[];
   /** The raw `Status:` text when it did not map to a known Status. */
   readonly unrecognizedStatus: string | undefined;
-  /** Sub-slice references (`T38.1`) coarsened to the Ticket that exists. */
-  readonly collapsedRefs: readonly string[];
+  /**
+   * The sub-slice references (`T38.1`) among {@link blockedBy}, which carries
+   * them as declared. Whether one coarsens to its parent depends on the Effort's
+   * other Tickets, which one file cannot see — the driver decides at scan.
+   */
+  readonly subSlices: readonly string[];
   readonly type: string | undefined;
 }
 
 export function parseProseBody(contents: string): ProseTicket {
   const { id, title } = readHeading(contents);
   const { status, triage, unrecognized } = readStatus(STATUS_LINE.exec(contents)?.[1]);
-  const { edges, collapsed } = readEdges(contents);
+  const { edges, subSlices } = readEdges(contents);
   const type = TYPE_LINE.exec(contents)?.[1];
 
   return {
@@ -117,7 +121,7 @@ export function parseProseBody(contents: string): ProseTicket {
     triage,
     blockedBy: edges,
     unrecognizedStatus: unrecognized,
-    collapsedRefs: collapsed,
+    subSlices,
   };
 }
 
@@ -167,20 +171,19 @@ function readStatus(raw: string | undefined): {
  * sort orders, not ids, and are reported as unresolvable rather than guessed at
  * — resolving them would invent a repo-wide identity the file never had.
  */
-function readEdges(contents: string): { edges: readonly string[]; collapsed: readonly string[] } {
+function readEdges(contents: string): { edges: readonly string[]; subSlices: readonly string[] } {
   const edges = new Set<string>();
-  const collapsed = new Set<string>();
+  const subSlices = new Set<string>();
 
   for (const line of contents.matchAll(EDGE_LINE)) {
     const declared = (line[1] ?? '').replace(STRIKETHROUGH, '').replace(MARKDOWN_LINK, '');
     if (/^\s*(?:—|–|-|none)\s*$/i.test(declared)) continue;
 
     for (const ref of declared.matchAll(TICKET_REF)) {
-      const id = `T${ref[1] ?? ''}`;
-      // `T38.1` names a slice of T38, and T38 is the Ticket that exists — but
-      // the reader is told, because the Edge on the Board is then coarser than
-      // the one the file declared.
-      if (ref[2] !== undefined) collapsed.add(`${id}${ref[2]}`);
+      // A plain `T1` beside `T1.4` is its own Edge, so each keeps the form it
+      // was written in.
+      const id = `T${ref[1] ?? ''}${ref[2] ?? ''}`;
+      if (ref[2] !== undefined) subSlices.add(id);
       edges.add(id);
     }
 
@@ -188,5 +191,5 @@ function readEdges(contents: string): { edges: readonly string[]; collapsed: rea
   }
 
   edges.delete('');
-  return { edges: [...edges], collapsed: [...collapsed] };
+  return { edges: [...edges], subSlices: [...subSlices] };
 }

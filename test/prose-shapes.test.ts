@@ -101,12 +101,25 @@ describe('Foreign Edge shapes', () => {
     expect(line(await boardFor('# T1 — Subject\nBlocked by: —\n'))).not.toContain('blocked_by=');
   });
 
-  it('coarsens a sub-slice Edge to its parent and says so', async () => {
+  it('coarsens a sub-slice Edge to a parent in the same Effort and says so', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      '.scratch/alpha/issues/01-base.md': '# T38 — Base\n',
+      '.scratch/alpha/issues/02-foreign.md': '# T1 — Subject\n**Depends on:** T38.1 and T38.4\n',
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+    const board = await frontier.call('get_board', { effort: 'alpha' });
+
+    expect(line(board)).toMatch(/blocked_by=T38$/);
+    expect(board).toContain('sub-slice Edges coarsened to their parent Ticket (2): T38.1 T38.4');
+  });
+
+  it('keeps a sub-slice whose parent is not in the Effort as declared, dangling', async () => {
     const board = await boardFor('# T1 — Subject\n**Depends on:** T38.1 and T38.4\n');
 
-    expect(line(board)).toContain('T38');
-    expect(board).toContain('sub-slice Edges coarsened');
-    expect(board).toContain('T38.1');
+    expect(line(board)).toContain('blocked_by=T38.1?,T38.4?');
+    expect(board).toContain('dangling Edges (2)');
+    expect(board).not.toContain('coarsened');
   });
 
   it('does not mistake a version number for an Edge', async () => {

@@ -383,6 +383,12 @@ describe('migrate_effort against real Foreign fixtures', () => {
 
     const board = await frontier.call('get_board', { effort: 'telegram' });
     expect(board).not.toContain('are Foreign');
+    // `Depends on: … core T18.4` and three like it — each parent lives in an Effort the fixture lacks, so it is
+    // written as declared and dangles, rather than coarsened onto a `T18` this repo never had.
+    expect(board).toMatch(/blocked_by=T32,T33,T18\.4\?/);
+    expect(report).toContain(
+      'sub-slice Edges kept as declared, parent not in this Effort (4): T11.1 T18.4 T21.4 T21.5',
+    );
     // Every sobrina Ticket carries a T3x id in its heading — none are minted.
     for (const id of [
       'T30',
@@ -471,35 +477,150 @@ describe('migrate_effort against real Foreign fixtures', () => {
   });
 });
 
-describe('migrate_effort and Edges that leave the Effort (T82)', () => {
+/** Migration mints an id where the handle stood; everything else on the line must match. */
+function ticketLines(board: string): string[] {
+  return board
+    .split('\n')
+    .filter(entry => entry.includes('Port') || entry.startsWith('frontier:'))
+    .map(entry => entry.replace(/^(> )?\S+/, '$1'));
+}
+
+describe('a prose sub-slice is coarsened only within its own Effort (T82)', () => {
   const OTHER_T1 = '---\nid: T1\ntitle: Unrelated\nstatus: resolved\nblocked_by: []\n---\n';
 
-  it('never coarsens a milestone label onto another Effort’s Ticket', async () => {
+  async function crossEffort(blockedBy: string) {
     const root = await makeFixtureTree({
       '.scratch/consume/map.md': map('Elsewhere.'),
       '.scratch/consume/issues/01-T1-unrelated.md': OTHER_T1,
       '.scratch/rewrite/map.md': map('Somewhere.'),
-      '.scratch/rewrite/issues/01-port.md': '# 01 — Port\n\nStatus: open\nBlocked by: T1.4\n',
+      '.scratch/rewrite/issues/01-port.md': `# 01 — Port\n\nStatus: open\nBlocked by: ${blockedBy}\n`,
     });
-    const frontier = await connectFrontier({ cwd: root, env: {} });
+    return { root, frontier: await connectFrontier({ cwd: root, env: {} }) };
+  }
+
+  const PORT = '.scratch/rewrite/issues/01-port.md';
+
+  it('never coarsens a milestone label onto another Effort’s Ticket', async () => {
+    const { root, frontier } = await crossEffort('T1.4');
 
     const preview = await frontier.call('migrate_effort', { effort: 'rewrite', preview: true });
     expect(preview).toContain('blocked_by=T1.4');
     expect(preview).toContain(
-      'sub-slice Edges kept as declared, parent not in this Effort (1): T1.4',
+      'sub-slice Edges kept as declared, parent not in this Effort (1): T1.4 — they dangle; ' +
+        'fix each with update_ticket blocked_by',
     );
+    expect(preview).not.toContain('Edges to another Effort');
 
     await frontier.call('migrate_effort', { effort: 'rewrite' });
-    const written = await readFile(join(root, '.scratch/rewrite/issues/01-port.md'), 'utf8');
+    const written = await readFile(join(root, PORT), 'utf8');
     expect(written).toMatch(/blocked_by: \[["']?T1\.4["']?\]/);
-    expect(written).not.toMatch(/blocked_by: \[T1\]/);
-
-    // It now dangles, so every Board names it rather than resolving it quietly.
-    const board = await frontier.call('get_board', { effort: 'rewrite' });
-    expect(board).toContain('T1.4?');
   });
 
-  it('still coarsens a sub-slice of a sibling, and names Edges minted across Efforts', async () => {
+  it('shows the same Board and Frontier before and after migration', async () => {
+    const { frontier } = await crossEffort('T1.4');
+
+    const before = await frontier.call('get_board', { effort: 'rewrite' });
+    expect(before).toContain('blocked_by=T1.4?');
+    expect(before).toContain('frontier: none takeable in this Effort');
+    expect(before).not.toContain('coarsened');
+
+    await frontier.call('migrate_effort', { effort: 'rewrite' });
+    const after = await frontier.call('get_board', { effort: 'rewrite' });
+    expect(ticketLines(after)).toEqual(ticketLines(before));
+    expect(after).toContain('blocked_by=T1.4?');
+    expect(after).toContain('frontier: none takeable in this Effort');
+  });
+
+  for (const [name, edit] of [
+    ['comment', { comment: 'hi' }],
+    ['claim', { claim: { by: 'agent' } }],
+  ] as const) {
+    it(`keeps the sub-slice as declared when a ${name} normalizes the file`, async () => {
+      const { root, frontier } = await crossEffort('T1.4');
+
+      await frontier.call('update_ticket', { id: 'rewrite#1', ...edit });
+      const written = await readFile(join(root, PORT), 'utf8');
+      expect(written).toMatch(/blocked_by: \[["']?T1\.4["']?\]/);
+
+      // A later migration has nothing left to coarsen.
+      await frontier.call('migrate_effort', { effort: 'rewrite' });
+      expect(await readFile(join(root, PORT), 'utf8')).toMatch(/blocked_by: \[["']?T1\.4["']?\]/);
+    });
+  }
+
+  it('keeps an explicit plain Edge beside a sub-slice of the same id', async () => {
+    const { root, frontier } = await crossEffort('T1, T1.4');
+
+    const board = await frontier.call('get_board', { effort: 'rewrite' });
+    expect(board).toContain('blocked_by=T1@consume,T1.4?');
+
+    const report = await frontier.call('migrate_effort', { effort: 'rewrite' });
+    expect(report).toContain('blocked_by=T1,T1.4');
+    expect(report).toContain('Edges to another Effort (1) — check each is meant: T1@consume');
+    const written = await readFile(join(root, PORT), 'utf8');
+    expect(written).toMatch(/blocked_by: \[T1, ["']?T1\.4["']?\]/);
+  });
+
+  it('coarsens a same-Effort sub-slice on the Board, on a lazy write and on migration', async () => {
+    const files = {
+      '.scratch/rewrite/map.md': map('Somewhere.'),
+      '.scratch/rewrite/issues/01-base.md': '# T7 — Base\n\nStatus: open\n',
+      '.scratch/rewrite/issues/02-next.md': '# T8 — Next\n\nStatus: open\nBlocked by: T7.2, T7\n',
+    };
+    const lazyRoot = await makeFixtureTree(files);
+    const lazy = await connectFrontier({ cwd: lazyRoot, env: {} });
+    const board = await lazy.call('get_board', { effort: 'rewrite' });
+    expect(board).toContain('T8  Next  build/open  blocked_by=T7');
+    expect(board).not.toContain('T7,T7');
+    expect(board).toContain('sub-slice Edges coarsened to their parent Ticket (1): T7.2');
+
+    await lazy.call('update_ticket', { id: 'T8', comment: 'hi' });
+    const next = join(lazyRoot, '.scratch/rewrite/issues/02-next.md');
+    expect(await readFile(next, 'utf8')).toMatch(/blocked_by: \[T7\]/);
+
+    const migrateRoot = await makeFixtureTree(files);
+    const migrating = await connectFrontier({ cwd: migrateRoot, env: {} });
+    const report = await migrating.call('migrate_effort', { effort: 'rewrite' });
+    expect(report).toContain('blocked_by=[T7]');
+    expect(report).not.toContain('kept as declared');
+    expect(report).not.toContain('another Effort');
+  });
+
+  it('never calls a fenced T7.2 a kept sub-slice', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/rewrite/map.md': map('Somewhere.'),
+      '.scratch/rewrite/issues/01-fenced.md':
+        '---\ntitle: Fenced\nblocked_by: [T7.2]\nowner: someone\n---\n',
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const report = await frontier.call('migrate_effort', { effort: 'rewrite', preview: true });
+    expect(report).toContain('blocked_by=T7.2');
+    expect(report).not.toContain('kept as declared');
+  });
+
+  it('caps both report lines, naming ten and counting the rest', async () => {
+    const files: Record<string, string> = {
+      '.scratch/rewrite/map.md': map('Somewhere.'),
+      '.scratch/consume/map.md': map('Elsewhere.'),
+    };
+    for (let n = 1; n <= 12; n++) {
+      const pad = String(n).padStart(2, '0');
+      files[`.scratch/consume/issues/${pad}-T${String(100 + n)}.md`] =
+        `---\nid: T${String(100 + n)}\ntitle: Other\nstatus: open\nblocked_by: []\n---\n`;
+      files[`.scratch/rewrite/issues/${pad}-port.md`] =
+        `# ${pad} — Port\n\nBlocked by: T${String(100 + n)}, T${String(200 + n)}.1\n`;
+    }
+    const frontier = await connectFrontier({ cwd: await makeFixtureTree(files), env: {} });
+
+    const report = await frontier.call('migrate_effort', { effort: 'rewrite', preview: true });
+    const cross = report.split('\n').find(entry => entry.startsWith('> Edges to another'));
+    expect(cross).toMatch(/\(12\) — check each is meant: (T1\d\d@consume ){10}and 2 more$/);
+    const kept = report.split('\n').find(entry => entry.includes('kept as declared'));
+    expect(kept).toMatch(/\(12\): (T2\d\d\.1 ){10}and 2 more — they dangle/);
+  });
+
+  it('names Edges written across Efforts', async () => {
     const root = await makeFixtureTree({
       '.scratch/consume/map.md': map('Elsewhere.'),
       '.scratch/consume/issues/01-T1-unrelated.md': OTHER_T1,

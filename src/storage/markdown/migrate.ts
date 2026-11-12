@@ -31,6 +31,7 @@ interface PlannedFile {
   readonly filename: string;
   readonly defaults: Defaults;
   readonly change: MigrationChange;
+  readonly keptSubSlices: readonly string[];
 }
 
 /**
@@ -122,14 +123,11 @@ function planChanges(
 
   return candidates.map(entry => {
     const id = assigned.get(entry.ticket.handle);
-    const blockedBy = keepForeignSubSlices(
-      remapEdges(entry.ticket.blockedBy, nameByOrder),
-      entry.ticket.collapsedRefs,
-      nameByOrder,
-    );
+    const blockedBy = remapEdges(entry.ticket.blockedBy, nameByOrder);
 
     return {
       filename: entry.filename,
+      keptSubSlices: entry.ticket.keptSubSlices,
       defaults: {
         id: id ?? entry.ticket.handle,
         title: entry.ticket.title,
@@ -180,28 +178,6 @@ function remapEdges(edges: readonly string[], idByOrder: ReadonlyMap<number, str
   });
 }
 
-/**
- * The prose parser coarsens `T38.1` to `T38` for the Board, which is right for a
- * sibling's slice. Written into frontmatter, though, the coarsening is permanent
- * and silent: a `T1.4` milestone label landed on another Effort's resolved `T1`
- * (T82). So a sub-slice whose parent is not a Ticket of this Effort is written
- * as declared — it dangles and every Board names it — rather than guessed at.
- */
-function keepForeignSubSlices(
-  edges: readonly string[],
-  collapsed: readonly string[],
-  idByOrder: ReadonlyMap<number, string>,
-): string[] {
-  const local = new Set(idByOrder.values());
-  const declared = new Map<string, string[]>();
-  for (const ref of collapsed) {
-    const parent = ref.slice(0, ref.indexOf('.'));
-    if (local.has(parent)) continue;
-    declared.set(parent, [...(declared.get(parent) ?? []), ref]);
-  }
-  return [...new Set(edges.flatMap(edge => declared.get(edge) ?? [edge]))];
-}
-
 /** Grouped, never per Ticket: what a reader must check by hand after this call. */
 function edgeNotes(
   plan: readonly PlannedFile[],
@@ -215,13 +191,14 @@ function edgeNotes(
   }
   const local = new Set(plan.map(file => file.change.id));
   const cross = new Set<string>();
-  const kept = new Set<string>();
   for (const file of plan) {
     for (const edge of file.change.blockedBy) {
       const foreign = effortOf.get(edge);
       if (foreign !== undefined && !local.has(edge)) cross.add(`${edge}@${foreign}`);
     }
-    for (const ref of file.change.blockedBy) if (/^T\d+\.\d+$/.test(ref)) kept.add(ref);
   }
+  // What the scan kept, not a pattern over what is written: a `T7.2` copied
+  // from a fence was never a prose sub-slice.
+  const kept = new Set(plan.flatMap(file => file.keptSubSlices));
   return { crossEffortEdges: [...cross].toSorted(), keptSubSlices: [...kept].toSorted() };
 }

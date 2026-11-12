@@ -41,13 +41,14 @@ export function renderMigration(report: MigrationReport): string {
   if (report.crossEffortEdges.length > 0) {
     lines.push(
       `> Edges to another Effort (${String(report.crossEffortEdges.length)}) — check each is meant: ` +
-        report.crossEffortEdges.join(' '),
+        capped(report.crossEffortEdges),
     );
   }
   if (report.keptSubSlices.length > 0) {
     lines.push(
-      `> sub-slice Edges kept as declared, parent not in this Effort (${String(report.keptSubSlices.length)}): ` +
-        report.keptSubSlices.join(' '),
+      `> sub-slice Edges kept as declared, parent not in this Effort ` +
+        `(${String(report.keptSubSlices.length)}): ${capped(report.keptSubSlices)} — they dangle; ` +
+        'fix each with update_ticket blocked_by',
     );
   }
 
@@ -57,6 +58,16 @@ export function renderMigration(report: MigrationReport): string {
   }
 
   return lines.join('\n');
+}
+
+// One line each, however large the Effort: the first few are named, the rest
+// counted — the duplicate-id Board warning's shape. The count stays exact.
+const NOTE_NAMED = 10;
+
+function capped(items: readonly string[]): string {
+  const named = items.slice(0, NOTE_NAMED).join(' ');
+  const rest = items.length - NOTE_NAMED;
+  return rest > 0 ? `${named} and ${String(rest)} more` : named;
 }
 
 function labelOf(change: MigrationChange): string {

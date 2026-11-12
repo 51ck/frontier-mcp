@@ -57,7 +57,12 @@ import {
   scaffoldMap,
   SECTION_HEADINGS,
 } from './header-doc.ts';
-import { parseTicketSummary, ticketBody, unimportedFrontmatter } from './ticket.ts';
+import {
+  parseTicketSummary,
+  resolveSubSlices,
+  ticketBody,
+  unimportedFrontmatter,
+} from './ticket.ts';
 import { watchStorage, type StorageWatcher } from './watcher.ts';
 
 /**
@@ -857,14 +862,16 @@ async function readTicketFiles(dir: string, effort: string): Promise<TicketFileE
       ]);
       // A file with no `NN-` prefix still needs a position; its place in the
       // sorted listing is the only order it has.
-      return {
-        filename,
-        ticket: parseTicketSummary(effort, { filename, contents }, position + 1, revision ?? ''),
-      };
+      return parseTicketSummary(effort, { filename, contents }, position + 1, revision ?? '');
     }),
   );
 
-  return withUniqueHandles(parsed.toSorted((a, b) => a.ticket.order - b.ticket.order));
+  const tickets = resolveSubSlices(parsed);
+  const files = filenames.map((filename, position) => ({
+    filename,
+    ticket: tickets[position] as TicketSummary,
+  }));
+  return withUniqueHandles(files.toSorted((a, b) => a.ticket.order - b.ticket.order));
 }
 
 /**

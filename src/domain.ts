@@ -83,8 +83,10 @@ export interface TicketSummary {
   readonly foreignFenced: boolean;
   /** The raw status text of a Ticket whose value did not map, fenced or prose. */
   readonly unrecognizedStatus: string | undefined;
-  /** Sub-slice references (`T38.1`) coarsened to the Ticket that exists. */
+  /** Prose sub-slice references (`T38.1`) coarsened to a Ticket of the same Effort. */
   readonly collapsedRefs: readonly string[];
+  /** Prose sub-slice references kept as declared, their parent not a Ticket of this Effort. */
+  readonly keptSubSlices: readonly string[];
   /**
    * An opaque token for what was read. A write passes back the one it read and
    * is refused if the stored Ticket has moved on. The markdown driver builds it
