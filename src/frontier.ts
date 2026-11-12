@@ -67,6 +67,8 @@ function isTakeable(
 ): boolean {
   if (ticket.status !== 'open') return false;
   if (ticket.unrecognizedStatus !== undefined) return false;
+  // Every write to a duplicated id is refused, so neither claimant can be taken.
+  if (ticket.id !== undefined && (byId.get(ticket.id)?.length ?? 0) > 1) return false;
 
   // An Edge to a duplicated id is satisfied only when every claimant is
   // resolved, so a duplicate can never make the Frontier larger.

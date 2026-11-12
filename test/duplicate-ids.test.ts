@@ -133,6 +133,15 @@ describe('a duplicate id', () => {
     expect(await readFile(legacy, 'utf8')).toBe(before);
   });
 
+  it('keeps every open claimant of a duplicated id off the Frontier, since none can be taken', async () => {
+    const { frontier } = await crossEffort();
+
+    const board = await frontier.call('get_board', { effort: 'alpha' });
+
+    expect(board).toMatch(/^T5 {2}First claimant /m);
+    expect(board).toMatch(/^> T6 {2}Unrelated /m);
+  });
+
   it('keeps both same-Effort claimants on the real id, with no handle reaching just one', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),

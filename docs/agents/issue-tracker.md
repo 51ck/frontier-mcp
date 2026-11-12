@@ -82,8 +82,8 @@ Eight tools permanently. Optional arguments extend an existing tool; there is no
 | write or read the Spec | `spec` |
 | normalize legacy files | `migrate_effort` |
 
-Two Ticket files carrying one id are named, with every claimant, in each Board's warnings, and every
-write addressed to that id is refused. Fix it by hand, giving all but one a new id; the server never
+Two Ticket files carrying one id are listed in each Board's warnings, with claimant files for the
+first few, and every write addressed to that id is refused. Fix it by hand, giving all but one a new id; the server never
 renumbers. Under a pattern whose only variable token is `<N>`, every `create_tickets` result carries
 a standing warning that the pattern collides across branches — it describes the configuration, not
 that call; the remedy is a mixed pattern such as `T<N>-<b36{4}>`. When a Ticket's frontmatter fence

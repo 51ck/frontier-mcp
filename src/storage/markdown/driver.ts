@@ -170,16 +170,21 @@ export function createMarkdownDriver(
    */
   let cachedScan: Promise<ScannedEffort[]> | undefined;
   const scan = () => {
-    cachedScan ??= walk().then(
-      efforts => {
-        duplicates = duplicateClaims(efforts);
-        return efforts;
-      },
-      (error: unknown) => {
-        cachedScan = undefined;
-        throw error;
-      },
-    );
+    if (cachedScan === undefined) {
+      const started: Promise<ScannedEffort[]> = walk().then(
+        efforts => {
+          // A walk an invalidation has already replaced must not overwrite the
+          // warning the newer scan's Board lines belong with.
+          if (cachedScan === started) duplicates = duplicateClaims(efforts);
+          return efforts;
+        },
+        (error: unknown) => {
+          if (cachedScan === started) cachedScan = undefined;
+          throw error;
+        },
+      );
+      cachedScan = started;
+    }
     return cachedScan;
   };
 
