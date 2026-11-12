@@ -40,6 +40,7 @@ workspace model, which the onboarding tool's write path depends on.
 ## Decisions so far
 
 <!-- GENERATED: overwritten on every mutation through the server. Do not hand-edit. -->
+- [T94 — Published engines.node is >=24 while the README claims 20.x and 22.x support](issues/06-T94-published-engines-node-is-24-while-the-readme-cl.md) — Already true as of 0.4.1: published engines.node is `^20.20.2 || ^22.17.1 || ^24.15.0`, matching the README, and T88's packed runtime gates verify each floor
 <!-- /GENERATED -->
 
 ## Not yet specified

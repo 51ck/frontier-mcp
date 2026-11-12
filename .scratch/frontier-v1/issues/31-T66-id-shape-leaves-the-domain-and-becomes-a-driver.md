@@ -2,9 +2,10 @@
 id: T66
 title: Id shape leaves the domain and becomes a driver question
 kind: build
-status: open
+status: resolved
 triage: ready-for-agent
 blocked_by: [T64]
+answer_gist: "`MINTED_ID` is gone from the domain; `StorageDriver.isId()` answers from the compiled pattern and `create_tickets` refuses a temporary key when the pattern accepts it or when it names an existing Ticket"
 ---
 
 **What to build:** [[T36]]'s boundary. `MINTED_ID = /^T(\d+)$/` (`src/domain.ts:26`) is the domain
@@ -26,7 +27,11 @@ inside the layer [[T36]] emptied, and `:42-44` names a "Legacy Ticket" that [[T5
 **Blocked by:** the predicate the tool layer calls is the compiled pattern's.
 
 
-- [ ] `MINTED_ID` no longer exists in `src/domain.ts`
-- [ ] The tool layer tests id-ness through the driver, not a regular expression it holds
-- [ ] A temporary key is refused exactly when the configured pattern would accept it as an id
-- [ ] `key`'s schema description and the domain's prose name no concrete shape
+- [x] `MINTED_ID` no longer exists in `src/domain.ts`
+- [x] The tool layer tests id-ness through the driver, not a regular expression it holds
+- [x] A temporary key is refused exactly when the configured pattern would accept it as an id
+- [x] `key`'s schema description and the domain's prose name no concrete shape
+
+## Answer
+
+`planBatch` takes the driver's `isId`; nothing under `src/tools/` holds an id regex. `idMatcher()` accepts any length per random token, so every existing `T<n>` id matches the default. Review found the criterion as written was not enough: under a non-default pattern an old `T1` no longer matches, so a key `T1` shadowed the real Ticket and an Edge went to the sibling. Keys are now also refused when they equal an id in use. Under a broken `frontier.yml`, `isId` answers from the default pattern; the write is still refused afterwards.
