@@ -141,8 +141,8 @@ Design decisions settled and binding until an ADR revises them:
 - **Stable `id`, cosmetic filename.** Ticket ids are minted from the id pattern — random
   `T<b36{6}>` by default — unique across every Effort, never reused or changed, though a counted
   one may be skipped. Existing `T<n>` ids stay valid. `<NN>-<id>-<slug>.md` carries
-  sort order in `NN` only. Frontmatter is the authority — on disagreement the file is renamed, never
-  the field. Edges are plain ids resolved repo-wide; there is no compound cross-Effort reference form.
+  sort order in `NN` only. Frontmatter is the authority — on disagreement the field wins, and the
+  filename is never rewritten: another Effort's prose may link it by path. Edges are plain ids resolved repo-wide; there is no compound cross-Effort reference form.
 - **A random pattern draws; a `<N>` pattern counts under a guard.** Random ids are drawn and checked
   against the batch's scan, redrawn on a hit up to a bounded limit, with no guard files. Any pattern
   containing `<N>`, mixed ones included, takes `max + 1` over the ids in its namespace, so there is
