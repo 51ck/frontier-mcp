@@ -132,7 +132,7 @@ Design decisions settled and binding until an ADR revises them:
   compiled pattern carries `needsCoordination` and `survivesMerge`, and compiles once into the
   minting plan. Id matching consumes it too: `StorageDriver.isId()` answers from the pattern (any
   length per random token, so existing `T<n>` ids still match the default), and `create_tickets`
-  refuses a temporary key exactly when it would match. Under a broken config `isId` answers from
+  refuses a temporary key that would match it or that is an existing Ticket's id. Under a broken config `isId` answers from
   the default and a `migrate_effort` preview shows default-pattern ids. Rules: T52–T55 in
   `.scratch/ids-patterns/`.
 - **`.md` with YAML frontmatter.** Not `.mdc`.
@@ -529,6 +529,9 @@ the schema does not recognize.
 Shapes the parser handles that these two Efforts happen **not** to contain — struck-through Edges,
 `Status: done` / `fixed` / `superseded`, bold field labels — are covered by synthetic files in
 `test/legacy-shapes.test.ts`. Put new shapes there; never add them to the fixtures.
+
+`docs/agents/issue-tracker.md` opens with `Tracker doc revision <n>`, pinned in form only by
+`test/ship.test.ts`; raise it by hand whenever the doc's contract changes.
 
 `test/read-path-cost.test.ts` asserts the spec's token measurements. They are the argument for the
 project existing, so they are checked rather than restated.

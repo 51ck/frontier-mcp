@@ -151,20 +151,10 @@ describe('the shipped surface', () => {
     expect(text).toMatch(/ADR 0006/);
   });
 
-  it('names the package version its text describes, never one later than this package', async () => {
-    const { default: packageJson } = await import('../package.json', { with: { type: 'json' } });
-    const marker = /^Describes frontier-mcp (\d+)\.(\d+)\.(\d+) and later\./m.exec(
-      shippedTrackerDoc(),
-    );
-    expect(marker).not.toBeNull();
-
-    // At most, not equal: release-it bumps package.json after this suite runs,
-    // so a marker pinned to the package version would publish one behind or
-    // fail the release. The marker moves by hand when the text's contract does.
-    const described = marker!.slice(1).map(Number);
-    const current = packageJson.version.split('.').map(Number);
-    const order = described.map((part, i) => part - current[i]!).find(diff => diff !== 0) ?? 0;
-    expect(order).toBeLessThanOrEqual(0);
+  // A revision, not a package version: release-it bumps package.json after this
+  // suite runs, so a doc cannot name the release it ships in. Raised by hand.
+  it('carries a doc revision line a vendored copy can be compared by', () => {
+    expect(shippedTrackerDoc()).toMatch(/^Tracker doc revision [1-9]\d*\. /m);
   });
 });
 

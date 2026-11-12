@@ -6,7 +6,9 @@ be made safe — but it argues them for every id, and since ids became configura
 the case.
 
 A repo's Ticket id pattern is `id_pattern` in `<storageDir>/frontier.yml`; absent, it is
-`T<b36{6}>`. Existing `T<n>` ids stay valid under every pattern. The pattern compiles once, when the
+`T<b36{6}>`. Existing `T<n>` ids stay valid as stored ids and keep resolving as Edges, and
+they match the default; under any other pattern they sit outside its namespace, so they count toward
+no `<N>` and a `T<n>` not yet written is not an id. The pattern compiles once, when the
 driver is built, into one of two minting plans, and the choice is static — two properties of its
 token list decide everything:
 

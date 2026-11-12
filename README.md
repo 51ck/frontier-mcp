@@ -78,8 +78,9 @@ A repository with no `.scratch/` directory is not an error. Create the first Eff
 
 ## Ticket ids
 
-New Ticket ids are minted from `id_pattern` in `.scratch/frontier.yml`. With no file or no key the
-pattern is `T<b36{6}>`, which gives random ids such as `Tk39fq`. Existing `T<n>` ids stay valid.
+New Ticket ids are random by default and configurable through `id_pattern` in
+`.scratch/frontier.yml`. Existing `T<n>` ids keep resolving as Edges; under a pattern other than the
+default they are outside its namespace and do not count toward `<N>`.
 
 ```yaml
 id_pattern: T<N>-<b36{4}>
@@ -88,8 +89,9 @@ id_pattern: T<N>-<b36{4}>
 A pattern with `<N>` counts upward instead of drawing at random. A purely counted one such as
 `T<N>` hands the same id to two branches that create Tickets in parallel; mixing in a random part,
 as above, keeps them apart. The server reads the file once at startup, so restart it after a
-change. An invalid file is reported on the Board and blocks writes until fixed. See
-[`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md) for the conventions.
+change. An invalid file is reported on the Board and blocks writes until fixed. The tokens,
+legality rules and hand-minting steps are in
+[`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md).
 
 ## Override the workspace
 
