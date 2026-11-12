@@ -158,6 +158,8 @@ const LIFECYCLE_FIELDS: readonly (readonly [
   ['resolved', 'answer_gist', ticket => ticket.answerGist],
   ['dropped', 'dropped_reason', ticket => ticket.droppedReason],
   ['claimed', 'claimed_by', ticket => ticket.claimedBy],
+  // Without it a claim can never be flagged stale.
+  ['claimed', 'claimed_at', ticket => ticket.claimedAt],
 ];
 
 /**

@@ -1,6 +1,6 @@
 # Issue tracker — FrontierMCP and file fallback
 
-Tracker doc revision 5. To check a vendored copy, compare this number with the one in the
+Tracker doc revision 6. To check a vendored copy, compare this number with the one in the
 `frontier://tracker-doc` resource of the server you run; a lower number, or no revision line, is
 stale.
 
@@ -90,7 +90,7 @@ that call; the remedy is a mixed pattern such as `T<N>-<b36{4}>`. When a Ticket'
 keys outside the schema, `get_tickets` appends them as a fenced `yaml` block under `## Unimported
 frontmatter` — the whole fence for a Ticket with no `id`, only the unimported entries otherwise. The
 read leaves the file unchanged, and no ordinary write removes them. A Board counts `resolved` Tickets
-with no `answer_gist`, `dropped` with no `dropped_reason` and `claimed` with no `claimed_by` in its
+with no `answer_gist`, `dropped` with no `dropped_reason` and `claimed` with no `claimed_by` or `claimed_at` in its
 warnings, so set the field with the Status.
 
 Claims are compare-and-set — a parallel session that already holds the Ticket wins. Writes carry the
