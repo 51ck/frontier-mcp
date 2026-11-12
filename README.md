@@ -87,6 +87,9 @@ repository:
 node "$SETUP_DIR/package/scripts/frontier-setup.cjs" --doctor
 ```
 
+The doctor and `--client claude-code` arrive with bootstrap revision 3. The 0.5.0 tarball ships
+revision 2, so until a release carries it, run `scripts/frontier-setup.cjs` from a source checkout.
+
 The [installation guide](docs/installation.md) covers Node 16 projects, a PowerShell bootstrap,
 runtime managers, absolute desktop paths, Bun and Deno (enabled only for older pins), other
 clients, updates, recovery, and removal.
