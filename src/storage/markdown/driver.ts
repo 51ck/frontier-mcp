@@ -25,6 +25,7 @@ import {
   NoSuchEffort,
   NoSuchMap,
   NoSuchSpec,
+  DuplicateId,
   NoSuchTicket,
   RevisionMismatch,
 } from '../driver.ts';
@@ -132,6 +133,9 @@ export function createMarkdownDriver(
   const minting = mintingPlan(effectivePattern);
   const matchesId = idMatcher(effectivePattern);
   let writes: Promise<unknown> = Promise.resolve();
+  // From the latest completed walk rather than the cached scan, because
+  // workspaceWarnings is synchronous and the cache may be dropped in between.
+  let duplicates: ReadonlyMap<string, readonly string[]> = new Map();
 
   const walk = async (): Promise<ScannedEffort[]> => {
     // A repo that has never used the tracker is a supported starting state,
@@ -139,9 +143,11 @@ export function createMarkdownDriver(
     const slugs = await readDirectories(storage);
     const scanned = await Promise.all(slugs.map(slug => readEffort(storage, slug)));
 
-    return scanned
+    const efforts = scanned
       .filter((entry): entry is ScannedEffort => entry !== undefined)
       .toSorted((a, b) => a.effort.slug.localeCompare(b.effort.slug));
+    duplicates = duplicateClaims(efforts);
+    return efforts;
   };
 
   /**
@@ -200,12 +206,15 @@ export function createMarkdownDriver(
     },
 
     workspaceWarnings() {
-      return idPattern.problem === undefined
-        ? []
-        : [
-            `${idPattern.problem} Writes are refused until it is fixed and the FrontierMCP server ` +
-              'is restarted.',
-          ];
+      const warnings =
+        idPattern.problem === undefined
+          ? []
+          : [
+              `${idPattern.problem} Writes are refused until it is fixed and the FrontierMCP ` +
+                'server is restarted.',
+            ];
+      if (duplicates.size > 0) warnings.push(duplicateWarning(duplicates));
+      return warnings;
     },
 
     async readTickets(handles): Promise<readonly Ticket[]> {
@@ -291,7 +300,18 @@ async function migrate(
   if ((await readEffort(storage, effort)) === undefined) throw new NoSuchEffort(effort);
 
   const entries = await readTicketFiles(dir, effort);
-  const allTickets = (await walk()).flatMap(summariesOf);
+  const scanned = await walk();
+  const allTickets = scanned.flatMap(summariesOf);
+
+  // An id inferred from Legacy prose is preserved, so one another file already
+  // carries would be written into frontmatter as a duplicate — the same refusal
+  // as any write addressed to that id.
+  const claims = duplicateClaims(scanned);
+  for (const { ticket } of entries) {
+    if (!ticket.legacy || ticket.id === undefined) continue;
+    const files = claims.get(ticket.id);
+    if (files !== undefined) throw new DuplicateId(ticket.id, files);
+  }
   const issues = join(dir, ISSUES_DIR);
 
   return migrateEffortFiles({
@@ -630,22 +650,59 @@ async function locate(
     slugs.map(async slug => ({ slug, entries: await readTicketFiles(join(storage, slug), slug) })),
   );
 
-  for (const { slug, entries } of perEffort) {
-    const found = entries.find(
-      entry => entry.ticket.id === handle || entry.ticket.handle === handle,
-    );
-
-    if (found !== undefined) {
-      return {
+  const found = perEffort.flatMap(({ slug, entries }) =>
+    entries
+      .filter(entry => entry.ticket.id === handle || entry.ticket.handle === handle)
+      .map(entry => ({
         dir: join(storage, slug),
         effort: slug,
-        filename: found.filename,
-        ticket: found.ticket,
-      };
+        filename: entry.filename,
+        ticket: entry.ticket,
+      })),
+  );
+
+  if (found.length > 1) {
+    throw new DuplicateId(
+      handle,
+      found.map(entry => relativeFile(entry.effort, entry.filename)),
+    );
+  }
+  return found[0];
+}
+
+function relativeFile(effort: string, filename: string): string {
+  return `${effort}/${ISSUES_DIR}/${filename}`;
+}
+
+/**
+ * Ids carried by more than one Ticket file, with every claimant. One id is one
+ * exact string: `T5` and `t5` are different ids, as they are to an Edge.
+ */
+function duplicateClaims(
+  scanned: readonly ScannedEffort[],
+): ReadonlyMap<string, readonly string[]> {
+  const files = new Map<string, string[]>();
+  for (const { effort, entries } of scanned) {
+    for (const { filename, ticket } of entries) {
+      if (ticket.id === undefined) continue;
+      const claimants = files.get(ticket.id) ?? [];
+      claimants.push(relativeFile(effort.slug, filename));
+      files.set(ticket.id, claimants);
     }
   }
+  return new Map([...files].filter(([, claimants]) => claimants.length > 1));
+}
 
-  return undefined;
+// Reported, never repaired: renumbering cannot reach the commit messages and
+// PR bodies that already name the id, so the fix stays a human act.
+function duplicateWarning(duplicates: ReadonlyMap<string, readonly string[]>): string {
+  const listed = [...duplicates]
+    .toSorted(([a], [b]) => a.localeCompare(b))
+    .map(([id, files]) => `${id} (${files.join(', ')})`);
+  return (
+    `duplicate ids, each carried by more than one Ticket file (${String(duplicates.size)}): ` +
+    `${listed.join('; ')} — writes to them are refused; renumber all but one by hand`
+  );
 }
 
 function defaultsFor(ticket: TicketSummary): Defaults {

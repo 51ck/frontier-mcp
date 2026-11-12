@@ -308,6 +308,11 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       };
 
       const ticket = find(tickets);
+      // Two claimants: the driver refuses with the files named, which only it
+      // knows, so hand it the id before any rule judges the first claimant.
+      if (tickets.filter(entry => entry.id === id).length > 1) {
+        await driver.updateTicket(id, {}, ticket.revision);
+      }
 
       let written: TicketWriteResult;
       try {

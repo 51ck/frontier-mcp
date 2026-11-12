@@ -336,6 +336,9 @@ Rendering rules that are load-bearing, not cosmetic:
   reference form, so the Board is the only thing that can make a foreign Edge followable.
 - **An unresolvable Edge renders `T9?`** and is counted in the warnings block. It never silently
   makes a Ticket look takeable.
+- **A duplicate id is one grouped warning naming every claimant file**, on every Board, since ids
+  are repo-wide. One id is one exact string. `get_tickets` returns every claimant under a line saying
+  so, never silently the first; Edge resolution and the Frontier still take the first scanned.
 - **An unrecognized status is counted in the warnings block and is never takeable.** The Board line
   may still show `/open`, but the Ticket is kept off the Frontier until a write normalizes it.
 - **Every Ticket is nameable.** A Legacy Ticket with no id gets an `<effort>#<order>` handle, which
@@ -365,6 +368,10 @@ Write rules, equally load-bearing:
   `destination`, `notes`, `add_fog` or `rule_out` — matched by the reader's own section-break regex,
   fenced code included — fails with `SectionBreakInValue` and writes nothing (T96). So does a
   GENERATED marker in any of the four, which the reader would take for a block the server owns.
+- **A write addressed to a duplicated id refuses** with `DuplicateId`, naming every file, before
+  any other rule judges one claimant. `migrate_effort` refuses the same way, preview included, when an
+  inferred id is already carried elsewhere. Nothing renumbers: a new id cannot reach the commit
+  messages and PR bodies already naming the old one.
 - **A mismatch is never retried.** It is re-read only to produce a better message — usually
   "already claimed by X" — and then the original failure is raised. A mismatch may equally be
   somebody's hand edit, and overwriting that is what the check exists to prevent.
