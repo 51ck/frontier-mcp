@@ -14,8 +14,7 @@ frontmatter fence; a fence whose YAML does not parse as a mapping (`splitFrontma
 as no frontmatter, and the whole file goes to `parseProseBody`); or a fence that parses, carries no
 `id`, and has at least one key outside the schema's eleven (`isForeignFence` in
 `src/storage/markdown/ticket.ts`). A fence with an `id` is never Foreign, whatever else it carries;
-a fence of schema keys and no `id` is not Foreign either, and shows on the Board as `no id (N)`. The
-`CONTEXT.md` glossary still carries this concept as **Legacy ticket**; its Foreign entry is T78's
+a fence of schema keys and no `id` is not Foreign either, and shows on the Board as `no id (N)`. `CONTEXT.md` still carries only the unfenced case, as **Legacy ticket**; its Foreign entry is T78's
 and pending.
 
 The predicate is about conformance, not provenance, because provenance cannot be read. A file with
@@ -25,17 +24,18 @@ and nothing in a file says where it came from. The only evidence for "our old fo
 fixture Efforts by one author.
 
 **The seam is the fence.** Lazy normalization holds only for a file with no parseable fence: any
-write gives it a full schema block inferred from the prose. A foreign-*fenced* file is not
-normalized by an ordinary write, because per ADR 0003 a write mutates the existing YAML document
-and sets only the fields it edits; a comment adds nothing to the fence and the Ticket stays Foreign
-(`test/foreign-fence.test.ts`, "keeps the block after a comment, which leaves the fence foreign").
-It stops being Foreign only when `migrate_effort` mints its id, and its keys outside the schema
-stay in the fence. Those are **Unimported keys**: `get_tickets` shows them under
-`## Unimported frontmatter` on any Ticket that carries them, id or not — the whole fence byte for
-byte while it is Foreign, only the unimported entries once it has an id — and the server never
-writes or removes them. T101 decided that only an agent removes one, through an `update_ticket`
-`drop_keys` argument; that is T103 and is not built here. So the two kinds of Foreign Ticket leave
-the set by different routes, and the Board counts them apart (T104).
+write gives it a full schema block inferred from the prose. A fence that does not parse is replaced
+by that block, not kept. A foreign-*fenced* file is not normalized by an ordinary write, because per
+ADR 0003 a write mutates the existing YAML document and sets only the fields it edits; a comment
+adds nothing to the fence and the Ticket stays Foreign (`test/foreign-fence.test.ts`, "keeps the
+block after a comment, which leaves the fence foreign"). Its keys outside the schema are
+**Unimported keys**: `get_tickets` shows them under `## Unimported frontmatter` on any Ticket that
+carries them, id or not, and the server never removes one on its own. T101 decided that only an
+agent does, naming each in `update_ticket`'s `drop_keys` (T103). A foreign-fenced Ticket therefore
+stops being Foreign in one of two ways: `migrate_effort` mints its id, with its Unimported keys
+still in the fence, or an agent drops the last of them, which leaves a schema fence with no id that
+the Board names as `no id (N)`. So the two kinds of Foreign Ticket leave the set by different
+routes, and the Board counts them apart (T104).
 
 **Minting is the one step that cannot be lazy, so `migrate_effort` is the id-minting batch, not a
 conversion pass.** `Blocked by: 01, 02` names this Effort's sort orders, and the siblings it names
@@ -43,19 +43,25 @@ may have no ids yet. Only a batch over the whole Effort holds the order-to-id ma
 into Edges (`remapEdges` in `src/storage/markdown/migrate.ts`). Each way of doing it per Ticket is
 worse:
 
-- **Store the handle in `blocked_by`.** `<effort>#<order>` is sort order, never identity, so the
-  Edge silently retargets when a file is renumbered.
-- **Mint the blockers too, on the first write.** One `update_ticket` then writes three files, and a
+- **Store the handle in `blocked_by`.** `<effort>#<order>` stops naming a Ticket the moment it is
+  minted, and Edges resolve only by id. Before that it is sort order, never identity, so a hand
+  renumbering would silently retarget it.
+- **Mint the blockers too, on the first write.** One `update_ticket` then writes at least three
+  files, and as many more as those blockers' own sort-order Edges reach, and a
   write that touches Tickets it was not addressed to breaks, from inside, the invariant that nothing
   changes until an agent writes to that Ticket.
 - **Drop the Edge.** That loses graph data the batch recovers mechanically.
 
 So `migrate_effort` mints ids Effort-wide, keeps any id already read from a heading, rewrites bare
 sort-order Edges to the ids those Tickets now carry, normalizes unfenced files on the way, and
-writes nothing else. It renames no file, and its preview predicts no id: an unminted Ticket is named
-by its handle everywhere, `blocked_by=` included (T69). A prose sub-slice such as `T38.1` is
-resolved once at scan, coarsening to `T38` only when `T38` is a Ticket of the same Effort (T82), so
-migration writes the same Edges the Board already showed. Everything else — a real title, a Kind
+writes nothing else. Into a fence that parses it writes only `id`, if missing, and `blocked_by`,
+always; a foreign fence's own keys, `status` among them, stay as they were. It renames no file, and
+its preview predicts no id: an unminted Ticket is named by its handle everywhere, `blocked_by=`
+included (T69). A prose sub-slice such as `T38.1` is resolved at scan, coarsening to `T38` only when
+`T38` is another Ticket of the same Effort and never onto the Ticket declaring it (T82), so for a
+sub-slice migration writes the Edge the Board already showed. A bare sort-order Edge is the
+exception: the Board shows it dangling (`01?`), and migration resolves it, which can put its Ticket
+on the Frontier. Everything else — a real title, a Kind
 the prose implies — is an agent's to write per Ticket, through `update_ticket`'s `title`, `kind`
 and `type`.
 
@@ -71,10 +77,13 @@ Ticket, cleared by the agent that read it, because the only marker then — fenc
 destroyed by the fence migration writes. Three markers already survive: Foreign before any write;
 a missing `id`, which survives the normalizing write as `no id (N)` (`test/normalize-and-stale.test.ts`,
 "stays flagged for migration after a write gives it frontmatter"); and `unrecognizedStatus` for a
-status that will not map. The one case all three miss is a Foreign Ticket whose id sat in its
-heading, and that is where the prose inference is most trustworthy — a labelled title and Status,
-and a Kind defaulted to `build`. A stored field, its writer, its clearer and a wider tool surface
-were not worth that case.
+status that will not map. Two cases miss all three. One is a fenceless Ticket whose id sat in its
+heading, where the prose inference is most trustworthy — a labelled title and Status, and a Kind
+read from a `Type:` line, else defaulted to `build`. The other is a foreign-fenced Ticket after
+`migrate_effort`, whose title and status were read from keys that share our names. That one keeps a
+marker, though not on the Board: `get_tickets` shows its Unimported keys until an agent drops them
+with `drop_keys`. A stored field, its writer, its clearer and a wider tool surface were not worth
+either.
 
 ## Rejected
 
@@ -95,7 +104,7 @@ were not worth that case.
 
 The tracker needs no migration step before the server is useful, and an Effort is never rewritten
 by anything but an agent working it or one explicit `migrate_effort`. The cost is that a foreign
-fence's own keys stay on disk indefinitely, visible but inert, until an agent drops them.
+fence's own keys stay on disk indefinitely, visible but inert, until an agent drops them with `drop_keys`.
 
 The word carries a known imprecision: *foreign* suggests came-from-elsewhere, the provenance this
 ruled out, and this project's own output from an older version is Foreign under it. A stated

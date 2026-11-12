@@ -442,7 +442,8 @@ Write rules, equally load-bearing:
   warning); otherwise it stays `T38.1` (`keptSubSlices`), dangles as `T38.1?` and keeps the Ticket
   off the Frontier. A plain `T38` is always its own Edge. The Board, the Frontier, a lazy
   normalization on any write and `migrate_effort` all write or show these resolved Edges, so
-  migrating never changes a Frontier. The migration report, preview and real, ends with grouped
+  migrating never changes a Frontier through a sub-slice. A bare sort-order Edge is different: it
+  dangles (`01?`) until migration resolves it, which can put its Ticket on the Frontier. The migration report, preview and real, ends with grouped
   lines for sub-slices kept as declared (with the `update_ticket blocked_by` fix) and for written
   Edges that land on another Effort (`T9@beta`), each naming ten and counting the rest.
 - **A write normalizes the Foreign file it touches when that file has no parseable fence**, and keeps
