@@ -95,3 +95,9 @@ _Avoid_: Frontier (that is the set), the frontier server, frontier-mcp in prose
 A ticket file predating the schema, with no frontmatter. Parsed best-effort on read, normalized on
 first write through the server.
 _Avoid_: unmigrated, old-format
+
+**Unimported keys**:
+Frontmatter keys outside the schema, which the server reads past and never writes. Shown by
+`get_tickets` for as long as a ticket carries them, whether or not it has an id; removed only when
+an agent names them.
+_Avoid_: foreign keys (Foreign is about a ticket not yet adopted, not about its keys), extra fields

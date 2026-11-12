@@ -30,3 +30,14 @@ Decide:
 - What deliberately invites a signal instead of measuring one — the cheapest reliable detector of a real
   user is a real user talking to you, so decide what makes that likely and where it lands.
 - The honest fallback: what you will conclude if none of these ever fire, and how long you wait.
+
+## Comments
+
+Grilling, 2026-11-12, decided by the user:
+
+1. **No telemetry**, opt-in included. The credibility cost in a developer tool outweighs what it could tell.
+2. **What invites a signal.** GitHub Discussions with one pinned thread ("Using FrontierMCP? What broke?"), linked from the README's first screen. And a "consumer report" issue template shaped like T93 (expected, got, workaround), so an agent that hits friction can file one without a human composing prose. Nothing in a tool result asks for feedback; that would be paid for in every session.
+
+Left undecided on purpose ("I don't care now"): which proxy signals to watch, and the fallback, meaning what to conclude from silence and after how long. The recommendation on the table, not accepted and not rejected: npm weekly downloads as a trend only; GitHub traffic referrers to see whether a venue post sent anyone; issues and discussions opened by someone else as the only proof of use; and thirty days after the last venue post with no inbound contact, go back to T42 before building anything else.
+
+This Ticket stays open for that part only. Nothing is built from it here: enabling Discussions is the owner's action on GitHub, and the template and README link belong to the launch breakdown.
