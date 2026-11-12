@@ -169,6 +169,9 @@ describe('get_tickets on a foreign fence', () => {
     await frontier.call('update_ticket', { id: 'alpha#1', comment: 'Migrating.' });
 
     expect(await frontier.call('get_tickets', { ids: ['alpha#1'] })).toContain(HEADING);
+    expect(await frontier.call('get_board', { effort: 'alpha' })).toContain(
+      '1/1 Tickets have a foreign fence',
+    );
   });
 
   it('keeps only the unimported entries once migrate_effort has minted an id', async () => {

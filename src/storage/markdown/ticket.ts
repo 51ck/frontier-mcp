@@ -3,27 +3,10 @@ import type { Kind, Status, TicketSummary, UnimportedFrontmatter } from '../../d
 import { STATUSES } from '../../domain.ts';
 import { parseProseBody } from './legacy.ts';
 import { splitFrontmatter } from './frontmatter.ts';
+import { SCHEMA_KEYS } from './schema.ts';
 
 /** `<NN>-<rest>.md` — `NN` carries sort order and nothing else. */
 const FILENAME_ORDER = /^(\d+)/;
-
-/**
- * Keys a schema Ticket may carry. Same set as FIELD_ORDER in serialize.ts,
- * duplicated here so parse does not depend on the write module.
- */
-const SCHEMA_KEYS = new Set([
-  'id',
-  'title',
-  'kind',
-  'type',
-  'status',
-  'triage',
-  'blocked_by',
-  'answer_gist',
-  'dropped_reason',
-  'claimed_by',
-  'claimed_at',
-]);
 
 export interface TicketFile {
   readonly filename: string;

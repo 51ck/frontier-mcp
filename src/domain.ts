@@ -167,6 +167,8 @@ export interface TicketEdit {
   readonly comment?: string;
   /** Acceptance criteria to tick, addressed by their text. */
   readonly tick?: readonly string[];
+  /** Unimported frontmatter keys to delete. A schema key or an absent one fails the write. */
+  readonly dropKeys?: readonly string[];
 }
 
 /**

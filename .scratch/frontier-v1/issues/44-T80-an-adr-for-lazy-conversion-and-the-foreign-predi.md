@@ -2,9 +2,10 @@
 id: T80
 title: An ADR for lazy conversion and the Foreign predicate
 kind: build
-status: open
+status: resolved
 triage: ready-for-agent
 blocked_by: [T73, T74, T75, T77, T101]
+answer_gist: ADR 0007 records lazy conversion as the model and Foreign as a conformance predicate, states the seam at the fence (only a file with no parseable fence is normalized by a write), why minting alone cannot be lazy, `awaits_migration` as designed and never built, and the four rejected alternatives; it carries no figures
 ---
 
 **What to build:** the written record of [[T57]]. Numbered after [[T72]]'s ADR 0006, so 0007 unless that one slips.
@@ -28,13 +29,13 @@ Detection writes nothing, extending [[T38]]'s warn-on-read rule and keeping the 
 **Blocked by:** the behaviour has to exist before it is described.
 
 
-- [ ] The ADR exists, numbered after ADR 0006
-- [ ] It states lazy conversion as the model and names the test that already pinned it
-- [ ] It states why minting alone cannot be lazy, with the three failed escapes
-- [ ] It defines Foreign on conformance and says why provenance is unavailable
-- [ ] It records `awaits_migration` as designed and not built, with the reason
-- [ ] The four rejected alternatives are named
-- [ ] No figure in it is unmeasured
+- [x] The ADR exists, numbered after ADR 0006
+- [x] It states lazy conversion as the model and names the test that already pinned it
+- [x] It states why minting alone cannot be lazy, with the three failed escapes
+- [x] It defines Foreign on conformance and says why provenance is unavailable
+- [x] It records `awaits_migration` as designed and not built, with the reason
+- [x] The four rejected alternatives are named
+- [x] No figure in it is unmeasured
 
 ## Comments
 
