@@ -65,6 +65,7 @@ export const updateTicketInputSchema = z.object({
     ),
   drop_keys: z
     .array(z.string().min(1))
+    .min(1)
     .optional()
     .describe(
       'Unimported frontmatter keys to delete, as get_tickets lists them. A schema key or an ' +

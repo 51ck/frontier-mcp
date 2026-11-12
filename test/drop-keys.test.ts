@@ -211,6 +211,42 @@ describe('update_ticket drop_keys', () => {
   });
 });
 
+describe('drop_keys refuses a cut that would damage the fence', () => {
+  it.each([
+    [
+      'an anchor another entry aliases',
+      'id: T1\ntitle: One\nstatus: open\nbase: &b x\nother: *b',
+      'base',
+    ],
+    [
+      'an entry sharing its line in a flow mapping',
+      '{id: T1, title: One, status: open, z: 2}',
+      'z',
+    ],
+  ])('refuses %s and writes nothing', async (_, fence, key) => {
+    const { frontier, read } = await setup(file(fence));
+    const before = await read();
+
+    const error = await frontier.callExpectingError('update_ticket', {
+      id: 'T1',
+      drop_keys: [key],
+    });
+
+    expect(error).toContain(`'${key}' cannot be cut out`);
+    expect(await read()).toBe(before);
+    expect(await frontier.call('get_board', { effort: 'alpha' })).toContain('T1  One');
+  });
+
+  it('refuses an empty list rather than writing a no-op', async () => {
+    const { frontier, read } = await setup();
+    const before = await read();
+
+    await frontier.callExpectingError('update_ticket', { id: 'T1', drop_keys: [] });
+
+    expect(await read()).toBe(before);
+  });
+});
+
 describe('drop_keys on a foreign fence', () => {
   const FOREIGN = '.scratch/alpha/issues/01-foreign.md';
   const fence = 'title: GitHub export\nlabels: bug\nstatus: open';
@@ -234,5 +270,23 @@ describe('drop_keys on a foreign fence', () => {
     expect(await frontier.call('get_tickets', { ids: ['alpha#1'] })).not.toContain(
       '## Unimported frontmatter',
     );
+  });
+  it('gives a fence left with no key the schema block, never an empty fence', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      [FOREIGN]: file('labels: bug', '# Export\n\nBody.\n'),
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    await frontier.call('update_ticket', { id: 'alpha#1', drop_keys: ['labels'] });
+    await frontier.call('update_ticket', { id: 'alpha#1', comment: 'Still fine.' });
+
+    const written = await readFile(join(root, FOREIGN), 'utf8');
+    expect(written).not.toContain('null');
+    expect(written).toMatch(/^---\ntitle: /);
+    const board = await frontier.call('get_board', { effort: 'alpha' });
+    expect(board).not.toContain('Foreign');
+    expect(board).not.toContain('foreign fence');
+    expect(board).toContain('no id (1)');
   });
 });

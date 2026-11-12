@@ -377,7 +377,11 @@ Rendering rules that are load-bearing, not cosmetic:
   entry out of the fence's text — block scalars, nested maps and sequences whole, a comment on its
   line with it, an own-line comment above it kept — so a drop alone leaves the rest byte-identical.
   A schema key (`SchemaKeyNotDroppable`), an absent key (`NoSuchKey`) or a Ticket with no parseable
-  fence (`NoFrontmatterToDrop`, file left un-normalized) fails the whole call. It is allowed on an
+  fence (`NoFrontmatterToDrop`, file left un-normalized) fails the whole call. The cut is read back
+  before it is written, and refused with `KeyNotCleanlyDroppable` unless exactly the other keys
+  survive — an alias left without its anchor, or a flow mapping sharing the entry's line, would
+  land a fence that no longer parses. A fence left with no key gets the schema block a fenceless
+  file gets, never an empty fence. It is allowed on an
   id-less foreign fence: dropping its last unimported key ends the Foreign predicate, so the Ticket
   becomes a schema fence with no id — not Foreign, still in the Board's `no id (N)` warning, and
   no id is minted. The schema key list is single-sourced in `src/storage/markdown/schema.ts`.

@@ -345,6 +345,22 @@ export class NoSuchKey extends Error {
   }
 }
 
+/**
+ * Thrown when cutting the named keys out of the fence would not leave exactly
+ * the other keys behind — another entry aliases an anchor in a dropped one, or
+ * shares its line in a flow mapping.
+ */
+export class KeyNotCleanlyDroppable extends Error {
+  constructor(keys: readonly string[]) {
+    super(
+      `Nothing was written: ${keys.map(key => `'${key}'`).join(', ')} cannot be cut out without ` +
+        'damaging the rest of the frontmatter — another entry refers to it or shares its line. ' +
+        'Remove it by hand.',
+    );
+    this.name = 'KeyNotCleanlyDroppable';
+  }
+}
+
 /** Thrown when `drop_keys` is addressed to a Ticket with no parseable frontmatter to drop from. */
 export class NoFrontmatterToDrop extends Error {
   constructor() {

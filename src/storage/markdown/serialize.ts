@@ -1,7 +1,12 @@
-import { Document, isMap, isScalar, isSeq, parseDocument } from 'yaml';
+import { Document, isMap, isScalar, isSeq, parse, parseDocument } from 'yaml';
 
 import type { TicketEdit } from '../../domain.ts';
-import { NoFrontmatterToDrop, NoSuchKey, SchemaKeyNotDroppable } from '../driver.ts';
+import {
+  KeyNotCleanlyDroppable,
+  NoFrontmatterToDrop,
+  NoSuchKey,
+  SchemaKeyNotDroppable,
+} from '../driver.ts';
 import { splitFrontmatter } from './frontmatter.ts';
 import { FIELD_ORDER, SCHEMA_KEYS } from './schema.ts';
 
@@ -71,7 +76,7 @@ export function applyEdit(contents: string, edit: TicketEdit, defaults: Defaults
   // rather than whatever a re-render would make of it.
   const frontmatter =
     edit.dropKeys !== undefined && raw !== undefined && !touchesFields
-      ? raw.trimEnd()
+      ? raw.replace(/(?:\r?\n)+$/, '')
       : render(document);
 
   // Only the outer edges are trimmed, and only newlines at the end — trailing
@@ -93,6 +98,13 @@ export function applyEdit(contents: string, edit: TicketEdit, defaults: Defaults
  * goes with it. A comment on its own line above stays: nothing says it was
  * about this key rather than a heading for what follows, and it is prose the
  * caller did not name. Every name is resolved before anything is cut.
+ *
+ * The cut is text surgery, so its result is read back the way the reader reads
+ * a fence and refused unless exactly the other keys survive: an alias left
+ * without its anchor, or a flow mapping sharing the dropped entry's line, would
+ * otherwise land a fence that no longer parses and take the Ticket's id with it.
+ * When no key survives there is no fence left to keep, and undefined hands the
+ * write to the schema block every fenceless file gets.
  */
 function withoutKeys(
   raw: string | undefined,
@@ -130,7 +142,30 @@ function withoutKeys(
   for (const [start, end] of [...spans.values()].toSorted((a, b) => b[0] - a[0])) {
     cut = cut.slice(0, start) + cut.slice(end);
   }
+
+  const expected = Object.keys(document.toJS() as object).filter(key => !spans.has(key));
+  if (!sameKeys(survivingKeys(cut), expected)) throw new KeyNotCleanlyDroppable([...spans.keys()]);
+  if (expected.length === 0) return undefined;
+
   return cut.replace(/\r?\n$/, '');
+}
+
+function survivingKeys(cut: string): readonly string[] | undefined {
+  try {
+    const value: unknown = parse(cut);
+    if (value === null || value === undefined) return [];
+    return typeof value === 'object' && !Array.isArray(value) ? Object.keys(value) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function sameKeys(actual: readonly string[] | undefined, expected: readonly string[]): boolean {
+  return (
+    actual !== undefined &&
+    actual.length === expected.length &&
+    actual.every((key, index) => key === expected[index])
+  );
 }
 
 /**
@@ -301,7 +336,8 @@ function existingDocument(raw: string | undefined): Document | undefined {
   if (raw === undefined) return undefined;
 
   const parsed = parseDocument(raw);
-  return parsed.errors.length > 0 ? undefined : parsed;
+  // An empty fence parses clean to a null document, which would render `null`.
+  return parsed.errors.length > 0 || !isMap(parsed.contents) ? undefined : parsed;
 }
 
 function fieldsOf(edit: TicketEdit): Array<[string, string | null]> {
