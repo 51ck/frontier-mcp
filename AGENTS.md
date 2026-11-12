@@ -348,6 +348,10 @@ Rendering rules that are load-bearing, not cosmetic:
   saying so. An Edge to a duplicated id is satisfied only when every claimant is resolved, and cycle
   checks follow every claimant's Edges: a duplicate never enlarges the Frontier. A Ticket whose own
   id is duplicated is never takeable, because every write to it is refused.
+- **A Foreign Ticket is counted by where its fields came from** (T104). One with no parseable
+  fence keeps `are Foreign — … inferred`; a foreign-fenced one is counted apart, as fields that
+  `came from frontmatter that was not imported`. The distinction crosses the seam as
+  `TicketSummary.foreignFenced`.
 - **An unrecognized status is counted in the warnings block and is never takeable.** The Board line
   may still show `/open`, but the Ticket is kept off the Frontier until a write normalizes it.
 - **A `<N>`-only id pattern warns on every `create_tickets` result, never on a read, never

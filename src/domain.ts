@@ -75,6 +75,12 @@ export interface TicketSummary {
    * holds; a status that will not map is flagged by `unrecognizedStatus` instead.
    */
   readonly foreign: boolean;
+  /**
+   * Foreign by its fence — one that parses, with no `id` and a key outside the
+   * schema — rather than by having none. Its fields were read from that fence,
+   * not inferred from prose. Never true unless {@link foreign} is.
+   */
+  readonly foreignFenced: boolean;
   /** The raw status text of a Ticket whose value did not map, fenced or prose. */
   readonly unrecognizedStatus: string | undefined;
   /** Sub-slice references (`T38.1`) coarsened to the Ticket that exists. */

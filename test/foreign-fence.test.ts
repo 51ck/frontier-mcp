@@ -37,7 +37,10 @@ describe('a non-conforming frontmatter fence on read', () => {
 
     const board = await frontier.call('get_board', { effort: 'alpha' });
 
-    expect(board).toContain('are Foreign');
+    expect(board).toContain(
+      '1/1 Tickets have a foreign fence — title, status and Edges came from frontmatter that was not imported',
+    );
+    expect(board).not.toContain('are Foreign');
     expect(ticketLine(board)).toContain('alpha#1');
   });
 
@@ -66,7 +69,10 @@ describe('a non-conforming frontmatter fence on read', () => {
 
     const board = await frontier.call('get_board', { effort: 'alpha' });
 
-    expect(board).toContain('are Foreign');
+    expect(board).toContain(
+      '1/1 Tickets have a foreign fence — title, status and Edges came from frontmatter that was not imported',
+    );
+    expect(board).not.toContain('are Foreign');
     expect(board).toContain('unrecognized status');
     expect(marked(board)).toEqual([]);
   });
@@ -230,5 +236,31 @@ describe('get_tickets on a foreign fence', () => {
 
     expect(out).not.toContain('labels');
     expect(out).not.toContain(HEADING);
+  });
+});
+
+describe("where a Foreign Ticket's fields came from (T104)", () => {
+  it('counts a foreign fence and an unfenced file in separate grouped warnings', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      '.scratch/alpha/issues/01-a.md': fenced({ labels: 'bug', title: 'Export A' }),
+      '.scratch/alpha/issues/02-b.md': fenced({ labels: 'bug', title: 'Export B' }),
+      '.scratch/alpha/issues/03-c.md': '# Prose only\n\nStatus: open\n',
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const board = await frontier.call('get_board', { effort: 'alpha' });
+    const warnings = board.slice(board.indexOf('warnings:')).split('\n');
+
+    expect(warnings).toContain(
+      '  1/3 Tickets are Foreign — title, status and Edges are inferred, not read from schema ' +
+        'frontmatter. Run migrate_effort to normalize.',
+    );
+    expect(warnings).toContain(
+      '  2/3 Tickets have a foreign fence — title, status and Edges came from frontmatter that ' +
+        'was not imported; get_tickets shows the rest of it. Run migrate_effort to normalize.',
+    );
+    expect(warnings.filter(line => line.includes('foreign fence'))).toHaveLength(1);
+    expect(warnings.some(line => line.includes('alpha#1') && line.includes('fence'))).toBe(false);
   });
 });

@@ -223,11 +223,22 @@ function collectWarnings(board: Board): string[] {
     );
   }
 
-  const foreign = board.tickets.filter(ticket => ticket.foreign);
+  const foreign = board.tickets.filter(ticket => ticket.foreign && !ticket.foreignFenced);
   if (foreign.length > 0) {
     warnings.push(
       `${String(foreign.length)}/${String(board.tickets.length)} Tickets are Foreign — title, ` +
         'status and Edges are inferred, not read from schema frontmatter. Run migrate_effort to normalize.',
+    );
+  }
+  // Counted apart from the prose-inferred ones: these fields were read from a
+  // fence, so pointing a reader at prose would send them after a `Status:` line
+  // that is not there.
+  const fenced = board.tickets.filter(ticket => ticket.foreignFenced);
+  if (fenced.length > 0) {
+    warnings.push(
+      `${String(fenced.length)}/${String(board.tickets.length)} Tickets have a foreign fence — ` +
+        'title, status and Edges came from frontmatter that was not imported; get_tickets shows ' +
+        'the rest of it. Run migrate_effort to normalize.',
     );
   }
 
