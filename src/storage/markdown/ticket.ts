@@ -102,23 +102,32 @@ export function unimportedFrontmatter(contents: string): UnimportedFrontmatter |
   const keys = Object.keys(fields).filter(key => !SCHEMA_KEYS.has(key));
   if (keys.length === 0) return undefined;
   if (isForeignFence(fields)) return { keys, yaml: raw, whole: true };
-  return { keys, yaml: unimportedEntries(raw), whole: false };
+  const entries = unimportedEntries(raw);
+  return entries === undefined
+    ? { keys, yaml: raw, whole: true }
+    : { keys, yaml: entries, whole: false };
 }
 
-function unimportedEntries(raw: string): string {
+/**
+ * The unimported pairs cut from the fence's own text, or undefined when one of
+ * them cannot be cut cleanly — a non-scalar or explicit (`? key`) key — in which
+ * case the caller shows the whole fence rather than a block that disagrees with
+ * the keys it names.
+ */
+function unimportedEntries(raw: string): string | undefined {
   const doc = parseDocument(raw);
-  if (!isMap(doc.contents)) return raw;
+  if (!isMap(doc.contents)) return undefined;
   const slices: string[] = [];
   for (const pair of doc.contents.items) {
-    const key = isScalar(pair.key) ? pair.key : undefined;
-    if (key === undefined || SCHEMA_KEYS.has(String(key.value))) continue;
-    const start = key.range?.[0];
+    if (isScalar(pair.key) && SCHEMA_KEYS.has(String(pair.key.value))) continue;
+    const start = isScalar(pair.key) ? pair.key.range?.[0] : undefined;
     const value = pair.value as { range?: [number, number, number] } | null;
-    const end = value?.range?.[2] ?? key.range?.[2];
-    if (start === undefined || end === undefined) continue;
+    const end = value?.range?.[2] ?? (isScalar(pair.key) ? pair.key.range?.[2] : undefined);
+    if (start === undefined || end === undefined) return undefined;
+    if (raw.slice(raw.lastIndexOf('\n', start - 1) + 1, start).trim() !== '') return undefined;
     slices.push(raw.slice(start, end).replace(/\s+$/, ''));
   }
-  return slices.join('\n');
+  return slices.join(raw.includes('\r\n') ? '\r\n' : '\n');
 }
 
 function parseUnfenced(

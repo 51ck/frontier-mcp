@@ -215,6 +215,22 @@ describe('get_tickets on a foreign fence', () => {
     );
   });
 
+  it.each([
+    ['a non-scalar key', '[a, b]: c'],
+    ['an explicit key', '? labels\n: bug'],
+  ])('shows the whole fence when %s cannot be cut out cleanly', async (_, entry) => {
+    const fence = `id: T1\ntitle: A\n${entry}`;
+    const root = await makeFixtureTree({
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      '.scratch/alpha/issues/01-T1-a.md': `---\n${fence}\n---\n\nBody.\n`,
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const out = await frontier.call('get_tickets', { ids: ['T1'] });
+
+    expect(out.endsWith(`${HEADING}\n\n\`\`\`yaml\n${fence}\n\`\`\``)).toBe(true);
+  });
+
   it('outruns a backtick run inside an unimported entry', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
