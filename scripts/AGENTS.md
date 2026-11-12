@@ -28,14 +28,23 @@ These scripts provide runtime probes and setup helpers for T88–T91.
 - `frontier-setup.cjs` is a dependency-free Node 16 bootstrap. It reads the exact released pin's
   engine declaration, uses a resolved compatible Node plus its pnpm/Corepack JavaScript entry,
   installs directly into a unique immutable user-data directory, verifies real MCP initialization
-  and `tools/list`, then previews or applies only Cursor user configuration. It never relocates that
+  and `tools/list`, then previews or applies Cursor or Claude Code user configuration. It never relocates that
   directory after pnpm runs because pnpm's Windows directory junctions retain their absolute target.
-  It ships in the package as bootstrap revision 2. Its private `testing` export exists solely for the
+  It ships in the package as bootstrap revision 3 (0.5.0 shipped 2). Its private `testing` export exists solely for the
   adjacent process-level check to force races and protocol failures; it is not a supported interface.
 - Cursor configuration writes back up the previous file, refuse malformed JSON and changes detected
   by the final read, then replace by rename. The setup guard serializes cooperating setup processes;
   an unrelated editor can still write between that final read and rename. This accepted limit must
   stay visible in installation instructions; backups recover the prior file, not that intervening edit.
+- `--client claude-code` never writes `~/.claude.json` itself, because Claude Code rewrites that file
+  while running. It reads the user-scope `frontier` entry to preview and compare, backs the file up,
+  then calls `claude mcp remove`/`add-json --scope user` (`--claude PATH` or `PATH`). The entry it
+  registers is the launcher the handshake verified.
+- `--doctor` needs no version and never writes. It resolves the repository like the launcher, lists
+  Claude Code `.mcp.json` / `~/.claude.json` (user and local), Cursor `.cursor/mcp.json` /
+  `~/.cursor/mcp.json`, and Codex `~/.codex/config.toml`, and reports which declare `frontier` and
+  whether each reading client is on `PATH`. A `frontier` entry in `.agents/mcp.json` not reached by a
+  symlink from a read path exits 1. Only locations the clients document belong in that list.
 - When its current Node is unsuitable and no explicit `--node` was supplied, `frontier-setup.cjs`
   queries installed versions from fnm, nvm, nvm-windows, Volta, asdf, and mise before falling back
   to their layouts when the command is missing, fails, or has unrecognized output. Queries run away
@@ -71,6 +80,8 @@ These scripts provide runtime probes and setup helpers for T88–T91.
   allowed runner starts exits with stderr guidance rather than starting Node after partial startup.
   Startup reads markers and runtime versions only; destructive compatibility probes stay in
   disposable verification fixtures.
+- `frontier-setup-check.cjs` exercises Claude Code apply against a stand-in `claude` that edits the
+  temporary home's `~/.claude.json`, and the doctor against a temporary repository.
 - `frontier-setup-check.cjs` runs that bootstrap under Node 16 against an explicit newer Node and the
   released pin named by `FRONTIER_SETUP_RELEASE` (default `0.4.0`). It requires `FRONTIER_NODE16` and
   `FRONTIER_NODE24`, uses a temporary home and project, and needs registry access.

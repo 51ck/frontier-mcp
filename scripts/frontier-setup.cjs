@@ -3,7 +3,7 @@
 
 // This file deliberately has no dependencies and uses syntax Node 16 accepts.
 // It must choose a runtime before FrontierMCP itself is installed or imported.
-// FrontierMCP setup bootstrap revision 2.
+// FrontierMCP setup bootstrap revision 3.
 
 const { spawn } = require('node:child_process');
 const { createHash } = require('node:crypto');
@@ -11,6 +11,7 @@ const {
   access,
   chmod,
   copyFile,
+  lstat,
   mkdtemp,
   mkdir,
   open,
@@ -40,6 +41,7 @@ const TOOL_NAMES = [
   'update_ticket',
 ];
 const REQUEST_TIMEOUT_MS = 15_000;
+const CLIENTS = ['cursor', 'claude-code', 'manual'];
 
 if (require.main === module) {
   main(process.argv.slice(2)).catch(error => {
@@ -52,6 +54,12 @@ async function main(args) {
   const options = parseArguments(args);
   if (options.help) {
     printUsage();
+    return;
+  }
+  if (options.doctor) {
+    const report = await doctor(options.project ?? process.cwd());
+    process.stdout.write(report.text);
+    if (report.unread.length > 0) process.exitCode = 1;
     return;
   }
 
@@ -70,11 +78,17 @@ async function main(args) {
   await verifyLaunch(launch);
 
   const target =
-    options.client === 'cursor' ? cursorConfigPath() : 'your MCP client user configuration';
+    options.client === 'cursor'
+      ? cursorConfigPath()
+      : options.client === 'claude-code'
+        ? claudeConfigPath()
+        : 'your MCP client user configuration';
   const preview =
     options.client === 'cursor'
       ? await prepareConfig(target, launch)
-      : { desired: { command: launch.command, args: launch.args } };
+      : options.client === 'claude-code'
+        ? await prepareClaudeCode(target, launch)
+        : { desired: { command: launch.command, args: launch.args } };
   printPreview({
     runtime,
     release,
@@ -86,6 +100,18 @@ async function main(args) {
   });
 
   if (!options.apply || options.client === 'manual') return;
+  if (options.client === 'claude-code') {
+    const claude =
+      options.claude ??
+      (await firstAccessible(commandCandidatesOnPath('claude', process.env, process.platform)));
+    if (claude === undefined)
+      throw new Error('Claude Code CLI `claude` was not found on PATH. Pass --claude PATH.');
+    await applyClaudeCode(claude, target, preview, options.replace);
+    process.stdout.write(
+      'Applied Claude Code user scope with `claude mcp add-json --scope user`. Restart Claude Code sessions to use it.\n',
+    );
+    return;
+  }
   await applyConfig(target, preview, options.replace);
   process.stdout.write(
     `Applied Cursor user configuration at ${target}. Restart Cursor to use it.\n`,
@@ -96,9 +122,12 @@ function parseArguments(args) {
   const options = {
     apply: false,
     bun: undefined,
+    claude: undefined,
     client: 'cursor',
     deno: undefined,
+    doctor: false,
     help: false,
+    project: undefined,
     node: undefined,
     replace: false,
   };
@@ -123,6 +152,14 @@ function parseArguments(args) {
     } else if (argument === '--deno' && value !== undefined) {
       options.deno = value;
       index += 1;
+    } else if (argument === '--doctor') {
+      options.doctor = true;
+    } else if (argument === '--project' && value !== undefined) {
+      options.project = value;
+      index += 1;
+    } else if (argument === '--claude' && value !== undefined) {
+      options.claude = value;
+      index += 1;
     } else if (argument === '--client' && value !== undefined) {
       options.client = value;
       index += 1;
@@ -132,30 +169,36 @@ function parseArguments(args) {
   }
   if (
     !options.help &&
+    !options.doctor &&
     (options.version === undefined || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(options.version))
   ) {
     throw new Error('Pass an exact released version, for example --version 0.4.0.');
   }
-  if (options.client !== 'cursor' && options.client !== 'manual') {
-    throw new Error('--client must be cursor or manual.');
+  if (!CLIENTS.includes(options.client)) {
+    throw new Error(`--client must be ${CLIENTS.join(', ')}.`);
   }
   if (options.client === 'manual' && options.apply) {
-    throw new Error('--apply is available only for Cursor user configuration.');
+    throw new Error('--apply is available only for Cursor or Claude Code user configuration.');
   }
   return options;
 }
 
 function printUsage() {
-  process.stdout.write(`FrontierMCP setup bootstrap revision 2
+  process.stdout.write(`FrontierMCP setup bootstrap revision 3
 
 Usage: node scripts/frontier-setup.cjs --version X.Y.Z [options]
+       node scripts/frontier-setup.cjs --doctor [--project DIR]
 
 Options:
   --node PATH       Use this Node executable instead of the current one.
   --bun PATH        Save this Bun candidate for verified project launches.
   --deno PATH       Save this Deno candidate for verified project launches.
-  --client NAME     cursor (default) writes Cursor user scope; manual prints an entry.
-  --apply           Write the previewed Cursor entry.
+  --client NAME     cursor (default) writes Cursor user scope; claude-code registers
+                    Claude Code user scope through its CLI; manual prints an entry.
+  --claude PATH     Claude Code CLI used by --client claude-code --apply.
+  --apply           Write the previewed Cursor or Claude Code entry.
+  --doctor          Report which client configs declare frontier and which are read.
+  --project DIR     Repository the doctor inspects (default: current directory).
   --replace         Replace an existing different frontier entry, with a backup.
 `);
 }
@@ -1410,17 +1453,23 @@ function printPreview({ runtime, release, installation, target, preview, client,
   process.stdout.write(
     `Installation: ${installation.directory}${installation.reused ? ' (reused after verification)' : ''}\n`,
   );
-  process.stdout.write(
-    `${client === 'cursor' ? 'Cursor user config' : 'Manual client entry'}: ${target}\n`,
-  );
-  process.stdout.write(
-    `${JSON.stringify({ mcpServers: { [SERVER]: preview.desired } }, null, 2)}\n`,
-  );
-  if (client === 'cursor' && !preview.identical && preview.existing !== undefined) {
+  process.stdout.write(`${CLIENT_LABELS[client]}: ${target}\n`);
+  if (client === 'claude-code') {
+    process.stdout.write(
+      `claude mcp add-json --scope user ${SERVER} '${JSON.stringify(preview.desired)}'\n`,
+    );
+  } else {
+    process.stdout.write(
+      `${JSON.stringify({ mcpServers: { [SERVER]: preview.desired } }, null, 2)}\n`,
+    );
+  }
+  if (client !== 'manual' && !preview.identical && preview.existing !== undefined) {
     process.stdout.write('An existing frontier entry needs --replace before --apply.\n');
   }
-  if (client === 'cursor' && !apply)
-    process.stdout.write('Preview only. Add --apply to write this Cursor entry.\n');
+  if (client !== 'manual' && !apply)
+    process.stdout.write(
+      `Preview only. Add --apply to write this ${client === 'cursor' ? 'Cursor' : 'Claude Code'} entry.\n`,
+    );
 }
 
 async function applyConfig(target, preview, replace, afterPreparation) {
@@ -1508,12 +1557,288 @@ function run(command, args, options = {}) {
   });
 }
 
+const CLIENT_LABELS = {
+  cursor: 'Cursor user config',
+  'claude-code': 'Claude Code user config',
+  manual: 'Manual client entry',
+};
+
+function claudeConfigPath() {
+  return path.join(homeDirectory(), '.claude.json');
+}
+
+// Claude Code keeps user and local scope in ~/.claude.json and rewrites that
+// file itself while running, so setup only reads it and leaves the write to
+// the client's own CLI. The fingerprint covers the frontier entry alone.
+async function prepareClaudeCode(target, launch) {
+  const config = await readClaudeConfig(target);
+  const existing = isObject(config.mcpServers) ? config.mcpServers[SERVER] : undefined;
+  const desired = { type: 'stdio', command: launch.command, args: launch.args };
+  const identical =
+    existing !== undefined &&
+    existing.command === desired.command &&
+    JSON.stringify(existing.args ?? []) === JSON.stringify(desired.args) &&
+    (existing.type === undefined || existing.type === 'stdio');
+  return { desired, existing, fingerprint: JSON.stringify(existing), identical };
+}
+
+async function readClaudeConfig(target) {
+  let source;
+  try {
+    source = await readFile(target, 'utf8');
+  } catch (error) {
+    if (error.code === 'ENOENT') return {};
+    throw error;
+  }
+  let config;
+  try {
+    config = JSON.parse(source);
+  } catch (error) {
+    throw new Error(
+      `Refusing to register into invalid Claude Code JSON at ${target}: ${error.message}`,
+      {
+        cause: error,
+      },
+    );
+  }
+  if (!isObject(config))
+    throw new Error(`Refusing to register into invalid Claude Code configuration at ${target}.`);
+  return config;
+}
+
+async function applyClaudeCode(claude, target, preview, replace) {
+  if (preview.identical) return;
+  if (preview.existing !== undefined && !replace) {
+    throw new Error(
+      'Claude Code already has a different user-scope frontier entry. Review the preview and rerun with --replace.',
+    );
+  }
+  const current = await readClaudeConfig(target);
+  const now = isObject(current.mcpServers) ? current.mcpServers[SERVER] : undefined;
+  if (JSON.stringify(now) !== preview.fingerprint) {
+    throw new Error(
+      `Claude Code frontier entry changed since preview; refusing to overwrite ${target}.`,
+    );
+  }
+  try {
+    const backup = `${target}.frontier-backup-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+    await copyFile(target, backup);
+    process.stdout.write(`Backup: ${backup}\n`);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+  }
+  const options = { label: 'claude mcp', timeout: 60_000, env: process.env };
+  if (preview.existing !== undefined)
+    await run(claude, ['mcp', 'remove', '--scope', 'user', SERVER], options);
+  await run(
+    claude,
+    ['mcp', 'add-json', '--scope', 'user', SERVER, JSON.stringify(preview.desired)],
+    options,
+  );
+}
+
+// Which file each installed client reads for MCP servers. Only locations the
+// clients document are listed; .agents/mcp.json is read by none of them and is
+// reachable only through a symlink at one of the paths below.
+function clientConfigLocations(root, home) {
+  return [
+    {
+      client: 'Claude Code',
+      command: 'claude',
+      scope: 'project',
+      file: path.join(root, '.mcp.json'),
+    },
+    {
+      client: 'Claude Code',
+      command: 'claude',
+      scope: 'user',
+      file: path.join(home, '.claude.json'),
+      claude: 'user',
+    },
+    {
+      client: 'Claude Code',
+      command: 'claude',
+      scope: 'local',
+      file: path.join(home, '.claude.json'),
+      claude: 'local',
+    },
+    {
+      client: 'Cursor',
+      command: 'cursor',
+      scope: 'project',
+      file: path.join(root, '.cursor', 'mcp.json'),
+    },
+    {
+      client: 'Cursor',
+      command: 'cursor',
+      scope: 'user',
+      file: path.join(home, '.cursor', 'mcp.json'),
+    },
+    {
+      client: 'Codex',
+      command: 'codex',
+      scope: 'user',
+      file: path.join(home, '.codex', 'config.toml'),
+      toml: true,
+    },
+  ];
+}
+
+const UNREAD_CANDIDATES = [path.join('.agents', 'mcp.json')];
+
+async function doctor(start, environment = process.env, platform = process.platform) {
+  const root = await doctorRoot(path.resolve(start));
+  const home = homeDirectory(environment);
+  const commands = ['claude', 'cursor', 'codex'];
+  const found = await Promise.all(
+    commands.map(command =>
+      firstAccessible(commandCandidatesOnPath(command, environment, platform)),
+    ),
+  );
+  const installed = Object.fromEntries(
+    commands.map((command, index) => [command, found[index] !== undefined]),
+  );
+  const locations = clientConfigLocations(root, home);
+  const results = await Promise.all(
+    locations.map(async location => ({
+      location,
+      found: await declaresFrontier(location, root),
+      real: await realpathOrUndefined(location.file),
+      linked: await isSymlink(location.file),
+    })),
+  );
+  const lines = [`Repository: ${root}`];
+  const readTargets = new Set();
+  const reachable = { 'Claude Code': [], Cursor: [], Codex: [] };
+  for (const { location, found: result, real, linked } of results) {
+    if (real !== undefined) readTargets.add(real);
+    const status =
+      result.error ??
+      (result.declared ? 'declares frontier' : result.exists ? 'no frontier entry' : 'absent');
+    const via = linked && real !== undefined ? ` (-> ${real})` : '';
+    lines.push(
+      `  ${location.client} ${location.scope}: ${location.file}${via} — ${status}; read by ${location.client} (${installed[location.command] ? 'installed' : 'not on PATH'})`,
+    );
+    if (result.declared) reachable[location.client].push(location.scope);
+  }
+  const candidates = await Promise.all(
+    UNREAD_CANDIDATES.map(async relative => {
+      const file = path.join(root, relative);
+      return {
+        file,
+        found: await declaresFrontier({ file }, root),
+        real: await realpathOrUndefined(file),
+      };
+    }),
+  );
+  const unread = [];
+  for (const candidate of candidates) {
+    if (!candidate.found.declared) continue;
+    if (readTargets.has(candidate.real)) {
+      lines.push(
+        `  ${candidate.file} — declares frontier; reached only through a symlink listed above`,
+      );
+    } else {
+      unread.push(candidate.file);
+      lines.push(`  ${candidate.file} — declares frontier; no client checked here reads this file`);
+    }
+  }
+  lines.push('Summary:');
+  for (const location of locations.filter(
+    (l, i, all) => all.findIndex(o => o.client === l.client) === i,
+  )) {
+    const scopes = reachable[location.client];
+    const state = installed[location.command] ? 'installed' : 'not on PATH';
+    lines.push(
+      scopes.length > 0
+        ? `  ${location.client} (${state}): frontier declared in ${scopes.join(', ')} scope`
+        : `  ${location.client} (${state}): no file it reads declares frontier`,
+    );
+  }
+  if (reachable['Claude Code'].includes('project'))
+    lines.push(
+      '  Claude Code asks once per project before starting a .mcp.json server; check `claude mcp list` for Pending approval.',
+    );
+  if (unread.length > 0)
+    lines.push(
+      `  ${unread.length} file(s) declare frontier where no client looks. Move or symlink to a path above.`,
+    );
+  return { text: `${lines.join('\n')}\n`, reachable, unread, installed };
+}
+
+async function doctorRoot(start, current = start) {
+  const markers = await Promise.all(
+    ['.scratch', '.git'].map(async marker => {
+      try {
+        const info = await stat(path.join(current, marker));
+        return marker === '.git' || info.isDirectory();
+      } catch {
+        return false;
+      }
+    }),
+  );
+  if (markers.some(Boolean)) return current;
+  const parent = path.dirname(current);
+  return parent === current ? start : doctorRoot(start, parent);
+}
+
+async function isSymlink(file) {
+  try {
+    return (await lstat(file)).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
+async function realpathOrUndefined(file) {
+  try {
+    return await realpath(file);
+  } catch {
+    return undefined;
+  }
+}
+
+async function declaresFrontier(location, root) {
+  let source;
+  try {
+    source = await readFile(location.file, 'utf8');
+  } catch (error) {
+    if (error.code === 'ENOENT') return { exists: false, declared: false };
+    return { exists: true, declared: false, error: `unreadable (${error.code})` };
+  }
+  if (location.toml) {
+    const declared = /^\s*\[\s*mcp_servers\s*\.\s*(?:frontier|"frontier"|'frontier')\s*\]/m.test(
+      source,
+    );
+    return { exists: true, declared };
+  }
+  let config;
+  try {
+    config = JSON.parse(source);
+  } catch {
+    return { exists: true, declared: false, error: 'invalid JSON' };
+  }
+  if (!isObject(config)) return { exists: true, declared: false, error: 'not a JSON object' };
+  let servers = config.mcpServers;
+  if (location.claude === 'local') {
+    // Claude Code keys local scope by project path; accept either spelling.
+    const projects = isObject(config.projects) ? config.projects : {};
+    const real = await realpathOrUndefined(root);
+    const project = projects[root] ?? (real === undefined ? undefined : projects[real]);
+    servers = isObject(project) ? project.mcpServers : undefined;
+  }
+  return { exists: true, declared: isObject(servers) && servers[SERVER] !== undefined };
+}
+
 // The check script imports these private helpers to force a fingerprint race
 // and a broken protocol without adding command-line switches for test cases.
 module.exports = {
   testing: {
+    applyClaudeCode,
     applyConfig,
     cursorConfigPath,
+    doctor,
+    prepareClaudeCode,
     discoverManagedRuntimes,
     durableLaunch,
     prepareConfig,

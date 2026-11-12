@@ -58,6 +58,35 @@ Cursor entry instead:
 
 Restart Cursor after saving. The pin is the version you get; updates remain manual.
 
+For Claude Code, register it with the CLI rather than editing a file:
+
+```sh
+claude mcp add --scope user frontier -- npx -y frontier-mcp@0.5.0
+```
+
+Claude Code keeps user and local scope in `~/.claude.json` and reads project scope only from
+`.mcp.json` at the repository root. For Codex, `codex mcp add frontier -- npx -y frontier-mcp@0.5.0`
+writes `~/.codex/config.toml`.
+
+User scope is the recommendation: one entry serves every repository. To pin a version per
+repository and commit it for a team instead, put the same `frontier` entry in the file each client
+reads from the repository root:
+
+| Client | Per-repository file |
+| --- | --- |
+| Claude Code | `.mcp.json` (each user approves it once; `claude mcp list` shows it pending until then) |
+| Cursor | `.cursor/mcp.json` |
+
+Neither Claude Code nor Cursor reads `.agents/mcp.json`. This repository keeps its entry there and makes it reachable by
+committing `.mcp.json` and `.cursor/mcp.json` as symlinks to it; copying only `.agents/mcp.json`
+leaves every client without the server, and none of them reports an error. To see which files
+declare `frontier` and which installed clients read them, run the setup script's doctor from the
+repository:
+
+```sh
+node "$SETUP_DIR/package/scripts/frontier-setup.cjs" --doctor
+```
+
 The [installation guide](docs/installation.md) covers Node 16 projects, a PowerShell bootstrap,
 runtime managers, absolute desktop paths, Bun and Deno (enabled only for older pins), other
 clients, updates, recovery, and removal.
