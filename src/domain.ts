@@ -18,6 +18,16 @@ export type Kind = 'build' | 'decision';
 /** A Ticket's position in the graph's lifecycle. Owned by the server. */
 export type Status = 'open' | 'claimed' | 'resolved' | 'dropped';
 
+/**
+ * The bare id inside a pasted `<id>@<effort>`, or undefined for any other name.
+ * A Board renders a foreign blocker as `T9@beta` and the obvious next call pastes
+ * it back; the `@<effort>` half is decoration, never input. A `#` on either side
+ * is a handle, which is a different address.
+ */
+export function bareIdOf(name: string): string | undefined {
+  return /^([^@#]+)@[^@#]+$/.exec(name)?.[1];
+}
+
 export const STATUSES: readonly Status[] = ['open', 'claimed', 'resolved', 'dropped'];
 
 /**
@@ -58,12 +68,14 @@ export interface TicketSummary {
   readonly order: number;
   /**
    * A Ticket whose file does not conform to the schema: no frontmatter fence, a
-   * fence that does not parse, or a fence that parses but is not this schema's.
-   * Conformance is evaluated on every read, never provenance. Its title, status,
-   * and Edges are inferences an agent should distrust.
+   * fence that does not parse, or a fence that parses but carries no `id` and at
+   * least one key outside the schema. Conformance is evaluated on every read,
+   * never provenance. Its title, status, and Edges are inferences an agent
+   * should distrust. A fence with an `id` is never Foreign, whatever else it
+   * holds; a status that will not map is flagged by `unrecognizedStatus` instead.
    */
   readonly foreign: boolean;
-  /** The raw `Status:` text of a Foreign Ticket whose value did not map. */
+  /** The raw status text of a Ticket whose value did not map, fenced or prose. */
   readonly unrecognizedStatus: string | undefined;
   /** Sub-slice references (`T38.1`) coarsened to the Ticket that exists. */
   readonly collapsedRefs: readonly string[];
@@ -235,7 +247,7 @@ export interface MigrationChange {
   readonly title: string;
   /** True when this call (or preview) assigns a fresh id. */
   readonly minted: boolean;
-  /** True when the file was Foreign and gains schema frontmatter. */
+  /** True when the file was Foreign: a fenceless one gains schema frontmatter, a fenced one an id. */
   readonly normalized: boolean;
   /**
    * Cosmetic Ticket filenames (basenames only) when rename would move the file.

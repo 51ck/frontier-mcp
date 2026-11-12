@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { bareIdOf } from '../domain.ts';
 import type { Ticket } from '../domain.ts';
 
 export const getTicketsInputSchema = z.object({
@@ -55,7 +56,16 @@ export function renderTickets(requested: readonly string[], found: readonly Tick
     for (const ticket of claimants) blocks.push(renderOne(ticket));
   }
 
-  if (missing.length > 0) blocks.push(`not found: ${missing.join(' ')}`);
+  if (missing.length > 0) {
+    blocks.push(
+      `not found: ${missing
+        .map(name => {
+          const bare = bareIdOf(name);
+          return bare === undefined ? name : `${name} (name it '${bare}')`;
+        })
+        .join(' ')}`,
+    );
+  }
 
   return blocks.join('\n\n---\n\n');
 }

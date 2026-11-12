@@ -1,3 +1,4 @@
+import { bareIdOf } from '../domain.ts';
 import type {
   Effort,
   MapDocument,
@@ -240,14 +241,12 @@ export class RevisionMismatch extends Error {
 /** Thrown when the edit names a Ticket the workspace does not hold. */
 export class NoSuchTicket extends Error {
   constructor(handle: string, where = 'this workspace') {
-    // A Board renders a foreign blocker as `T9@beta`, and the obvious next call
-    // pastes it back. The `@<effort>` half is decoration, never input.
-    const at = /^([^@#]+)@[^@]+$/.exec(handle);
+    const bare = bareIdOf(handle);
     super(
-      at === null
+      bare === undefined
         ? `No Ticket '${handle}' in ${where}.`
         : `No Ticket '${handle}' in ${where}. Ids resolve repo-wide, so the ` +
-            `'@<effort>' a Board shows is decoration — name it '${at[1] ?? ''}'.`,
+            `'@<effort>' a Board shows is decoration — name it '${bare}'.`,
     );
     this.name = 'NoSuchTicket';
   }

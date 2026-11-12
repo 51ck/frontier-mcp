@@ -129,6 +129,9 @@ describe('a pasted <id>@<effort>', () => {
     expect(error).toContain("No Ticket 'T1@alpha'");
     expect(error).toContain("name it 'T1'");
     expect(await readFile(join(root, FILE), 'utf8')).toBe(before);
+    expect(await frontier.call('get_tickets', { ids: ['T1@alpha', 'alpha#9'] })).toBe(
+      "not found: T1@alpha (name it 'T1') alpha#9",
+    );
   });
 
   it('leaves the plain refusal alone for a name with no @', async () => {
