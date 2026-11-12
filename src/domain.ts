@@ -27,12 +27,12 @@ export const STATUSES: readonly Status[] = ['open', 'claimed', 'resolved', 'drop
 export interface TicketSummary {
   /**
    * Opaque, unique repo-wide, never reused or changed. Its shape is the storage
-   * driver's to define. Absent on a Legacy Ticket that carries no id.
+   * driver's to define. Absent on a Foreign Ticket that carries no id.
    */
   readonly id: string | undefined;
   /**
    * How to name this Ticket in a call. The id when it has one; otherwise
-   * `<effort>#<order>`, which is the only handle an id-less Legacy Ticket has
+   * `<effort>#<order>`, which is the only handle an id-less Ticket has
    * until migration mints it a real one.
    */
   readonly handle: string;
@@ -57,11 +57,13 @@ export interface TicketSummary {
   /** Sort order within its Effort. Order only — never identity. */
   readonly order: number;
   /**
-   * A Ticket predating the schema, parsed best-effort. Its title, status, and
-   * Edges are inferences an agent should distrust.
+   * A Ticket whose file does not conform to the schema: no frontmatter fence, a
+   * fence that does not parse, or a fence that parses but is not this schema's.
+   * Conformance is evaluated on every read, never provenance. Its title, status,
+   * and Edges are inferences an agent should distrust.
    */
-  readonly legacy: boolean;
-  /** The raw `Status:` text of a Legacy Ticket whose value did not map. */
+  readonly foreign: boolean;
+  /** The raw `Status:` text of a Foreign Ticket whose value did not map. */
   readonly unrecognizedStatus: string | undefined;
   /** Sub-slice references (`T38.1`) coarsened to the Ticket that exists. */
   readonly collapsedRefs: readonly string[];
@@ -233,7 +235,7 @@ export interface MigrationChange {
   readonly title: string;
   /** True when this call (or preview) assigns a fresh id. */
   readonly minted: boolean;
-  /** True when the file was Legacy and gains schema frontmatter. */
+  /** True when the file was Foreign and gains schema frontmatter. */
   readonly normalized: boolean;
   /**
    * Cosmetic Ticket filenames (basenames only) when rename would move the file.

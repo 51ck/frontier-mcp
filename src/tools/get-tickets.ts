@@ -7,7 +7,7 @@ export const getTicketsInputSchema = z.object({
     .array(z.string())
     .min(1)
     .describe(
-      'Ticket ids, e.g. ["T12","T14"], resolved repo-wide. A Legacy Ticket with no id is ' +
+      'Ticket ids, e.g. ["T12","T14"], resolved repo-wide. A Ticket with no id is ' +
         'fetched by the <effort>#<order> handle its Board line shows.',
     ),
   root: z.string().optional().describe('Workspace directory. Defaults to the session workspace.'),
@@ -24,7 +24,7 @@ export const getTicketsDescription =
  */
 export function renderTickets(requested: readonly string[], found: readonly Ticket[]): string {
   // Addressable by id when it has one, and by its handle either way — an
-  // id-less Legacy Ticket has no other route to its own body.
+  // id-less Ticket has no other route to its own body.
   const byName = new Map<string, Ticket[]>();
   const add = (name: string, ticket: Ticket) => {
     const claimants = byName.get(name) ?? [];
@@ -72,7 +72,7 @@ function renderOne(ticket: Ticket): string {
     ticket.claimedAt === undefined ? undefined : `claimed_at=${ticket.claimedAt}`,
     ticket.answerGist === undefined ? undefined : `answer_gist=${ticket.answerGist}`,
     ticket.droppedReason === undefined ? undefined : `dropped_reason=${ticket.droppedReason}`,
-    ticket.legacy ? 'legacy' : undefined,
+    ticket.foreign ? 'foreign' : undefined,
   ].filter(field => field !== undefined);
 
   const head = `# ${ticket.handle} — ${ticket.title}\n${fields.join('  ')}\n\n${ticket.body}`;

@@ -55,7 +55,7 @@ ${GENERATED_OPEN}
 `;
 }
 
-/** Legacy shape: Decisions / Out of scope exist but have no GENERATED fences. */
+/** Foreign shape: Decisions / Out of scope exist but have no GENERATED fences. */
 function unfencedMap(): string {
   return `---
 header: map

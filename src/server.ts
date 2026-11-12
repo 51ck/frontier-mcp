@@ -9,7 +9,7 @@ import { frontierOf } from './frontier.ts';
 import { createDriverRegistry } from './driver-registry.ts';
 import { createMarkdownDriver } from './storage/markdown/driver.ts';
 import type { StorageDriver, TicketWriteResult } from './storage/driver.ts';
-import { NoSuchMap, RevisionMismatch } from './storage/driver.ts';
+import { NoSuchMap, NoSuchTicket, RevisionMismatch } from './storage/driver.ts';
 import {
   createTicketsDescription,
   createTicketsInputSchema,
@@ -318,7 +318,7 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       };
       const find = (from: readonly TicketSummary[]): TicketSummary => {
         const ticket = from.find(entry => entry.id === id || entry.handle === id);
-        if (ticket === undefined) throw new Error(`No Ticket '${id}' in ${workspace}.`);
+        if (ticket === undefined) throw new NoSuchTicket(id, workspace);
         return ticket;
       };
 

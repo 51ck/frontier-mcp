@@ -1,6 +1,6 @@
 import type { Kind, Status, TicketSummary } from '../../domain.ts';
 import { STATUSES } from '../../domain.ts';
-import { parseLegacyBody } from './legacy.ts';
+import { parseProseBody } from './legacy.ts';
 import { splitFrontmatter } from './frontmatter.ts';
 
 /** `<NN>-<rest>.md` — `NN` carries sort order and nothing else. */
@@ -31,7 +31,7 @@ export interface TicketFile {
 
 /**
  * Parse one Ticket file into everything but its prose. Schema-conformant files
- * read from their frontmatter; everything else falls through to the Legacy
+ * read from their frontmatter; everything else falls through to the prose
  * parser and is flagged, because a server that is useless until its repo is
  * migrated never gets installed.
  *
@@ -48,7 +48,7 @@ export function parseTicketSummary(
   const { fields } = splitFrontmatter(file.contents);
   const order = readOrder(file.filename) ?? fallbackOrder;
 
-  if (fields === undefined) return parseLegacy(effort, order, file.contents, revision);
+  if (fields === undefined) return parseUnfenced(effort, order, file.contents, revision);
 
   const id = text(fields['id']);
   const rawStatus = text(fields['status']);
@@ -71,7 +71,7 @@ export function parseTicketSummary(
     blockedBy: readEdgeList(fields['blocked_by']),
     effort,
     order,
-    legacy: isForeignFence(fields),
+    foreign: isForeignFence(fields),
     unrecognizedStatus,
     collapsedRefs: [],
     revision,
@@ -80,7 +80,7 @@ export function parseTicketSummary(
 
 /**
  * A Ticket's prose. A schema file's body is what sits below the frontmatter; a
- * Legacy file has no fence, so its whole contents are the prose — the same
+ * fenceless file has no fence, so its whole contents are the prose — the same
  * split {@link parseTicketSummary} makes, taken from the other side.
  */
 export function ticketBody(contents: string): string {
@@ -94,13 +94,13 @@ export function foreignFence(contents: string): string | undefined {
   return fields !== undefined && isForeignFence(fields) ? raw : undefined;
 }
 
-function parseLegacy(
+function parseUnfenced(
   effort: string,
   order: number,
   contents: string,
   revision: string,
 ): TicketSummary {
-  const inferred = parseLegacyBody(contents);
+  const inferred = parseProseBody(contents);
 
   return {
     id: inferred.id,
@@ -110,7 +110,7 @@ function parseLegacy(
     type: inferred.type,
     status: inferred.status,
     triage: inferred.triage,
-    // A Legacy file records its answer as prose in the body, not as a field.
+    // A fenceless file records its answer as prose in the body, not as a field.
     answerGist: undefined,
     droppedReason: undefined,
     claimedBy: undefined,
@@ -118,7 +118,7 @@ function parseLegacy(
     blockedBy: inferred.blockedBy,
     effort,
     order,
-    legacy: true,
+    foreign: true,
     unrecognizedStatus: inferred.unrecognizedStatus,
     collapsedRefs: inferred.collapsedRefs,
     revision,
@@ -126,7 +126,7 @@ function parseLegacy(
 }
 
 /**
- * A Ticket with no id still has to be nameable, or a whole Effort of Legacy Tickets
+ * A Ticket with no id still has to be nameable, or a whole Effort of Foreign Tickets
  * has no route to its own bodies. `<effort>#<order>` is that fallback — an
  * address, deliberately not an id: it is not repo-stable and never appears as
  * an Edge.

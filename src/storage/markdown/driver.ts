@@ -336,14 +336,14 @@ async function migrate(
   const scanned = await walk();
   const allTickets = scanned.flatMap(summariesOf);
 
-  // An id inferred from Legacy prose is preserved, so one another file already
+  // An id inferred from Foreign prose is preserved, so one another file already
   // carries would be written into frontmatter as a duplicate — the same refusal
   // as any write addressed to that id. A preview is a read, so it reports the
   // conflict beside the rest of the plan instead.
   const claims = duplicateClaims(scanned);
   const conflicts = new Map<string, readonly string[]>();
   for (const { ticket } of entries) {
-    if (!ticket.legacy || ticket.id === undefined) continue;
+    if (!ticket.foreign || ticket.id === undefined) continue;
     const files = claims.get(ticket.id);
     if (files === undefined) continue;
     if (options.preview !== true) throw new DuplicateId(ticket.id, files);
@@ -868,9 +868,11 @@ async function readTicketFiles(dir: string, effort: string): Promise<TicketFileE
 }
 
 /**
- * Two id-less Tickets can land on one order — a shared `NN-` prefix, or a
- * prefix-less file whose listing position matches another's prefix — which
- * would make one of them unfetchable. Later collisions get a suffix.
+ * Two id-less Tickets can land on one order, which would make one of them
+ * unfetchable. The cause is a prefix-less file taking `position + 1`, which
+ * lands on whatever order a sibling's `NN-` prefix already gave: `a.md` listed
+ * second collides with `02-b.md`. Two prefix-less files never collide with each
+ * other. Later collisions in sort order get a `.2`, `.3` suffix.
  *
  * A Ticket with an id is never suffixed. Every claimant of a duplicated id must
  * keep answering to that id, so a write addressed to it refuses; a suffix would

@@ -7,7 +7,7 @@ import { cycleThrough, renderCycle, type EdgesOf } from '../edges.ts';
 import { claimantsById, edgesOfClaimants } from '../frontier.ts';
 
 export const updateTicketInputSchema = z.object({
-  id: z.string().describe('Ticket id, or the <effort>#<order> handle of a Legacy Ticket.'),
+  id: z.string().describe('Ticket id, or the <effort>#<order> handle of a Ticket with no id.'),
   claim: z
     .object({ by: z.string().min(1).describe('Who is taking it.') })
     .optional()
@@ -231,7 +231,7 @@ function edgesFor(
   request: UpdateRequest,
 ): readonly string[] {
   const blockedBy = request.blocked_by ?? [];
-  // Nothing can name an id-less Legacy Ticket, so no path leads back to it.
+  // Nothing can name an id-less Ticket, so no path leads back to it.
   if (ticket.id === undefined) return blockedBy;
 
   const byId = claimantsById(all);

@@ -51,3 +51,25 @@ describe('get_tickets', () => {
     expect(text).not.toContain('The body this session started with.');
   });
 });
+
+describe('handle collisions', () => {
+  // `a.md` sorts after `02-b.md` at position 2, so it takes order 2 — the order
+  // `02-b.md`'s prefix already gave.
+  it('suffixes a prefix-less file whose position lands on a sibling prefix', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/alpha/spec.md': spec('Alpha'),
+      '.scratch/alpha/issues/02-b.md': '# 02 — Prefixed\n\nStatus: open\n\nPrefixed prose.\n',
+      '.scratch/alpha/issues/a.md': '# Unprefixed\n\nStatus: open\n\nUnprefixed prose.\n',
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const board = await frontier.call('get_board', { effort: 'alpha' });
+    expect(board).toContain('alpha#2 ');
+    expect(board).toContain('alpha#2.2 ');
+
+    expect(await frontier.call('get_tickets', { ids: ['alpha#2'] })).toContain('Prefixed prose.');
+    expect(await frontier.call('get_tickets', { ids: ['alpha#2.2'] })).toContain(
+      'Unprefixed prose.',
+    );
+  });
+});

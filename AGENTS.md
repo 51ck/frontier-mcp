@@ -155,7 +155,7 @@ Design decisions settled and binding until an ADR revises them:
 - **Derive, don't store, what tickets already know.** The Map's Decisions-so-far renders from resolved
   tickets. The frontier is computed. Neither is written to disk as state. See
   [ADR 0002](./docs/adr/0002-map-decisions-derived-from-tickets.md).
-- **Lenient on read, strict on write.** Legacy files parse best-effort and are flagged; a write
+- **Lenient on read, strict on write.** Foreign files — no fence, a broken fence, or a fence that does not conform — parse best-effort and are flagged Foreign; a write
   normalizes them. Reads never mutate files.
 - **A write never reformats what it did not touch.** Frontmatter round-trips through the `yaml`
   package's document API, not a frontmatter library that re-serializes the whole block. See
@@ -298,7 +298,7 @@ Source layout:
 | `src/frontier.ts` | The Frontier computation. Takes every Ticket in the workspace, because Edges resolve repo-wide. |
 | `src/edges.ts` | Cycle detection over the Edge graph. Above the seam, because a cycle is a rule about the domain rather than about storage — the same reason the Status model is checked in the tool layer. |
 | `src/storage/driver.ts` | The ADR 0001 seam, its edit vocabulary, and its typed failures. A driver is the workspace cached and live, so `close()` sits here beside the reads and writes. |
-| `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout, which it takes as a construction parameter — `frontmatter.ts` splits the fence, `ticket.ts` parses a Ticket, `legacy.ts` infers one from prose, `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` allocates ids and writes a new batch, `migrate.ts` normalizes an Effort at once, `id-pattern.ts` reads `<storageDir>/frontier.yml` once at construction and compiles `id_pattern`, `write.ts` renames it into place, `watcher.ts` tells the driver another process moved the workspace under it. |
+| `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout, which it takes as a construction parameter — `frontmatter.ts` splits the fence, `ticket.ts` parses a Ticket, `legacy.ts` infers one from a fenceless file's prose (named for that one shape, not for Foreign), `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` allocates ids and writes a new batch, `migrate.ts` normalizes an Effort at once, `id-pattern.ts` reads `<storageDir>/frontier.yml` once at construction and compiles `id_pattern`, `write.ts` renames it into place, `watcher.ts` tells the driver another process moved the workspace under it. |
 | `src/workspace.ts` | Workspace resolution — the only module above the driver that reads a *served* repository, and only to locate its root. `.scratch` is a marker only as a directory; `.git` counts as a file too, so a worktree or submodule resolves to itself rather than to the repository enclosing it. |
 | `src/driver-registry.ts` | One driver per resolved workspace, and the `closeAll()` that shuts them. A lookup, not a layer: it hands back the driver itself, so no read or write passes through it. |
 | `src/tools/` | One module per tool: its input schema, its description, and how its result renders. `workspace-line.ts` is the exception — the single rendering of which repository a call served, shared by `list_efforts` and every write. |
@@ -329,11 +329,12 @@ Rendering rules that are load-bearing, not cosmetic:
   What decides is *whether the call wrote*, not whether the tool can — `edit_map` with no section
   fields, `spec` with no content, and `migrate_effort` in preview are reads, and pay nothing.
   Measured at ~10 tokens on a typical checkout; a forty-write session costs less than one Board.
-- **Warnings are grouped, never itemized per Ticket.** An Effort of Legacy Tickets carries a dangling Edge
+- **Warnings are grouped, never itemized per Ticket.** An Effort of Foreign Tickets carries a dangling Edge
   on nearly every Ticket; itemizing produced a warnings block longer than the Board it annotated,
   which undoes the saving the Board exists to deliver.
 - **A foreign blocker renders `T9@beta`, a local one bare.** There is no compound cross-Effort
-  reference form, so the Board is the only thing that can make a foreign Edge followable.
+  reference form, so the Board is the only thing that can make a foreign Edge followable. The
+  `@<effort>` is never input: a pasted `T9@beta` fails `NoSuchTicket`, whose message names `T9` back.
 - **An unresolvable Edge renders `T9?`** and is counted in the warnings block. It never silently
   makes a Ticket look takeable.
 - **A duplicate id is one grouped warning**, on every Board, computed from the cached scan the Board
@@ -351,7 +352,7 @@ Rendering rules that are load-bearing, not cosmetic:
   `StorageDriver.mergeCollidingIdPattern()`; the text names both, names `T<N>-<b36{4}>`, says
   *regression*, and closes by saying no action is required on this call. It never mentions
   duplicates — the cross-reference runs one way, from the duplicate warning to the pattern.
-- **Every Ticket is nameable.** A Legacy Ticket with no id gets an `<effort>#<order>` handle, which
+- **Every Ticket is nameable.** A Ticket with no id gets an `<effort>#<order>` handle, which
   `get_tickets` accepts. It is an address, not an id — not repo-stable, and never usable as an Edge —
   but without it a whole Effort has no route to its own bodies.
 - **A foreign fence is shown, never written.** `get_tickets` appends a foreign-fenced Ticket's raw
@@ -407,7 +408,7 @@ Write rules, equally load-bearing:
   Decisions-so-far / dropped Out-of-scope must not make a completed lifecycle change look like a
   failure. The tool returns success with a warning that those blocks may be stale; a later
   successful refresh or Map mutation catches them up.
-- **A write normalizes the Legacy file it touches**, and keeps the prose it inferred from verbatim.
+- **A write normalizes the Foreign file it touches**, and keeps the prose it inferred from verbatim.
 - **Claims are flagged when stale, never auto-released.** 24h; use `release` to drop a claim explicitly.
 - **A batch creation is all or none.** Every reference resolves before anything is written, so an
   undeclared temporary key or a cycle leaves the workspace untouched. Temporary keys exist for the
@@ -433,7 +434,7 @@ in the graph:
   `/triage` and the graph never compete for one field. A `wontfix` Ticket stays takeable and is named
   in the warnings block instead, leaving the judgement to the reader.
 
-`superseded` and `deferred` are a different matter: read from a Legacy `Status:` line they map to
+`superseded` and `deferred` are a different matter: read from a Foreign file's `Status:` line they map to
 `dropped`, and so do orphan their dependents. That is not inconsistent with the rule above — they are
 Statuses being inferred, where `wontfix` is a Triage role being respected as one. Inference gets to
 lean conservative because it is guessing; a role the caller set explicitly does not, because it was
@@ -538,7 +539,7 @@ the schema does not recognize.
 
 Shapes the parser handles that these two Efforts happen **not** to contain — struck-through Edges,
 `Status: done` / `fixed` / `superseded`, bold field labels — are covered by synthetic files in
-`test/legacy-shapes.test.ts`. Put new shapes there; never add them to the fixtures.
+`test/prose-shapes.test.ts`. Put new shapes there; never add them to the fixtures.
 
 `docs/agents/issue-tracker.md` opens with `Tracker doc revision <n>`, pinned in form only by
 `test/ship.test.ts`; raise it by hand whenever the doc's contract changes.

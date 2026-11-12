@@ -119,18 +119,18 @@ describe('a duplicate id', () => {
       '.git/HEAD': '',
       '.scratch/alpha/map.md': map('Somewhere.'),
       '.scratch/beta/map.md': map('Elsewhere.'),
-      '.scratch/alpha/issues/01-legacy.md': '# T5 — Legacy claimant\n\nStatus: open\n\nBody.\n',
+      '.scratch/alpha/issues/01-foreign.md': '# T5 — Foreign claimant\n\nStatus: open\n\nBody.\n',
       [B]: ticket('T5', 'Schema claimant'),
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
-    const legacy = join(root, '.scratch/alpha/issues/01-legacy.md');
-    const before = await readFile(legacy, 'utf8');
+    const foreign = join(root, '.scratch/alpha/issues/01-foreign.md');
+    const before = await readFile(foreign, 'utf8');
 
     const error = await frontier.callExpectingError('migrate_effort', { effort: 'alpha' });
 
     expect(error).toContain('Nothing was written: T5 is carried by 2 Ticket files');
-    expect(error).toContain('alpha/issues/01-legacy.md, beta/issues/01-T5-second.md');
-    expect(await readFile(legacy, 'utf8')).toBe(before);
+    expect(error).toContain('alpha/issues/01-foreign.md, beta/issues/01-T5-second.md');
+    expect(await readFile(foreign, 'utf8')).toBe(before);
   });
 
   it('keeps every open claimant of a duplicated id off the Frontier, since none can be taken', async () => {
@@ -309,39 +309,39 @@ describe('a duplicate id', () => {
       '.scratch/frontier.yml': 'id_pattern: T<N>\n',
       '.scratch/alpha/map.md': map('Somewhere.'),
       '.scratch/beta/map.md': map('Elsewhere.'),
-      '.scratch/alpha/issues/01-legacy.md': '# T5 — Legacy claimant\n\nStatus: open\n\nBody.\n',
+      '.scratch/alpha/issues/01-foreign.md': '# T5 — Foreign claimant\n\nStatus: open\n\nBody.\n',
       '.scratch/alpha/issues/02-plain.md': '# Untitled work\n\nStatus: open\n\nBody.\n',
       [B]: ticket('T5', 'Schema claimant'),
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
-    const legacy = join(root, '.scratch/alpha/issues/01-legacy.md');
-    const before = await readFile(legacy, 'utf8');
+    const foreign = join(root, '.scratch/alpha/issues/01-foreign.md');
+    const before = await readFile(foreign, 'utf8');
 
     const preview = await frontier.call('migrate_effort', { effort: 'alpha', preview: true });
 
     expect(preview).toContain('preview — would migrate 2');
     expect(preview).toContain(
-      'duplicate id, carried by alpha/issues/01-legacy.md, beta/issues/01-T5-second.md — ' +
+      'duplicate id, carried by alpha/issues/01-foreign.md, beta/issues/01-T5-second.md — ' +
         'a real run refuses',
     );
     expect(preview).toContain('T6  Untitled work');
-    expect(await readFile(legacy, 'utf8')).toBe(before);
+    expect(await readFile(foreign, 'utf8')).toBe(before);
     expect(await frontier.callExpectingError('migrate_effort', { effort: 'alpha' })).toContain(
       'Nothing was written: T5 is carried by 2 Ticket files',
     );
   });
 });
 
-describe('a refused update on a Legacy Ticket', () => {
+describe('a refused update on a Foreign Ticket', () => {
   it.each([
     ['resolving one already resolved', 'Status: resolved', { resolve: { gist: 'again' } }],
     ['releasing one nobody holds', 'Status: open', { release: true }],
   ])('leaves the file byte-identical when %s', async (_name, status, request) => {
-    const file = '.scratch/alpha/issues/01-legacy.md';
+    const file = '.scratch/alpha/issues/01-foreign.md';
     const root = await makeFixtureTree({
       '.git/HEAD': '',
       '.scratch/alpha/map.md': map('Somewhere.'),
-      [file]: `# T5 — Legacy\n\n${status}\n\nBody.\n`,
+      [file]: `# T5 — Foreign\n\n${status}\n\nBody.\n`,
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
     const before = await readFile(join(root, file), 'utf8');

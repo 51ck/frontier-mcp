@@ -125,7 +125,7 @@ export interface StorageDriver {
 
   /**
    * The named Tickets with their bodies, addressed by id or by the
-   * `<effort>#<order>` handle an id-less Legacy Ticket answers to. A name the
+   * `<effort>#<order>` handle an id-less Ticket answers to. A name the
    * workspace does not hold is simply absent: which names were asked for is the
    * caller's knowledge, not the driver's.
    *
@@ -202,7 +202,7 @@ export interface StorageDriver {
   ): Promise<SpecDocument>;
 
   /**
-   * Normalize every Legacy Ticket in one Effort, mint ids for Tickets that have
+   * Normalize every Foreign Ticket in one Effort, mint ids for Tickets that have
    * none, and optionally rename files to the schema convention. Preview writes
    * nothing. Unrecognized files in the Effort directory are ignored.
    */
@@ -239,8 +239,16 @@ export class RevisionMismatch extends Error {
 
 /** Thrown when the edit names a Ticket the workspace does not hold. */
 export class NoSuchTicket extends Error {
-  constructor(handle: string) {
-    super(`No Ticket '${handle}' in this workspace.`);
+  constructor(handle: string, where = 'this workspace') {
+    // A Board renders a foreign blocker as `T9@beta`, and the obvious next call
+    // pastes it back. The `@<effort>` half is decoration, never input.
+    const at = /^([^@#]+)@[^@]+$/.exec(handle);
+    super(
+      at === null
+        ? `No Ticket '${handle}' in ${where}.`
+        : `No Ticket '${handle}' in ${where}. Ids resolve repo-wide, so the ` +
+            `'@<effort>' a Board shows is decoration — name it '${at[1] ?? ''}'.`,
+    );
     this.name = 'NoSuchTicket';
   }
 }

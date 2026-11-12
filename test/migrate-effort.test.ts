@@ -7,13 +7,13 @@ import {
   cleanupFixtures,
   connectFrontier,
   makeFixtureTree,
-  makeLegacyWorkspace,
+  makeForeignWorkspace,
 } from './support/harness.ts';
 
 afterEach(cleanupFixtures);
 
-/** A Legacy Ticket carrying a T-id in its heading — sobrina's shape. */
-const LEGACY_WITH_ID = `# T30 — Grammy group boot
+/** A Foreign Ticket carrying a T-id in its heading — sobrina's shape. */
+const FOREIGN_WITH_ID = `# T30 — Grammy group boot
 
 Status: open
 
@@ -26,8 +26,8 @@ Status: open
 - [ ] **T30.1** Bot factory reading the token
 `;
 
-/** A Legacy Ticket identified only by its filename number — tag-customizer's shape. */
-const LEGACY_NO_ID = `# 01 — Is the colour-space fix a latent bug?
+/** A Foreign Ticket identified only by its filename number — tag-customizer's shape. */
+const FOREIGN_NO_ID = `# 01 — Is the colour-space fix a latent bug?
 
 Type: research
 Status: open
@@ -37,17 +37,17 @@ The measured value was wrong in the same way.
 `;
 
 /** Another id-less Ticket so minting can be checked for uniqueness. */
-const LEGACY_NO_ID_TWO = `# 02 — Port the texture leak fix
+const FOREIGN_NO_ID_TWO = `# 02 — Port the texture leak fix
 
 Status: open
 Blocked by: 01
 `;
 
 describe('migrate_effort', () => {
-  it('normalizes an Effort of Legacy Tickets to the schema in one call', async () => {
+  it('normalizes an Effort of Foreign Tickets to the schema in one call', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
-      '.scratch/alpha/issues/01-grammy-group-boot.md': LEGACY_WITH_ID,
+      '.scratch/alpha/issues/01-grammy-group-boot.md': FOREIGN_WITH_ID,
       '.scratch/alpha/issues/02-identity-bridge.md':
         '# T31 — Identity bridge\n\nStatus: open\n\nBody.\n',
     });
@@ -70,13 +70,13 @@ describe('migrate_effort', () => {
     expect(onDisk).toContain('T31');
 
     const board = await frontier.call('get_board', { effort: 'alpha' });
-    expect(board).not.toContain('are Legacy');
+    expect(board).not.toContain('are Foreign');
   });
 
   it('preserves existing ids verbatim, including T31-style ids from titles', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
-      '.scratch/alpha/issues/01-grammy-group-boot.md': LEGACY_WITH_ID,
+      '.scratch/alpha/issues/01-grammy-group-boot.md': FOREIGN_WITH_ID,
       '.scratch/alpha/issues/02-identity-bridge.md':
         '# T31 — Identity bridge\n\nStatus: open\n\nBody.\n',
     });
@@ -93,7 +93,7 @@ describe('migrate_effort', () => {
   it('turns Depends-on prose Edges into blocked_by entries', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
-      '.scratch/alpha/issues/01-grammy-group-boot.md': LEGACY_WITH_ID,
+      '.scratch/alpha/issues/01-grammy-group-boot.md': FOREIGN_WITH_ID,
       '.scratch/alpha/issues/02-identity-bridge.md':
         '# T31 — Identity bridge\n\nStatus: open\n\nBody.\n',
     });
@@ -112,8 +112,8 @@ describe('migrate_effort', () => {
     const root = await makeFixtureTree({
       ...COUNTED,
       '.scratch/alpha/map.md': map('Somewhere.'),
-      '.scratch/alpha/issues/01-colour.md': LEGACY_NO_ID,
-      '.scratch/alpha/issues/02-texture.md': LEGACY_NO_ID_TWO,
+      '.scratch/alpha/issues/01-colour.md': FOREIGN_NO_ID,
+      '.scratch/alpha/issues/02-texture.md': FOREIGN_NO_ID_TWO,
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
@@ -127,7 +127,7 @@ describe('migrate_effort', () => {
   it('keeps inferred prose verbatim after normalization', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
-      '.scratch/alpha/issues/01-grammy-group-boot.md': LEGACY_WITH_ID,
+      '.scratch/alpha/issues/01-grammy-group-boot.md': FOREIGN_WITH_ID,
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
@@ -146,8 +146,8 @@ describe('migrate_effort', () => {
     const root = await makeFixtureTree({
       ...COUNTED,
       '.scratch/alpha/map.md': map('Somewhere.'),
-      '.scratch/alpha/issues/01-colour.md': LEGACY_NO_ID,
-      '.scratch/alpha/issues/02-texture.md': LEGACY_NO_ID_TWO,
+      '.scratch/alpha/issues/01-colour.md': FOREIGN_NO_ID,
+      '.scratch/alpha/issues/02-texture.md': FOREIGN_NO_ID_TWO,
       // Highest minted id in the workspace is T5 — fresh ids continue from there.
       '.scratch/beta/map.md': map('Elsewhere.'),
       '.scratch/beta/issues/01-T5-existing.md': `---
@@ -182,7 +182,7 @@ blocked_by: []
   it('leaves filenames alone by default so relative links still resolve', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
-      '.scratch/alpha/issues/01-grammy-group-boot.md': LEGACY_WITH_ID,
+      '.scratch/alpha/issues/01-grammy-group-boot.md': FOREIGN_WITH_ID,
       '.scratch/alpha/issues/02-identity-bridge.md':
         '# T31 — Identity bridge\n\nStatus: open\n\nSee [boot](01-grammy-group-boot.md).\n',
     });
@@ -204,7 +204,7 @@ blocked_by: []
   it('renames to NN-T<n>-<slug>.md only when rename is set', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
-      '.scratch/alpha/issues/01-grammy-group-boot.md': LEGACY_WITH_ID,
+      '.scratch/alpha/issues/01-grammy-group-boot.md': FOREIGN_WITH_ID,
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
@@ -223,7 +223,7 @@ blocked_by: []
   it('preview with rename reports the planned filename moves and writes nothing', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
-      '.scratch/alpha/issues/01-grammy-group-boot.md': LEGACY_WITH_ID,
+      '.scratch/alpha/issues/01-grammy-group-boot.md': FOREIGN_WITH_ID,
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
@@ -258,7 +258,7 @@ Status: open
 
 **Problem:** Without a running group bot entry, no Telegram MVP path is real.
 `,
-      '.scratch/alpha/issues/02-colour.md': LEGACY_NO_ID,
+      '.scratch/alpha/issues/02-colour.md': FOREIGN_NO_ID,
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
@@ -290,13 +290,13 @@ Status: open
     );
 
     const board = await frontier.call('get_board', { effort: 'alpha' });
-    expect(board).toContain('are Legacy');
+    expect(board).toContain('are Foreign');
   });
 
   it('ignores unrecognized files in the Effort directory', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
-      '.scratch/alpha/issues/01-grammy-group-boot.md': LEGACY_WITH_ID,
+      '.scratch/alpha/issues/01-grammy-group-boot.md': FOREIGN_WITH_ID,
       '.scratch/alpha/research/notes.md': '# Scratch research, not a Ticket\n',
       '.scratch/alpha/backlog.md': '# Not a header doc\n',
     });
@@ -325,7 +325,7 @@ blocked_by: []
 
 Body.
 `,
-      '.scratch/alpha/issues/02-legacy.md': LEGACY_WITH_ID,
+      '.scratch/alpha/issues/02-foreign.md': FOREIGN_WITH_ID,
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
@@ -342,7 +342,7 @@ Body.
   it('mints an id onto a write-normalized file that still has none', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
-      '.scratch/alpha/issues/01-no-id.md': LEGACY_NO_ID,
+      '.scratch/alpha/issues/01-no-id.md': FOREIGN_NO_ID,
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
@@ -371,16 +371,16 @@ Body.
   });
 });
 
-describe('migrate_effort against real Legacy fixtures', () => {
+describe('migrate_effort against real Foreign fixtures', () => {
   it('migrates sobrina telegram preserving every T-id', async () => {
-    const root = await makeLegacyWorkspace({ telegram: 'sobrina-telegram' });
+    const root = await makeForeignWorkspace({ telegram: 'sobrina-telegram' });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
     const report = await frontier.call('migrate_effort', { effort: 'telegram' });
     expect(report.toLowerCase()).toContain('migrated');
 
     const board = await frontier.call('get_board', { effort: 'telegram' });
-    expect(board).not.toContain('are Legacy');
+    expect(board).not.toContain('are Foreign');
     // Every sobrina Ticket carries a T3x id in its heading — none are minted.
     for (const id of [
       'T30',
@@ -417,7 +417,7 @@ describe('migrate_effort against real Legacy fixtures', () => {
   });
 
   it('migrates tag-customizer by minting ids and leaving research/ alone', async () => {
-    const root = await makeLegacyWorkspace({ 'ship-0-5-0': 'tag-customizer-ship-0-5-0' });
+    const root = await makeForeignWorkspace({ 'ship-0-5-0': 'tag-customizer-ship-0-5-0' });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
     const beforeResearch = await readFile(
@@ -430,7 +430,7 @@ describe('migrate_effort against real Legacy fixtures', () => {
     expect(report).toMatch(/\bT[0-9a-z]{6}\b/);
 
     const board = await frontier.call('get_board', { effort: 'ship-0-5-0' });
-    expect(board).not.toContain('are Legacy');
+    expect(board).not.toContain('are Foreign');
     expect(board).not.toContain('no id');
     // Former handle is gone; every Ticket now has a real id.
     expect(board).not.toContain('ship-0-5-0#');
@@ -446,7 +446,7 @@ describe('migrate_effort against real Legacy fixtures', () => {
   });
 
   it('preview against sobrina writes nothing', async () => {
-    const root = await makeLegacyWorkspace({ telegram: 'sobrina-telegram' });
+    const root = await makeForeignWorkspace({ telegram: 'sobrina-telegram' });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
     const before = await readFile(

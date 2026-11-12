@@ -6,7 +6,7 @@ import { cleanupFixtures, connectFrontier, makeFixtureTree } from './support/har
 afterEach(cleanupFixtures);
 
 /**
- * Shapes the Legacy parser handles that the two copied Efforts do not happen to
+ * Shapes the prose parser (`legacy.ts`) handles that the two copied Efforts do not happen to
  * contain. They were seen while surveying the wider repos, so they are covered
  * here with synthetic files rather than by editing fixtures that must stay
  * verbatim. Still the one seam: everything enters through the tool layer.
@@ -14,7 +14,7 @@ afterEach(cleanupFixtures);
 async function boardFor(body: string): Promise<string> {
   const root = await makeFixtureTree({
     '.scratch/alpha/map.md': map('Somewhere.'),
-    '.scratch/alpha/issues/01-legacy.md': body,
+    '.scratch/alpha/issues/01-foreign.md': body,
   });
   const frontier = await connectFrontier({ cwd: root, env: {} });
   return frontier.call('get_board', { effort: 'alpha' });
@@ -24,7 +24,7 @@ function line(board: string): string {
   return board.split('\n').find(entry => entry.includes('Subject')) ?? '';
 }
 
-describe('Legacy Status shapes', () => {
+describe('Foreign Status shapes', () => {
   it('reads done and fixed as resolved', async () => {
     expect(line(await boardFor('# T1 — Subject\nStatus: done\n'))).toContain('/resolved');
     expect(line(await boardFor('# T1 — Subject\nStatus: fixed — see elsewhere\n'))).toContain(
@@ -87,7 +87,7 @@ describe('Legacy Status shapes', () => {
   });
 });
 
-describe('Legacy Edge shapes', () => {
+describe('Foreign Edge shapes', () => {
   it('drops a withdrawn Edge that was struck through rather than deleted', async () => {
     const board = await boardFor('# T1 — Subject\n**Depends on:** ~~T61; later phase~~\n');
 

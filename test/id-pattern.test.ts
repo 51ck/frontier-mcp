@@ -11,7 +11,7 @@ async function workspace(config: string | undefined) {
   const root = await makeFixtureTree({
     '.scratch/alpha/map.md': map('Somewhere.'),
     '.scratch/alpha/issues/01-T1-one.md': ticket('T1', 'One'),
-    '.scratch/beta/issues/01-legacy.md': '# 01 — Old\n\nStatus: open\n',
+    '.scratch/beta/issues/01-foreign.md': '# 01 — Old\n\nStatus: open\n',
     ...(config === undefined ? {} : { '.scratch/frontier.yml': config }),
   });
   return connectFrontier({ cwd: root, env: {} });
@@ -79,7 +79,7 @@ describe('frontier.yml id_pattern', () => {
       '.scratch/alpha/map.md': map('Somewhere.'),
       '.scratch/alpha/issues/01-T1-one.md': ticket('T1', 'One'),
       '.scratch/alpha/spec.md': spec('Alpha spec'),
-      '.scratch/beta/issues/01-legacy.md': '# 01 — Old\n\nStatus: open\n',
+      '.scratch/beta/issues/01-foreign.md': '# 01 — Old\n\nStatus: open\n',
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 

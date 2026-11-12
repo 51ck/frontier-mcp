@@ -153,7 +153,7 @@ function renderEdge(id: string, from: TicketSummary, board: Board): string {
  * Broken Edges surface here rather than through a separate validation tool,
  * because a validation tool nobody calls is a validator that does not exist.
  *
- * Every warning is grouped, never itemized per Ticket. An Effort of Legacy
+ * Every warning is grouped, never itemized per Ticket. An Effort of Foreign
  * Tickets can carry a dangling Edge on nearly every one of them, and a warnings
  * block longer than the Board it annotates would undo the saving the Board
  * exists to deliver.
@@ -223,16 +223,16 @@ function collectWarnings(board: Board): string[] {
     );
   }
 
-  const legacy = board.tickets.filter(ticket => ticket.legacy);
-  if (legacy.length > 0) {
+  const foreign = board.tickets.filter(ticket => ticket.foreign);
+  if (foreign.length > 0) {
     warnings.push(
-      `${String(legacy.length)}/${String(board.tickets.length)} Tickets are Legacy — title, ` +
-        'status and Edges are inferred from prose. Run migrate_effort to normalize.',
+      `${String(foreign.length)}/${String(board.tickets.length)} Tickets are Foreign — title, ` +
+        'status and Edges are inferred, not read from schema frontmatter. Run migrate_effort to normalize.',
     );
   }
 
-  // Tracked separately from Legacy, because normalizing a Legacy file gives it
-  // frontmatter without giving it an id. It would otherwise leave the Legacy
+  // Tracked separately from Foreign, because normalizing a Foreign file gives it
+  // frontmatter without giving it an id. It would otherwise leave the Foreign
   // count and take its need for migration silently with it, while still being
   // unaddressable by anything but its handle.
   const unidentified = board.tickets.filter(ticket => ticket.id === undefined);
