@@ -110,7 +110,8 @@ export function resolveSubSlices(parsed: readonly ParsedTicket[]): TicketSummary
     const edges = ticket.blockedBy.map(edge => {
       if (!slices.has(edge)) return edge;
       const parent = edge.slice(0, edge.indexOf('.'));
-      if (!local.has(parent)) {
+      // Its own id is no parent: `T5` blocked by `T5.2` would become a self-Edge.
+      if (!local.has(parent) || parent === ticket.id) {
         kept.push(edge);
         return edge;
       }

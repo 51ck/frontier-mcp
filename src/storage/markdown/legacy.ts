@@ -42,8 +42,8 @@ const STRIKETHROUGH = /~~[\s\S]*?~~/g;
  */
 const MARKDOWN_LINK = /\[[^\]]*\]\([^)]*\)/g;
 
-/** `T31`, and `T38.1` — a sub-slice of T38, which may or may not be a Ticket. */
-const TICKET_REF = /\bT(\d+)(\.\d+)?\b/g;
+/** `T31`, and `T38.1` or `T38.1.2` — a sub-slice of T38, which may or may not be a Ticket. */
+const TICKET_REF = /\bT(\d+)((?:\.\d+)+)?\b/g;
 
 /**
  * A bare `01` in `Blocked by: 01, 02` — this Effort's sort orders, written

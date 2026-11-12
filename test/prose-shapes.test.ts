@@ -122,6 +122,19 @@ describe('Foreign Edge shapes', () => {
     expect(board).not.toContain('coarsened');
   });
 
+  it('never coarsens a sub-slice onto the Ticket that declares it', async () => {
+    const board = await boardFor('# T1 — Subject\nBlocked by: T1.2\n');
+
+    expect(line(board)).toContain('blocked_by=T1.2?');
+    expect(board).not.toContain('coarsened');
+  });
+
+  it('keeps a nested sub-slice whole', async () => {
+    const board = await boardFor('# T1 — Subject\nBlocked by: T38.1.2\n');
+
+    expect(line(board)).toContain('blocked_by=T38.1.2?');
+  });
+
   it('does not mistake a version number for an Edge', async () => {
     const board = await boardFor('# T1 — Subject\nBlocked by: release 0.5.0\n');
 
