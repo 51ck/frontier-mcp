@@ -22,6 +22,7 @@ export const GENERATED_OPEN =
   '<!-- GENERATED: overwritten on every mutation through the server. Do not hand-edit. -->';
 export const GENERATED_CLOSE = '<!-- /GENERATED -->';
 
+const GENERATED_MARKER = /<!--[ \t]*\/?GENERATED\b[^>]*-->/i;
 const GENERATED_BLOCK =
   /<!--[ \t]*GENERATED\b[^>]*-->\r?\n?([\s\S]*?)<!--[ \t]*\/GENERATED[ \t]*-->/i;
 
@@ -189,10 +190,15 @@ export function assertNoSectionBreaks(edit: MapEdit): void {
   for (const [section, value] of placed) {
     if (value === undefined) continue;
     const match = NEXT_HEADING.exec(value);
-    if (match === null) continue;
-    const lineEnd = value.indexOf('\n', match.index);
-    const line = value.slice(match.index, lineEnd < 0 ? undefined : lineEnd).trimEnd();
-    throw new SectionBreakInValue(section, line);
+    if (match !== null) {
+      const lineEnd = value.indexOf('\n', match.index);
+      const line = value.slice(match.index, lineEnd < 0 ? undefined : lineEnd).trimEnd();
+      throw new SectionBreakInValue(section, line);
+    }
+    // Either marker alone is enough: an opener pairs with the real closer below
+    // it, and a closer ends the real block early.
+    const marker = GENERATED_MARKER.exec(value);
+    if (marker !== null) throw new SectionBreakInValue(section, marker[0], 'marker');
   }
 }
 

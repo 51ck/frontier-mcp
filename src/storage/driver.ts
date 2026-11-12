@@ -247,12 +247,15 @@ export class NoSuchFogPatch extends Error {
   }
 }
 
-/** Thrown when a Map value holds a line the Map reader would take as a new section. */
+/** Thrown when a Map value holds text the Map reader would take as structure rather than prose. */
 export class SectionBreakInValue extends Error {
-  constructor(section: string, line: string) {
+  constructor(section: string, line: string, kind: 'heading' | 'marker' = 'heading') {
     super(
-      `Nothing was written: ${section} cannot contain a level-2 heading ('${line}') — it would ` +
-        'split off as its own section. Use ### or deeper.',
+      kind === 'heading'
+        ? `Nothing was written: ${section} cannot contain a level-2 heading ('${line}') — it ` +
+            'would split off as its own section. Use ### or deeper.'
+        : `Nothing was written: ${section} cannot contain a GENERATED marker ('${line}') — the ` +
+            'server owns those blocks and would hide or overwrite the text beside one.',
     );
     this.name = 'SectionBreakInValue';
   }

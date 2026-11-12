@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -887,7 +887,23 @@ describe('edit_map refuses values the Map reader would split (T96)', () => {
       create: true,
       notes: '## Sub',
     });
-    await expect(readFile(join(root, '.scratch/fresh/map.md'), 'utf8')).rejects.toThrow();
+    await expect(stat(join(root, '.scratch/fresh'))).rejects.toThrow();
     expect(await frontier.call('list_efforts')).not.toContain('fresh');
+  });
+
+  it.each([
+    ['notes', 'A <!-- GENERATED -->hidden<!-- /GENERATED -->'],
+    ['rule_out', 'foo <!-- GENERATED --> bar'],
+    ['destination', 'Ship it. <!-- /GENERATED -->'],
+  ])('refuses a GENERATED marker in %s', async (field, value) => {
+    const { frontier, path, rev } = await freshMap();
+    const before = await readFile(path, 'utf8');
+    const error = await frontier.callExpectingError('edit_map', {
+      effort: 'fresh',
+      [field]: value,
+      expected_revision: rev,
+    });
+    expect(error).toContain('cannot contain a GENERATED marker');
+    expect(await readFile(path, 'utf8')).toBe(before);
   });
 });
