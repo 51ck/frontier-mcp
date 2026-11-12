@@ -427,7 +427,7 @@ describe('migrate_effort against real Legacy fixtures', () => {
 
     const report = await frontier.call('migrate_effort', { effort: 'ship-0-5-0' });
     expect(report.toLowerCase()).toContain('migrated');
-    expect(report).toMatch(/T\d+/);
+    expect(report).toMatch(/\bT[0-9a-z]{6}\b/);
 
     const board = await frontier.call('get_board', { effort: 'ship-0-5-0' });
     expect(board).not.toContain('are Legacy');

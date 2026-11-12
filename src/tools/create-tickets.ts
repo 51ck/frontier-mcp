@@ -88,7 +88,7 @@ export function planBatch(
   isId: (name: string) => boolean,
 ): PlannedBatch {
   const drafts = requests.map(request => toDraft(request));
-  const keys = declaredKeys(drafts, isId);
+  const keys = declaredKeys(drafts, isId, existing);
   const provisional = drafts.map((draft, index) => draft.key ?? placeholderFor(index, keys));
 
   checkEdges(drafts, keys, existing, isId);
@@ -126,15 +126,24 @@ function toDraft(request: DraftRequest): TicketDraft {
 function declaredKeys(
   drafts: readonly TicketDraft[],
   isId: (name: string) => boolean,
+  existing: readonly TicketSummary[],
 ): ReadonlySet<string> {
   const keys = new Set<string>();
+  const taken = new Set(existing.map(ticket => ticket.id));
 
   for (const draft of drafts) {
     if (draft.key === undefined) continue;
 
     // A key shaped like an id is ambiguous: an Edge naming `T8` could mean the
     // sibling draft or the Ticket already answering to it, and the server would
-    // have to guess which.
+    // have to guess which. Shape alone does not cover it: a Ticket minted under
+    // an earlier pattern keeps an id the current one no longer accepts.
+    if (taken.has(draft.key)) {
+      throw new Error(
+        `Temporary key "${draft.key}" is the id of an existing Ticket. Pick another name, ` +
+          'so an Edge naming it is never ambiguous.',
+      );
+    }
     if (isId(draft.key)) {
       throw new Error(
         `Temporary key "${draft.key}" looks like a Ticket id. Pick a name that does not, ` +

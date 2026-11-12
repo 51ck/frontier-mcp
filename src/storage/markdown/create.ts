@@ -213,10 +213,10 @@ async function writeAll(issues: string, files: readonly NewFile[]): Promise<void
   const renamed = await Promise.allSettled(
     ready.map(async entry => {
       // Two batches racing on one Effort can pick the same sort order, which is
-      // cosmetic — the id beside it still differs, so the names cannot actually
-      // collide. This is the assertion of that rather than a case with a path to
-      // it: a target that exists would be a Ticket this write was about to
-      // destroy.
+      // cosmetic — the id beside it still differs. Under a counted pattern the
+      // guards make that certain; under a random one two processes can draw the
+      // same id, which nothing coordinates by design (T53) and the duplicate-id
+      // report exists to surface.
       await rename(entry.temporary, entry.target);
       return entry.target;
     }),
@@ -255,10 +255,12 @@ export function mintingPlan(pattern: IdPattern): MintingPlan {
 }
 
 /**
- * Redraws one batch tolerates in total. Only a small random space gets near it
- * — `T<b36{1}>` is legal — and by then the space is all but full.
+ * Redraws tolerated per id. Only a small random space gets near it —
+ * `T<b36{1}>` is legal — and the budget is deep enough that the last free value
+ * of such a space is still found: at one free in thirty-six, a thousand draws
+ * miss it about once in 10^12.
  */
-const MAX_REDRAWS = 64;
+const MAX_REDRAWS = 1000;
 
 function randomPlan(pattern: IdPattern): MintingPlan {
   const draw = (used: ReadonlySet<string>, count: number): readonly string[] => {
@@ -268,14 +270,15 @@ function randomPlan(pattern: IdPattern): MintingPlan {
       const id = render(pattern.tokens, 0);
       if (!used.has(id) && !ids.includes(id)) {
         ids.push(id);
+        redraws = 0;
         continue;
       }
       redraws += 1;
       if (redraws > MAX_REDRAWS) {
         throw new Error(
-          `Could not draw ${String(count)} unused Ticket ids from id_pattern ` +
-            `${JSON.stringify(pattern.source)} after ${String(MAX_REDRAWS)} redraws — its random ` +
-            'space is nearly full. Lengthen its random token in frontier.yml.',
+          `Could not draw an unused Ticket id from id_pattern ` +
+            `${JSON.stringify(pattern.source)} in ${String(MAX_REDRAWS)} redraws — its random ` +
+            'space is full or nearly full. Lengthen its random token in frontier.yml.',
         );
       }
     }

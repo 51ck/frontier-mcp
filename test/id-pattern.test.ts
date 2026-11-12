@@ -180,7 +180,7 @@ describe('frontier.yml id_pattern', () => {
     });
     const error = await frontier.callExpectingError('create_tickets', create);
 
-    expect(error).toContain('random space is nearly full');
+    expect(error).toContain('random space is full or nearly full');
     expect(error).not.toContain('No free Ticket id within');
     expect(error).not.toContain('.guard');
     expect(await readdir(join(root, '.scratch'))).not.toContain(expect.stringMatching(/\.guard$/));
@@ -189,7 +189,7 @@ describe('frontier.yml id_pattern', () => {
   it('counts under T<N> from the highest id in its namespace', async () => {
     const frontier = await workspace('id_pattern: T<N>\n');
 
-    expect(await frontier.call('create_tickets', create)).toContain('T2');
+    expect(await frontier.call('create_tickets', create)).toMatch(/\bT2\b/);
   });
 
   it('counts under a mixed pattern and draws its random part', async () => {
@@ -229,6 +229,24 @@ describe('id-ness is the configured pattern', () => {
       ],
     });
   });
+
+  it.each(['id_pattern: AUTH-<N>\n', 'id_pattern: T<N>-<b36{4}>\n'])(
+    'refuses a key naming an existing Ticket the pattern no longer accepts (%s)',
+    async config => {
+      const frontier = await workspace(config);
+
+      const refused = await frontier.callExpectingError('create_tickets', {
+        effort: 'alpha',
+        tickets: [
+          { key: 'T1', title: 'Shadow' },
+          { title: 'Child', blocked_by: ['T1'] },
+        ],
+      });
+
+      expect(refused).toContain('is the id of an existing Ticket');
+      expect(await frontier.call('list_efforts')).toContain('tickets=1');
+    },
+  );
 
   it('keeps recognizing T<n> ids under the default pattern', async () => {
     const frontier = await workspace(undefined);
