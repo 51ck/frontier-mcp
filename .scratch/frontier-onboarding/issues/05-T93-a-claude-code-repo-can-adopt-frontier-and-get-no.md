@@ -2,9 +2,10 @@
 id: T93
 title: A Claude Code repo can adopt frontier and get no tools, silently
 kind: build
-status: open
+status: resolved
 triage: ready-for-agent
 blocked_by: []
+answer_gist: README and the installation guide give Claude Code a concrete `claude mcp add` command and a per-repo filename table; `frontier-setup.cjs` gains `--client claude-code` with the Cursor path's handshake and a restore on a failed replace, and `--doctor`, which exits 1 when the repo declares frontier and an installed Claude Code or Cursor cannot reach it; both need bootstrap revision 3, so they run from a source checkout until the next release
 ---
 
 ## What to build
@@ -50,7 +51,11 @@ Recorded so nobody chases it. The consumer's command, `npx -y --registry https:/
 
 ## Acceptance criteria
 
-- [ ] The README documents a Claude Code install path as a concrete command, not a file to guess at
-- [ ] The per-repo option is described with its correct filename for each client, alongside the user-scope recommendation
-- [ ] `frontier-setup.cjs` accepts a Claude Code client target, with the same handshake verification the Cursor path performs
-- [ ] Some check, runnable from a consumer repository, reports which client configs declare frontier and which the installed clients read
+- [x] The README documents a Claude Code install path as a concrete command, not a file to guess at
+- [x] The per-repo option is described with its correct filename for each client, alongside the user-scope recommendation
+- [x] `frontier-setup.cjs` accepts a Claude Code client target, with the same handshake verification the Cursor path performs
+- [x] Some check, runnable from a consumer repository, reports which client configs declare frontier and which the installed clients read
+
+## Comments
+
+Left unverified at resolve, 2026-11-12: nothing in the Claude Code path or the doctor has run on real Windows (the offline check's Windows leg in CI is the first run; apply and restore never run there because the stand-in `claude` is a shell script), and whether Codex reads any project-scope file is not established, so the doctor reports Codex and never judges it. Lower-rated review findings are filed as T107.
