@@ -50,17 +50,44 @@ export interface WorkspaceContext {
  * A workspace with no `.scratch/` is not — that is a fresh project.
  */
 export function resolveWorkspace(root: string | undefined, context: WorkspaceContext): string {
+  return locateWorkspace(root, context).root;
+}
+
+export interface LocatedWorkspace {
+  readonly root: string;
+  /**
+   * What located `root`, for a reader to check it against: the override that
+   * named it, the marker the upward walk stopped at, or the working directory
+   * when the walk found none.
+   */
+  readonly resolvedBy: string;
+}
+
+/** {@link resolveWorkspace}, saying which source won. */
+export function locateWorkspace(
+  root: string | undefined,
+  context: WorkspaceContext,
+): LocatedWorkspace {
   const argument = given(root);
   if (argument !== undefined) {
-    return requireDirectory(resolve(context.cwd, argument), 'root argument');
+    return {
+      root: requireDirectory(resolve(context.cwd, argument), 'root argument'),
+      resolvedBy: 'root argument',
+    };
   }
 
   const fromEnv = given(context.env[WORKSPACE_ENV_VAR]);
   if (fromEnv !== undefined) {
-    return requireDirectory(resolve(context.cwd, fromEnv), WORKSPACE_ENV_VAR);
+    return {
+      root: requireDirectory(resolve(context.cwd, fromEnv), WORKSPACE_ENV_VAR),
+      resolvedBy: `$${WORKSPACE_ENV_VAR}`,
+    };
   }
 
-  return findRootMarker(resolve(context.cwd)) ?? resolve(context.cwd);
+  const cwd = resolve(context.cwd);
+  return (
+    findRootMarker(cwd) ?? { root: cwd, resolvedBy: 'working directory, no root marker found' }
+  );
 }
 
 /**
@@ -77,11 +104,12 @@ function given(value: string | undefined): string | undefined {
  * working directory itself, so a session started outside any repository still
  * resolves rather than failing.
  */
-function findRootMarker(from: string): string | undefined {
+function findRootMarker(from: string): LocatedWorkspace | undefined {
   let dir = from;
 
   for (;;) {
-    if (ROOT_MARKERS.some(marker => marker.matches(join(dir, marker.name)))) return dir;
+    const marker = ROOT_MARKERS.find(candidate => candidate.matches(join(dir, candidate.name)));
+    if (marker !== undefined) return { root: dir, resolvedBy: marker.name };
 
     const parent = dirname(dir);
     if (parent === dir) return undefined;

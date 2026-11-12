@@ -67,6 +67,9 @@ function fixedDriver(
       migrateEffort() {
         throw new Error('this driver is read-only');
       },
+      absentStorage() {
+        return undefined;
+      },
       close() {
         // Nothing held open: this driver answers from a literal list.
       },
@@ -140,6 +143,9 @@ describe('the storage driver seam', () => {
       },
       isId() {
         return false;
+      },
+      absentStorage() {
+        return undefined;
       },
       mergeCollidingIdPattern() {
         return undefined;

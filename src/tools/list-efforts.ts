@@ -46,6 +46,22 @@ export function renderEfforts(
   return lines.join('\n');
 }
 
+/**
+ * A repository with no storage at all, which `(no efforts)` would read as
+ * broken and could not tell from an empty tracker. The marker is named only
+ * here: with nothing in the result to contradict a wrong root, this is where
+ * the wrong-root risk is highest.
+ */
+export function renderNoTracker(root: string, resolvedBy: string, storage: string): string {
+  return [
+    `${workspaceLine(root)} (resolved by ${resolvedBy})`,
+    `no tracker here: ${storage} does not exist`,
+    'start one: create_tickets { effort, create: true, tickets } or ' +
+      'edit_map { effort, create: true, destination }',
+    'conventions: frontier://tracker-doc',
+  ].join('\n');
+}
+
 function countByEffort(frontier: ReadonlySet<TicketSummary>): ReadonlyMap<string, number> {
   const counts = new Map<string, number>();
 

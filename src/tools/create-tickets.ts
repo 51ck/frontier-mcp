@@ -222,7 +222,7 @@ function checkCycles(
 
 /** A name for a keyless draft that no Edge can collide with. */
 function placeholderFor(index: number, keys: ReadonlySet<string>): string {
-  let name = `#${String(index)}`;
+  let name = `draft ${String(index + 1)}`;
   while (keys.has(name)) name = `${name}.`;
   return name;
 }

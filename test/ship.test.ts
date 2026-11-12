@@ -197,9 +197,9 @@ Written by following the tracker configuration document only.
 
     const board = await frontier.call('get_board', { effort: 'hand' });
     expect(board).toContain('T1  Handwritten per tracker doc');
-    // A Ticket the parser had to infer would be flagged Legacy — this one
+    // A Ticket the parser had to infer would be flagged Foreign — this one
     // carries real frontmatter, so it must not be.
-    expect(board).not.toContain('legacy');
+    expect(board).not.toContain('foreign');
   });
 
   it('states the no-server precondition inside the hand-publish body, not only in its heading', () => {

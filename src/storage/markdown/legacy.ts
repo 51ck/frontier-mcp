@@ -1,9 +1,15 @@
 import type { Kind, Status } from '../../domain.ts';
 
 /**
- * The best-effort parser for Ticket files that predate the schema. Every field
- * it produces is an inference, which is why a Legacy Ticket is flagged: an
- * agent needs to know which values to distrust.
+ * The best-effort parser for Ticket files with no usable frontmatter fence:
+ * none at all, or one whose YAML does not parse, which is read as prose whole.
+ * Every field it produces is an inference, which is why such a Ticket is
+ * flagged Foreign: an agent needs to know which values to distrust.
+ *
+ * The file is named for the one unstructured prose shape it parses, not for
+ * Foreign. A Foreign Ticket can also carry a fence that parses but does not
+ * conform, and that one never reaches this parser, so `foreign.ts` would claim
+ * a generality this module does not have.
  *
  * The shapes here are the ones the real repos actually contain, not the ones a
  * schema would have liked. Reads never write, so a file parsed badly is only
@@ -80,7 +86,7 @@ const TRIAGE_WORDS = new Set([
   'wontfix',
 ]);
 
-export interface LegacyTicket {
+export interface ProseTicket {
   readonly id: string | undefined;
   readonly title: string;
   readonly kind: Kind;
@@ -94,7 +100,7 @@ export interface LegacyTicket {
   readonly type: string | undefined;
 }
 
-export function parseLegacyBody(contents: string): LegacyTicket {
+export function parseProseBody(contents: string): ProseTicket {
   const { id, title } = readHeading(contents);
   const { status, triage, unrecognized } = readStatus(STATUS_LINE.exec(contents)?.[1]);
   const { edges, collapsed } = readEdges(contents);

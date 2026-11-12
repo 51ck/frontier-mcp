@@ -40,7 +40,7 @@ export function splitFrontmatter(contents: string): Split {
 /**
  * Reads are lenient: frontmatter that is not a YAML mapping — malformed, or a
  * scalar, or a list — reads as no frontmatter at all, and the file falls through
- * to the Legacy parser rather than failing the whole scan.
+ * to the prose parser rather than failing the whole scan.
  */
 function parseFields(yaml: string): Record<string, unknown> | undefined {
   try {

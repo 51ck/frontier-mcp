@@ -236,6 +236,8 @@ async function main() {
     );
     assert.equal(manualWithMalformedCursor.code, 0, manualWithMalformedCursor.stderr);
 
+    await claudeCodeCheck(temporary, home, basic, project, environment);
+
     const incompatible = await bootstrap(['--version', options.version], project, environment);
     assert.notEqual(incompatible.code, 0);
     assert.match(incompatible.stderr, /requires/);
@@ -259,6 +261,87 @@ async function main() {
   } finally {
     if (temporary !== undefined) await rm(temporary, { recursive: true, force: true });
   }
+}
+
+// A stand-in `claude` that edits ~/.claude.json the way the real CLI's
+// add-json and remove do for user scope, and logs every invocation.
+async function fakeClaude(checkTemporary) {
+  const directory = path.join(checkTemporary, 'fake claude');
+  await mkdir(directory, { recursive: true });
+  const script = path.join(directory, 'claude.js');
+  await writeFile(
+    script,
+    `const fs = require('node:fs');
+const path = require('node:path');
+const args = process.argv.slice(2);
+fs.appendFileSync(path.join(__dirname, 'calls.log'), JSON.stringify(args) + '\\n');
+const target = path.join(process.env.HOME, '.claude.json');
+let config = {};
+try { config = JSON.parse(fs.readFileSync(target, 'utf8')); } catch {}
+config.mcpServers = config.mcpServers || {};
+if (args[1] === 'add-json') {
+  if (config.mcpServers[args[4]]) { process.stderr.write('exists'); process.exit(1); }
+  config.mcpServers[args[4]] = JSON.parse(args[5]);
+} else if (args[1] === 'remove') delete config.mcpServers[args[4]];
+fs.writeFileSync(target, JSON.stringify(config));
+`,
+    'utf8',
+  );
+  const executable = path.join(directory, 'claude');
+  await writeFile(executable, `#!/bin/sh\nexec "${options.node24}" "${script}" "$@"\n`, 'utf8');
+  await chmod(executable, 0o755);
+  return { directory, executable, log: path.join(directory, 'calls.log') };
+}
+
+async function claudeCodeCheck(checkTemporary, home, basic, project, environment) {
+  const claude = await fakeClaude(checkTemporary);
+  const claudeConfig = path.join(home, '.claude.json');
+  await writeFile(
+    claudeConfig,
+    JSON.stringify({ mcpServers: { other: { command: 'other' } }, projects: {} }),
+    'utf8',
+  );
+  const args = [...basic, '--client', 'claude-code', '--claude', claude.executable];
+  const previewed = await bootstrap(args, project, environment);
+  assert.equal(previewed.code, 0, previewed.stderr);
+  assert.match(previewed.stdout, /claude mcp add-json --scope user frontier/);
+  assert.match(previewed.stdout, /Preview only\. Add --apply to write this Claude Code entry/);
+  await assertMissing(claude.log);
+
+  const applied = await bootstrap([...args, '--apply'], project, environment);
+  assert.equal(applied.code, 0, applied.stderr);
+  assert.match(applied.stdout, /Applied Claude Code user scope/);
+  const configured = JSON.parse(await readFile(claudeConfig, 'utf8'));
+  assert.deepEqual(configured.mcpServers.other, { command: 'other' });
+  assert.equal(configured.mcpServers.frontier.type, 'stdio');
+  assert.equal(path.isAbsolute(configured.mcpServers.frontier.command), true);
+  // The registered command is the one the handshake verified.
+  await testing.protocolCheck(configured.mcpServers.frontier, project, environment);
+
+  const again = await bootstrap([...args, '--apply'], project, environment);
+  assert.equal(again.code, 0, again.stderr);
+  assert.equal((await readFile(claude.log, 'utf8')).trim().split('\n').length, 1);
+
+  configured.mcpServers.frontier = { type: 'stdio', command: 'npx', args: ['-y', 'frontier-mcp'] };
+  await writeFile(claudeConfig, JSON.stringify(configured), 'utf8');
+  const refused = await bootstrap([...args, '--apply'], project, environment);
+  assert.notEqual(refused.code, 0);
+  assert.match(refused.stderr, /--replace/);
+  const replaced = await bootstrap([...args, '--apply', '--replace'], project, environment);
+  assert.equal(replaced.code, 0, replaced.stderr);
+  assert.match(replaced.stdout, /Backup: /);
+  const calls = (await readFile(claude.log, 'utf8'))
+    .trim()
+    .split('\n')
+    .map(line => JSON.parse(line));
+  assert.deepEqual(calls.at(-2), ['mcp', 'remove', '--scope', 'user', 'frontier']);
+  assert.deepEqual(calls.at(-1).slice(0, 5), ['mcp', 'add-json', '--scope', 'user', 'frontier']);
+
+  await writeFile(claudeConfig, '{', 'utf8');
+  const malformed = await bootstrap([...args, '--apply'], project, environment);
+  assert.notEqual(malformed.code, 0);
+  assert.equal(await readFile(claudeConfig, 'utf8'), '{');
+  await rm(claudeConfig, { force: true });
 }
 
 async function launcherOnlyCheck(checkTemporary, checkOptions) {

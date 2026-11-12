@@ -7,8 +7,8 @@ import { cleanupFixtures, connectFrontier, makeFixtureTree } from './support/har
 
 afterEach(cleanupFixtures);
 
-/** A Legacy Ticket, exactly the shape the real repos hold: no frontmatter at all. */
-const LEGACY = `# T30 — Grammy group boot
+/** A Foreign Ticket, exactly the shape the real repos hold: no frontmatter at all. */
+const FOREIGN = `# T30 — Grammy group boot
 
 Status: resolved
 
@@ -22,13 +22,13 @@ Status: resolved
 `;
 
 /** The same shape, still open — claiming a resolved Ticket is rightly refused. */
-const LEGACY_OPEN = LEGACY.replace('Status: resolved', 'Status: open');
+const FOREIGN_OPEN = FOREIGN.replace('Status: resolved', 'Status: open');
 
-describe('writing to a Legacy Ticket', () => {
+describe('writing to a Foreign Ticket', () => {
   it('normalizes that file to the schema', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
-      '.scratch/alpha/issues/01-grammy-group-boot.md': LEGACY,
+      '.scratch/alpha/issues/01-grammy-group-boot.md': FOREIGN,
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
@@ -52,7 +52,7 @@ describe('writing to a Legacy Ticket', () => {
   it('keeps the prose it inferred from, verbatim', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
-      '.scratch/alpha/issues/01-grammy-group-boot.md': LEGACY_OPEN,
+      '.scratch/alpha/issues/01-grammy-group-boot.md': FOREIGN_OPEN,
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
@@ -67,22 +67,22 @@ describe('writing to a Legacy Ticket', () => {
     expect(onDisk).toContain('- [x] **T30.1** Bot factory reading the token');
   });
 
-  it('stops being reported as Legacy once normalized', async () => {
+  it('stops being reported as Foreign once normalized', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
-      '.scratch/alpha/issues/01-grammy-group-boot.md': LEGACY_OPEN,
+      '.scratch/alpha/issues/01-grammy-group-boot.md': FOREIGN_OPEN,
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    expect(await frontier.call('get_board', { effort: 'alpha' })).toContain('are Legacy');
+    expect(await frontier.call('get_board', { effort: 'alpha' })).toContain('are Foreign');
 
     await frontier.call('update_ticket', { id: 'T30', claim: { by: 'agent-7' } });
 
-    expect(await frontier.call('get_board', { effort: 'alpha' })).not.toContain('are Legacy');
+    expect(await frontier.call('get_board', { effort: 'alpha' })).not.toContain('are Foreign');
   });
 });
 
-describe('a Legacy Ticket with no id', () => {
+describe('a Foreign Ticket with no id', () => {
   it('stays flagged for migration after a write gives it frontmatter', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
@@ -96,7 +96,7 @@ describe('a Legacy Ticket with no id', () => {
 
     // Normalizing gave it frontmatter but not an id — minting one is T7's job.
     // It must not drop out of the migration set on the way.
-    expect(board).not.toContain('are Legacy');
+    expect(board).not.toContain('are Foreign');
     expect(board).toContain('no id (1)');
     expect(board).toContain('alpha#1');
   });

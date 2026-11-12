@@ -111,3 +111,36 @@ describe('title-only writes', () => {
     expect(onDisk).toContain('triage: needs-info');
   });
 });
+
+describe('a pasted <id>@<effort>', () => {
+  it('is refused, and the error names the bare id back', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      [FILE]: ticket('T1', 'Work'),
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+    const before = await readFile(join(root, FILE), 'utf8');
+
+    const error = await frontier.callExpectingError('update_ticket', {
+      id: 'T1@alpha',
+      comment: 'Pasted from a Board.',
+    });
+
+    expect(error).toContain("No Ticket 'T1@alpha'");
+    expect(error).toContain("name it 'T1'");
+    expect(await readFile(join(root, FILE), 'utf8')).toBe(before);
+    expect(await frontier.call('get_tickets', { ids: ['T1@alpha', 'alpha#9'] })).toBe(
+      "not found: T1@alpha (name it 'T1') alpha#9",
+    );
+  });
+
+  it('leaves the plain refusal alone for a name with no @', async () => {
+    const root = await makeFixtureTree({ '.scratch/alpha/map.md': map('Somewhere.') });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const error = await frontier.callExpectingError('update_ticket', { id: 'T9', comment: 'x' });
+
+    expect(error).toMatch(/No Ticket 'T9' in [^ ]+\.$/);
+    expect(error).not.toContain('decoration');
+  });
+});

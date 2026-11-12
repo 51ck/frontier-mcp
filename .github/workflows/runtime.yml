@@ -96,6 +96,11 @@ jobs:
           "FNM_DIR=$env:FNM_DIR" >> $env:GITHUB_ENV
           "FRONTIER_NODE16=$node16" >> $env:GITHUB_ENV
           "FRONTIER_NODE24=$node24" >> $env:GITHUB_ENV
+      - name: Verify doctor and Claude Code apply offline under Node 16
+        shell: pwsh
+        run: |
+          & $env:FRONTIER_NODE16 scripts/frontier-setup-offline-check.cjs
+          exit $LASTEXITCODE
       - name: Verify Node 16 bootstrap and saved launcher
         shell: pwsh
         run: |

@@ -28,14 +28,34 @@ These scripts provide runtime probes and setup helpers for T88–T91.
 - `frontier-setup.cjs` is a dependency-free Node 16 bootstrap. It reads the exact released pin's
   engine declaration, uses a resolved compatible Node plus its pnpm/Corepack JavaScript entry,
   installs directly into a unique immutable user-data directory, verifies real MCP initialization
-  and `tools/list`, then previews or applies only Cursor user configuration. It never relocates that
+  and `tools/list`, then previews or applies Cursor or Claude Code user configuration. It never relocates that
   directory after pnpm runs because pnpm's Windows directory junctions retain their absolute target.
-  It ships in the package as bootstrap revision 2. Its private `testing` export exists solely for the
+  It ships in the package as bootstrap revision 3 (0.5.0 shipped 2). Its private `testing` export exists solely for the
   adjacent process-level check to force races and protocol failures; it is not a supported interface.
 - Cursor configuration writes back up the previous file, refuse malformed JSON and changes detected
   by the final read, then replace by rename. The setup guard serializes cooperating setup processes;
   an unrelated editor can still write between that final read and rename. This accepted limit must
   stay visible in installation instructions; backups recover the prior file, not that intervening edit.
+- `--client claude-code` never writes `~/.claude.json` itself, because Claude Code rewrites that file
+  while running. It reads the user-scope `frontier` entry to preview and compare, backs the file up,
+  then calls `claude mcp remove`/`add-json --scope user` (`--claude PATH` or `PATH`). The entry it
+  registers is the launcher the handshake verified. If `add-json` fails after `--replace` removed
+  the old entry, it re-registers the old entry and its error names the removal, the restore result
+  and the backup. On Windows it refuses a resolved `claude.cmd`/`.bat` (no shell is ever used) and
+  prints the manual command instead. Preview and refusal print one form: POSIX shell-quotes every
+  word of `claude mcp add-json`; Windows prints `claude mcp add --scope user frontier -- '<word>' ...`
+  with PowerShell single quotes, because Windows PowerShell 5.1 mangles JSON passed to native programs.
+- `--doctor` needs no version and never writes. It resolves the repository like the launcher, lists
+  Claude Code `.mcp.json` / `~/.claude.json` (user and local), Cursor `.cursor/mcp.json` /
+  `~/.cursor/mcp.json`, Codex `~/.codex/config.toml`, and `.agents/mcp.json`, and reports for each
+  whether it declares `frontier` (an object with a string `command` or `url`; a null or empty entry
+  is reported as having no command), is absent, a broken symlink, unreadable or invalid JSON, and any
+  other key that runs `frontier-mcp`. Failures are judged per client: an installed Claude Code or
+  Cursor with no declaration it reads fails when a repository file declares frontier or when one of
+  its own locations fails to read, and the latter is named as that file and that client. It never
+  says the repository expects frontier when the repository declares nothing. Codex is reported, never judged: only its user scope is verified, so its
+  project-scope reading is stated as unverified. Only locations the clients document belong in
+  that list.
 - When its current Node is unsuitable and no explicit `--node` was supplied, `frontier-setup.cjs`
   queries installed versions from fnm, nvm, nvm-windows, Volta, asdf, and mise before falling back
   to their layouts when the command is missing, fails, or has unrecognized output. Queries run away
@@ -71,6 +91,15 @@ These scripts provide runtime probes and setup helpers for T88–T91.
   allowed runner starts exits with stderr guidance rather than starting Node after partial startup.
   Startup reads markers and runtime versions only; destructive compatibility probes stay in
   disposable verification fixtures.
+- `frontier-setup-offline-check.cjs` needs no registry and no real client. It covers the doctor
+  cases against temporary repositories, the Windows shim refusal, and Claude Code apply (refusal,
+  restore after a failed `add-json`, a failed restore, a failed `remove`, no backup, plain add,
+  replace, idempotence) against a stand-in `claude` that edits a temporary `~/.claude.json`.
+  Symlink and stand-in cases are POSIX-only and skipped on Windows. **Apply and restore never run on
+  Windows in CI**, because the stand-in `claude` is a shell script; there only the printed command
+  and the shim refusal message are checked.
+- `frontier-setup-check.cjs` also runs Claude Code apply end to end against the stand-in, so the
+  registered entry is the launcher a real handshake verified.
 - `frontier-setup-check.cjs` runs that bootstrap under Node 16 against an explicit newer Node and the
   released pin named by `FRONTIER_SETUP_RELEASE` (default `0.4.0`). It requires `FRONTIER_NODE16` and
   `FRONTIER_NODE24`, uses a temporary home and project, and needs registry access.
@@ -89,10 +118,14 @@ These scripts provide runtime probes and setup helpers for T88–T91.
 
 ## Verification
 
-- Build first, then run `pnpm run test:runtime`.
-- Run `FRONTIER_NODE16=/path/to/node16 FRONTIER_NODE24=/path/to/node24 pnpm run test:setup` for the
-  source-checkout setup smoke. It never runs as part of the ordinary test suite because it installs a
-  released package from the registry.
+- CI (`runtime.yml` `setup-runtime`, macOS/Linux/Windows) runs `frontier-setup-offline-check.cjs`
+  under Node 16, then `frontier-setup-platform-check.cjs`. Locally:
+  `node scripts/frontier-setup-offline-check.cjs`.
+- CI `package-runtime` runs `package-runtime-check.mjs` on the built tarball; locally, `pnpm run
+  test:runtime`.
+- Manual only:
+  `FRONTIER_NODE16=/path/to/node16 FRONTIER_NODE24=/path/to/node24 pnpm run test:setup` for the
+  source-checkout setup smoke, which installs a released package from the registry.
 
 ## Child DOX Index
 

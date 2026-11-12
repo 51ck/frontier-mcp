@@ -28,7 +28,7 @@ function ticketLine(board: string): string {
 }
 
 describe('a non-conforming frontmatter fence on read', () => {
-  it('flags a fence with no id and a foreign key as Legacy', async () => {
+  it('flags a fence with no id and a foreign key as Foreign', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
       [FILE]: fenced({ labels: 'bug', title: 'GitHub export' }),
@@ -37,7 +37,7 @@ describe('a non-conforming frontmatter fence on read', () => {
 
     const board = await frontier.call('get_board', { effort: 'alpha' });
 
-    expect(board).toContain('are Legacy');
+    expect(board).toContain('are Foreign');
     expect(ticketLine(board)).toContain('alpha#1');
   });
 
@@ -66,7 +66,7 @@ describe('a non-conforming frontmatter fence on read', () => {
 
     const board = await frontier.call('get_board', { effort: 'alpha' });
 
-    expect(board).toContain('are Legacy');
+    expect(board).toContain('are Foreign');
     expect(board).toContain('unrecognized status');
     expect(marked(board)).toEqual([]);
   });

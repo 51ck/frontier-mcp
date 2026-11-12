@@ -5,7 +5,7 @@ import {
   cleanupFixtures,
   connectFrontier,
   makeFixtureTree,
-  makeLegacyWorkspace,
+  makeForeignWorkspace,
 } from './support/harness.ts';
 import { tokens } from './support/tokens.ts';
 import { workspaceLine } from '../src/tools/workspace-line.ts';
@@ -91,9 +91,9 @@ describe('a write names the workspace it resolved', () => {
   });
 
   it('on migrate_effort when it normalizes something', async () => {
-    // Real Legacy files, because an Effort already in schema is normalized by
+    // Real Foreign files, because an Effort already in schema is normalized by
     // doing nothing — and doing nothing is a read.
-    const root = await makeLegacyWorkspace({ telegram: 'sobrina-telegram' });
+    const root = await makeForeignWorkspace({ telegram: 'sobrina-telegram' });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
     const text = await frontier.call('migrate_effort', { effort: 'telegram' });
@@ -142,7 +142,7 @@ describe('a read does not, even through a tool that can write', () => {
   });
 
   it('migrate_effort in preview', async () => {
-    const root = await makeLegacyWorkspace({ telegram: 'sobrina-telegram' });
+    const root = await makeForeignWorkspace({ telegram: 'sobrina-telegram' });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
     const text = await frontier.call('migrate_effort', { effort: 'telegram', preview: true });
@@ -196,7 +196,7 @@ describe('what naming the workspace costs', () => {
   });
 
   it('buys the whole write path for less than one Board', async () => {
-    const root = await makeLegacyWorkspace({ telegram: 'sobrina-telegram' });
+    const root = await makeForeignWorkspace({ telegram: 'sobrina-telegram' });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
     const board = tokens(await frontier.call('get_board', { effort: 'telegram' }));

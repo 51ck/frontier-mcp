@@ -2,9 +2,10 @@
 id: T98
 title: A multi-line add_fog or rule_out value breaks the Map's bullet list
 kind: build
-status: open
+status: resolved
 triage: ready-for-agent
 blocked_by: []
+answer_gist: A line break in add_fog or rule_out (\n, \r, U+2028, U+2029) is refused with `MultiLineBullet` and writes nothing; `SectionBreakInValue` now names the argument the caller passed
 ---
 
 Found by the T96 review on 2026-11-12. Predates T96 and is outside its section-break scope.
@@ -21,6 +22,6 @@ Also from that review, minor: `SectionBreakInValue` names the section (`Not yet 
 
 ## Acceptance criteria
 
-- [ ] A multi-line `add_fog` or `rule_out` value is refused, or round-trips and can be removed by `graduate_fog`
-- [ ] Nothing is written when refused
-- [ ] A regression test covers the repro above
+- [x] A multi-line `add_fog` or `rule_out` value is refused, or round-trips and can be removed by `graduate_fog`
+- [x] Nothing is written when refused
+- [x] A regression test covers the repro above

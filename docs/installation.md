@@ -24,6 +24,32 @@ revision 2). A simple manual Cursor configuration is:
 Save it as `~/.cursor/mcp.json`, preserving any other entries under `mcpServers`, then restart
 Cursor. Other MCP clients use the same command and arguments in their user-level server list.
 
+Claude Code and Codex register servers through their own CLIs, which write their user scope:
+
+```sh
+claude mcp add --scope user frontier -- npx -y frontier-mcp@0.5.0
+codex mcp add frontier -- npx -y frontier-mcp@0.5.0
+```
+
+Claude Code stores user and local scope in `~/.claude.json`; Codex stores user scope in
+`~/.codex/config.toml`. `enabledMcpjsonServers` in Claude Code settings only approves a server
+already defined in `.mcp.json`; it never defines one.
+
+### Per-repository configuration
+
+User scope is recommended. A team that wants one pin committed per repository can instead put the
+`frontier` entry in the file each client reads at the repository root:
+
+| Client | Per-repository file |
+| --- | --- |
+| Claude Code | `.mcp.json`, which each user approves once |
+| Cursor | `.cursor/mcp.json` |
+| Codex | Not verified. `codex mcp add` writes user scope, `~/.codex/config.toml`; whether Codex reads a project-level file is untested here |
+
+Neither Claude Code nor Cursor reads `.agents/mcp.json`; it reaches them only when one of their
+paths is a symlink to it. A server declared where a client does not read it gives that client no
+tools and no error.
+
 This direct `npx` form uses the Node and `npx` on the client's `PATH`. Desktop applications often
 start with a smaller `PATH` than a terminal and do not load shell-managed runtimes. Use an absolute
 executable or the setup bootstrap when that applies.
@@ -85,9 +111,32 @@ exists, setup prints the relevant installation command. If no manager exists, in
 
 Setup reads the pinned release's engine declaration, installs that exact package in an immutable
 user-data directory, and verifies MCP initialization plus `tools/list`. It then prints the proposed
-entry. `--apply` writes Cursor user scope. For another client, use `--client manual` and copy the
-printed `frontier` entry into that client's user configuration. Use `--replace` only after reviewing
+entry. `--apply` writes Cursor user scope. `--client claude-code` verifies the same launcher and
+`--apply` registers it with `claude mcp add-json --scope user`, using `claude` from `PATH` or
+`--claude PATH`; setup reads `~/.claude.json` to compare entries and leaves the write to that CLI,
+backing the file up first. With `--replace`, if `add-json` fails after the old entry was removed,
+setup re-registers the old entry and reports whether that worked and where the backup is. On
+Windows, setup refuses a `claude.cmd` or `claude.bat` shim, because it cannot pass the JSON
+argument through `cmd.exe` safely; pass `--claude` pointing at `claude.exe`, or run the
+`claude mcp add --scope user frontier -- ...` command it prints (a form with no JSON, since
+Windows PowerShell 5.1 mangles quoted JSON passed to native programs). For another client, use `--client manual` and copy the printed
+`frontier` entry into that client's user configuration. Use `--replace` only after reviewing
 a different existing `frontier` entry; setup creates a backup first.
+
+`--doctor`, run from inside a repository (or with `--project DIR`), needs no version and never
+writes. It lists the Claude Code, Cursor and Codex configuration files for that repository and
+user, says which declare `frontier`, flags any that are unreadable, invalid JSON or broken
+symlinks, names a server that runs `frontier-mcp` under a key other than `frontier`, and says
+whether each client is on `PATH`. It exits 1 when the repository declares `frontier` (or a file
+Claude Code or Cursor reads cannot be parsed) and an installed Claude Code or Cursor would still
+start without it. Codex is reported, never judged: only its user scope is verified.
+
+Published releases through 0.6.0 ship bootstrap revision 2, which rejects `--doctor` and
+`--client claude-code`. Until a release carries revision 3, run them from a source checkout:
+
+```sh
+node path/to/frontier-mcp/scripts/frontier-setup.cjs --doctor --project .
+```
 
 The POSIX quick-start above, without `--apply`, passed on macOS arm64 with the published 0.5.0
 tarball, under both Node 24.15.0 and Node 16.20.2 running the bootstrap. Each preview installed and
@@ -297,7 +346,9 @@ absolute `dist/bin.js` path. If the new package requires a different Node execut
 MCP restart successfully. Bun and Deno pins are version-coupled to their measured allowlist; use Node
 until the new package/runtime tuple has been verified.
 
-If setup replaced a Cursor configuration, it prints `Backup: PATH`. Close other configuration
+If setup replaced a Claude Code entry, `~/.claude.json` was backed up the same way; to undo it, run
+`claude mcp remove --scope user frontier` and add the previous entry again. If setup replaced a
+Cursor configuration, it prints `Backup: PATH`. Close other configuration
 editors, copy that file over `~/.cursor/mcp.json`, and restart Cursor. The backup contains the file as
 it existed before setup; it cannot recover an unrelated edit written after setup's final check.
 

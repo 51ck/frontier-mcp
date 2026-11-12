@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { cleanupFixtures, connectFrontier, makeLegacyWorkspace } from './support/harness.ts';
+import { cleanupFixtures, connectFrontier, makeForeignWorkspace } from './support/harness.ts';
 import { tokens } from './support/tokens.ts';
 
 afterEach(cleanupFixtures);
@@ -36,7 +36,7 @@ async function costOfReadingWhole(root: string, effort: string): Promise<number>
 
 describe('the cost of a Board', () => {
   it('reproduces the spec measurement of what reading an Effort whole costs', async () => {
-    const root = await makeLegacyWorkspace({
+    const root = await makeForeignWorkspace({
       telegram: 'sobrina-telegram',
       'ship-0-5-0': 'tag-customizer-ship-0-5-0',
     });
@@ -49,7 +49,7 @@ describe('the cost of a Board', () => {
   });
 
   it('answers the same question for a small, pinned fraction of that', async () => {
-    const root = await makeLegacyWorkspace({
+    const root = await makeForeignWorkspace({
       telegram: 'sobrina-telegram',
       'ship-0-5-0': 'tag-customizer-ship-0-5-0',
     });
@@ -82,7 +82,7 @@ describe('the cost of a Board', () => {
   });
 
   it('does not grow when an Effort carries far longer bodies', async () => {
-    const root = await makeLegacyWorkspace({
+    const root = await makeForeignWorkspace({
       telegram: 'sobrina-telegram',
       'ship-0-5-0': 'tag-customizer-ship-0-5-0',
     });
@@ -104,7 +104,7 @@ describe('the cost of a Board', () => {
 
 describe('reads', () => {
   it('never modify a file, so querying the tracker is not a source of git noise', async () => {
-    const root = await makeLegacyWorkspace({
+    const root = await makeForeignWorkspace({
       telegram: 'sobrina-telegram',
       'ship-0-5-0': 'tag-customizer-ship-0-5-0',
     });

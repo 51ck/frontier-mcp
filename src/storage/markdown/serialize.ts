@@ -39,7 +39,7 @@ export interface Defaults {
 }
 
 /**
- * Normalize a Ticket file to schema frontmatter. A Legacy file with no fence
+ * Normalize a Ticket file to schema frontmatter. A Foreign file with no fence
  * gets a full block from {@link defaults}; a file that already has frontmatter
  * keeps key order and only gains a missing id plus an updated Edge list (so a
  * bare sort-order Edge can become the id migration just minted). Body prose is
@@ -308,7 +308,7 @@ function render(document: Document): string {
 }
 
 /**
- * A Legacy file has no frontmatter, so a write is where it gets one — the
+ * A fenceless Foreign file has no frontmatter, so a write is where it gets one — the
  * "strict on write" half of the contract: the tracker converts itself as it is
  * worked rather than in one risky pass. Only a created block gets to be in the
  * schema's field order.

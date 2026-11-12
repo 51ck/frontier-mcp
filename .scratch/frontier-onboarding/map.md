@@ -40,6 +40,7 @@ workspace model, which the onboarding tool's write path depends on.
 ## Decisions so far
 
 <!-- GENERATED: overwritten on every mutation through the server. Do not hand-edit. -->
+- [T93 — A Claude Code repo can adopt frontier and get no tools, silently](issues/05-T93-a-claude-code-repo-can-adopt-frontier-and-get-no.md) — README and the installation guide give Claude Code a concrete `claude mcp add` command and a per-repo filename table; `frontier-setup.cjs` gains `--client claude-code` with the Cursor path's handshake and a restore on a failed replace, and `--doctor`, which exits 1 when the repo declares frontier and an installed Claude Code or Cursor cannot reach it; both need bootstrap revision 3, so they run from a source checkout until the next release
 - [T94 — Published engines.node is >=24 while the README claims 20.x and 22.x support](issues/06-T94-published-engines-node-is-24-while-the-readme-cl.md) — Already true as of 0.4.1: published engines.node is `^20.20.2 || ^22.17.1 || ^24.15.0`, matching the README, and T88's packed runtime gates verify each floor
 - [T100 — Install docs move to the 0.5.0 pin](issues/07-T100-install-docs-move-to-the-0-5-0-pin.md) — README and the installation guide pin 0.5.0 and its bootstrap tarball; the 0.5.0 preview bootstrap was measured on macOS arm64 only, and apply, Windows, Linux, the literal PowerShell command, Bun and Deno are stated as not re-measured
 <!-- /GENERATED -->

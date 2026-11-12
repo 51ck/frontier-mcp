@@ -14,7 +14,11 @@ export const editMapInputSchema = z.object({
     ),
   destination: z.string().optional().describe('Replace the Destination section.'),
   notes: z.string().optional().describe('Replace the Notes section.'),
-  add_fog: z.string().min(1).optional().describe('Append a fog patch under Not yet specified.'),
+  add_fog: z
+    .string()
+    .min(1)
+    .optional()
+    .describe('Append a fog patch under Not yet specified. One line.'),
   graduate_fog: z
     .string()
     .min(1)
@@ -24,7 +28,9 @@ export const editMapInputSchema = z.object({
     .string()
     .min(1)
     .optional()
-    .describe('Append a hand-ruled item under Out of scope. Never touches Decisions-so-far.'),
+    .describe(
+      'Append a hand-ruled item under Out of scope. Never touches Decisions-so-far. One line.',
+    ),
   expected_revision: z
     .string()
     .min(1)

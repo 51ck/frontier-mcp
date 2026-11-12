@@ -34,7 +34,7 @@ interface PlannedFile {
 }
 
 /**
- * Normalize Legacy Tickets in one Effort, mint ids for those without, and
+ * Normalize Foreign Tickets in one Effort, mint ids for those without, and
  * optionally rename. Preview plans mint ids from the scan and writes nothing.
  *
  * Bare sort-order Edges (`Blocked by: 01`) are rewritten to the id the target
@@ -43,7 +43,7 @@ interface PlannedFile {
  */
 export async function migrateEffortFiles(request: MigrateFilesRequest): Promise<MigrationReport> {
   const { effort, entries, preview, rename } = request;
-  const candidates = entries.filter(entry => entry.ticket.legacy || entry.ticket.id === undefined);
+  const candidates = entries.filter(entry => entry.ticket.foreign || entry.ticket.id === undefined);
 
   if (candidates.length === 0) {
     return { effort, preview, renamed: rename, changes: [] };
@@ -134,7 +134,7 @@ function planChanges(
         id,
         title: entry.ticket.title,
         minted: entry.ticket.id === undefined,
-        normalized: entry.ticket.legacy,
+        normalized: entry.ticket.foreign,
         fromName: to === entry.filename ? undefined : entry.filename,
         toName: to === entry.filename ? undefined : to,
         blockedBy,

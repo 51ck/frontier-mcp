@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { MigrationChange, MigrationReport } from '../domain.ts';
 
 export const migrateEffortInputSchema = z.object({
-  effort: z.string().describe('Effort slug whose Legacy Tickets to normalize.'),
+  effort: z.string().describe('Effort slug whose Foreign Tickets to normalize.'),
   preview: z
     .boolean()
     .optional()
@@ -18,7 +18,7 @@ export const migrateEffortInputSchema = z.object({
 });
 
 export const migrateEffortDescription =
-  'Normalize Legacy Tickets in an Effort: schema frontmatter, preserve existing ids, mint ' +
+  'Normalize Foreign Tickets in an Effort: schema frontmatter, preserve existing ids, mint ' +
   'ids for Tickets that have none, turn prose Edges into blocked_by. Preview writes nothing. ' +
   'Filename rewriting is opt-in. Unrecognized files in the Effort directory are ignored.';
 

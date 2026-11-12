@@ -1,5 +1,5 @@
 import { splitFrontmatter } from './frontmatter.ts';
-import { NoSuchFogPatch, SectionBreakInValue } from '../driver.ts';
+import { MultiLineBullet, NoSuchFogPatch, SectionBreakInValue } from '../driver.ts';
 import type { MapDocument, MapEdit } from '../../domain.ts';
 
 /**
@@ -179,26 +179,28 @@ export function scaffoldMap(edit: MapEdit): string {
  */
 export function assertNoSectionBreaks(edit: MapEdit): void {
   const placed: ReadonlyArray<readonly [string, string | undefined]> = [
-    [SECTION_HEADINGS.destination, edit.destination?.trim()],
-    [SECTION_HEADINGS.notes, edit.notes?.trim()],
-    [SECTION_HEADINGS.fog, edit.addFog === undefined ? undefined : `- ${edit.addFog.trim()}`],
-    [
-      SECTION_HEADINGS.outOfScope,
-      edit.ruleOut === undefined ? undefined : `- ${edit.ruleOut.trim()}`,
-    ],
+    ['destination', edit.destination?.trim()],
+    ['notes', edit.notes?.trim()],
+    ['add_fog', edit.addFog === undefined ? undefined : `- ${edit.addFog.trim()}`],
+    ['rule_out', edit.ruleOut === undefined ? undefined : `- ${edit.ruleOut.trim()}`],
   ];
-  for (const [section, value] of placed) {
+  for (const [argument, value] of placed) {
     if (value === undefined) continue;
     const match = NEXT_HEADING.exec(value);
     if (match !== null) {
       const lineEnd = value.indexOf('\n', match.index);
       const line = value.slice(match.index, lineEnd < 0 ? undefined : lineEnd).trimEnd();
-      throw new SectionBreakInValue(section, line);
+      throw new SectionBreakInValue(argument, line);
     }
     // Either marker alone is enough: an opener pairs with the real closer below
     // it, and a closer ends the real block early.
     const marker = GENERATED_MARKER.exec(value);
-    if (marker !== null) throw new SectionBreakInValue(section, marker[0], 'marker');
+    if (marker !== null) throw new SectionBreakInValue(argument, marker[0], 'marker');
+    // removeBullet matches one line at a time, so a multi-line bullet could never be graduated.
+    // U+2028 and U+2029 count: BULLET's `.` stops at them, so the reader would drop the patch.
+    if ((argument === 'add_fog' || argument === 'rule_out') && /[\r\n\u2028\u2029]/.test(value)) {
+      throw new MultiLineBullet(argument);
+    }
   }
 }
 

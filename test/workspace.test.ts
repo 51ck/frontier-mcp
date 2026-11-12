@@ -70,7 +70,9 @@ describe('workspace resolution', () => {
     });
     const frontier = await connectFrontier({ cwd: join(root, 'src/deep'), env: {} });
 
-    expect(await frontier.call('list_efforts')).toBe(`root: ${root}\n(no efforts)`);
+    expect((await frontier.call('list_efforts')).split('\n')[0]).toBe(
+      `root: ${root} (resolved by .git)`,
+    );
   });
 
   // A nested repository is only distinguishable from its parent while it carries
@@ -86,7 +88,9 @@ describe('workspace resolution', () => {
     const submodule = join(outer, 'vendor/lib');
     const frontier = await connectFrontier({ cwd: submodule, env: {} });
 
-    expect(await frontier.call('list_efforts')).toBe(`root: ${submodule}\n(no efforts)`);
+    expect((await frontier.call('list_efforts')).split('\n')[0]).toBe(
+      `root: ${submodule} (resolved by .git)`,
+    );
   });
 
   it('treats a dangling .git symlink as a marker rather than walking past it', async () => {
@@ -98,7 +102,9 @@ describe('workspace resolution', () => {
     await symlink('../../.git/modules/gone', join(submodule, '.git'));
     const frontier = await connectFrontier({ cwd: submodule, env: {} });
 
-    expect(await frontier.call('list_efforts')).toBe(`root: ${submodule}\n(no efforts)`);
+    expect((await frontier.call('list_efforts')).split('\n')[0]).toBe(
+      `root: ${submodule} (resolved by .git)`,
+    );
   });
 
   it('serves no Efforts when a worktree branch carries no .scratch/ of its own', async () => {
@@ -110,7 +116,9 @@ describe('workspace resolution', () => {
     const worktree = join(parent, WORKTREE);
     const frontier = await connectFrontier({ cwd: join(worktree, 'src/deep'), env: {} });
 
-    expect(await frontier.call('list_efforts')).toBe(`root: ${worktree}\n(no efforts)`);
+    expect((await frontier.call('list_efforts')).split('\n')[0]).toBe(
+      `root: ${worktree} (resolved by .git)`,
+    );
   });
 
   it('serves a worktree its own .scratch/, not the repository it was made from', async () => {
@@ -146,7 +154,9 @@ describe('workspace resolution', () => {
     const cwd = join(root, 'notes');
     const frontier = await connectFrontier({ cwd, env: {} });
 
-    expect(await frontier.call('list_efforts')).toBe(`root: ${cwd}\n(no efforts)`);
+    expect((await frontier.call('list_efforts')).split('\n')[0]).toBe(
+      `root: ${cwd} (resolved by working directory, no root marker found)`,
+    );
   });
 
   it('prefers FRONTIER_ROOT over the working directory', async () => {

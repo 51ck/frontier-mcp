@@ -1,6 +1,6 @@
 # Issue tracker — FrontierMCP and file fallback
 
-Tracker doc revision 2. To check a vendored copy, compare this number with the one in the
+Tracker doc revision 4. To check a vendored copy, compare this number with the one in the
 `frontier://tracker-doc` resource of the server you run; a lower number, or no revision line, is
 stale.
 
@@ -48,14 +48,14 @@ Eight tools permanently. Optional arguments extend an existing tool; there is no
 
 | Tool | Use when |
 | --- | --- |
-| `list_efforts` | Orient — list Efforts with Ticket counts, header doc kinds, and Frontier size. |
+| `list_efforts` | Orient — list Efforts with Ticket counts, header doc kinds, and Frontier size. A repository with no `.scratch/` at all gets `no tracker here`, the marker that located the root, and a `start one` line to copy; an empty `.scratch/` still reads `(no efforts)`. |
 | `get_board` | See the whole Effort cheaply — Destination, one summary line per Ticket, Frontier marked. Never returns bodies. |
 | `get_tickets` | Fetch full bodies for specific ids after the Board tells you which Tickets matter. |
 | `create_tickets` | Publish a breakdown in one call. Declare Edges with temporary keys; the server assigns ids and numbers. |
 | `update_ticket` | Claim, resolve, drop, reopen, release, set title/kind/type, set triage, replace Edges, comment, or tick acceptance criteria. One Ticket per call. |
 | `edit_map` | Edit Map sections — Destination, Notes, fog, Out of scope. Decisions-so-far regenerates from resolved Tickets. |
 | `spec` | Read or write a Spec as a whole document. |
-| `migrate_effort` | Normalize Legacy Tickets in an Effort. Preview writes nothing; filename rename is opt-in. |
+| `migrate_effort` | Normalize Foreign Tickets — those whose file does not conform to the schema — in an Effort. Preview writes nothing; filename rename is opt-in. |
 
 ### Typical agent flow
 
@@ -80,7 +80,7 @@ Eight tools permanently. Optional arguments extend an existing tool; there is no
 | release a stale claim | `update_ticket` with `{ release: true }` |
 | edit the Map | `edit_map` |
 | write or read the Spec | `spec` |
-| normalize legacy files | `migrate_effort` |
+| normalize foreign files | `migrate_effort` |
 
 Two Ticket files carrying one id are listed in each Board's warnings, with claimant files for the
 first few, and every write addressed to that id is refused. Fix it by hand, giving all but one a new id; the server never
@@ -143,7 +143,7 @@ bypasses the mint whatever the pattern.
 ```yaml
 ---
 id: T12                     # shaped by id_pattern; repo-unique, never reused or changed
-title: Parse legacy tickets without frontmatter
+title: Parse tickets without frontmatter
 kind: build                 # build | decision
 type: research              # decision only: research | prototype | grilling | task
 status: open                # open | claimed | resolved | dropped

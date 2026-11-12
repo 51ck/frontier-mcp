@@ -1,21 +1,21 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { cleanupFixtures, connectFrontier, makeLegacyWorkspace } from './support/harness.ts';
+import { cleanupFixtures, connectFrontier, makeForeignWorkspace } from './support/harness.ts';
 
 afterEach(cleanupFixtures);
 
 /** Both Efforts, copied verbatim out of sobrina and tag-customizer. */
-async function legacyRepo() {
-  const root = await makeLegacyWorkspace({
+async function foreignRepo() {
+  const root = await makeForeignWorkspace({
     telegram: 'sobrina-telegram',
     'ship-0-5-0': 'tag-customizer-ship-0-5-0',
   });
   return { root, frontier: await connectFrontier({ cwd: root, env: {} }) };
 }
 
-describe('Legacy Tickets', () => {
+describe('Foreign Tickets', () => {
   it('reads sobrina Tickets that carry a T-id in their heading', async () => {
-    const { frontier } = await legacyRepo();
+    const { frontier } = await foreignRepo();
 
     const board = await frontier.call('get_board', { effort: 'telegram' });
 
@@ -26,7 +26,7 @@ describe('Legacy Tickets', () => {
   });
 
   it('reads Edges out of **Depends on:** prose', async () => {
-    const { frontier } = await legacyRepo();
+    const { frontier } = await foreignRepo();
 
     const board = await frontier.call('get_board', { effort: 'telegram' });
     const t32 = board.split('\n').find(line => line.includes('T32  Inbound event'));
@@ -36,17 +36,17 @@ describe('Legacy Tickets', () => {
     expect(t32).toContain('T31');
   });
 
-  it('flags every Legacy Ticket in the warnings block', async () => {
-    const { frontier } = await legacyRepo();
+  it('flags every Foreign Ticket in the warnings block', async () => {
+    const { frontier } = await foreignRepo();
 
     const board = await frontier.call('get_board', { effort: 'telegram' });
 
     expect(board).toContain('warnings:');
-    expect(board.toLowerCase()).toContain('legacy');
+    expect(board.toLowerCase()).toContain('foreign');
   });
 
   it('gives a Ticket with no T-id an addressable handle instead of no name', async () => {
-    const { frontier } = await legacyRepo();
+    const { frontier } = await foreignRepo();
 
     const board = await frontier.call('get_board', { effort: 'ship-0-5-0' });
 
@@ -57,7 +57,7 @@ describe('Legacy Tickets', () => {
   });
 
   it('fetches an id-less Ticket by that handle, so no Effort is unreachable', async () => {
-    const { frontier } = await legacyRepo();
+    const { frontier } = await foreignRepo();
 
     const text = await frontier.call('get_tickets', { ids: ['ship-0-5-0#1'] });
 
@@ -67,7 +67,7 @@ describe('Legacy Tickets', () => {
   });
 
   it('reads a Status line carrying a trailing note', async () => {
-    const { frontier } = await legacyRepo();
+    const { frontier } = await foreignRepo();
 
     const board = await frontier.call('get_board', { effort: 'ship-0-5-0' });
     const release = board.split('\n').find(line => line.includes('Release'));
@@ -77,7 +77,7 @@ describe('Legacy Tickets', () => {
   });
 
   it('treats an em-dash Blocked by as no Edges at all', async () => {
-    const { frontier } = await legacyRepo();
+    const { frontier } = await foreignRepo();
 
     const board = await frontier.call('get_board', { effort: 'ship-0-5-0' });
     const line = board.split('\n').find(entry => entry.includes('Is the data-map'));
@@ -87,14 +87,14 @@ describe('Legacy Tickets', () => {
   });
 
   it('ignores the research/ directory that is not part of the schema', async () => {
-    const { frontier } = await legacyRepo();
+    const { frontier } = await foreignRepo();
 
     // ship-0-5-0 holds a research/ directory beside issues/.
     expect(await frontier.call('list_efforts')).toContain('ship-0-5-0  tickets=7');
   });
 
   it('serves a full body through get_tickets', async () => {
-    const { frontier } = await legacyRepo();
+    const { frontier } = await foreignRepo();
 
     const text = await frontier.call('get_tickets', { ids: ['T30'] });
 

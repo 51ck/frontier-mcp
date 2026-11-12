@@ -40,7 +40,7 @@ export async function makeFixtureTree(tree: FixtureTree): Promise<string> {
  * actual input Frontier has to survive; hand-written fixtures would be more
  * polite than the real thing.
  */
-export async function makeLegacyWorkspace(efforts: Record<string, string>): Promise<string> {
+export async function makeForeignWorkspace(efforts: Record<string, string>): Promise<string> {
   const root = await makeTempRoot();
 
   await mkdir(join(root, '.git'), { recursive: true });

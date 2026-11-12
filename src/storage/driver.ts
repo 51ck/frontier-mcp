@@ -1,3 +1,4 @@
+import { bareIdOf } from '../domain.ts';
 import type {
   Effort,
   MapDocument,
@@ -94,6 +95,13 @@ export interface StorageDriver {
   workspaceWarnings(): readonly string[];
 
   /**
+   * How a reader would name this workspace's storage when it does not exist at
+   * all — the markdown driver's `.scratch/` — and undefined when it exists,
+   * empty or not. Never creates it: a read must leave a bare repository bare.
+   */
+  absentStorage(): string | undefined;
+
+  /**
    * Whether `name` has the shape of an id this driver mints. Id shape is the
    * driver's to define; the domain only promises ids are opaque strings.
    */
@@ -118,7 +126,7 @@ export interface StorageDriver {
 
   /**
    * The named Tickets with their bodies, addressed by id or by the
-   * `<effort>#<order>` handle an id-less Legacy Ticket answers to. A name the
+   * `<effort>#<order>` handle an id-less Ticket answers to. A name the
    * workspace does not hold is simply absent: which names were asked for is the
    * caller's knowledge, not the driver's.
    *
@@ -195,7 +203,7 @@ export interface StorageDriver {
   ): Promise<SpecDocument>;
 
   /**
-   * Normalize every Legacy Ticket in one Effort, mint ids for Tickets that have
+   * Normalize every Foreign Ticket in one Effort, mint ids for Tickets that have
    * none, and optionally rename files to the schema convention. Preview writes
    * nothing. Unrecognized files in the Effort directory are ignored.
    */
@@ -232,8 +240,14 @@ export class RevisionMismatch extends Error {
 
 /** Thrown when the edit names a Ticket the workspace does not hold. */
 export class NoSuchTicket extends Error {
-  constructor(handle: string) {
-    super(`No Ticket '${handle}' in this workspace.`);
+  constructor(handle: string, where = 'this workspace') {
+    const bare = bareIdOf(handle);
+    super(
+      bare === undefined
+        ? `No Ticket '${handle}' in ${where}.`
+        : `No Ticket '${handle}' in ${where}. Ids resolve repo-wide, so the ` +
+            `'@<effort>' a Board shows is decoration — name it '${bare}'.`,
+    );
     this.name = 'NoSuchTicket';
   }
 }
@@ -289,15 +303,26 @@ export class NoSuchFogPatch extends Error {
 
 /** Thrown when a Map value holds text the Map reader would take as structure rather than prose. */
 export class SectionBreakInValue extends Error {
-  constructor(section: string, line: string, kind: 'heading' | 'marker' = 'heading') {
+  constructor(argument: string, line: string, kind: 'heading' | 'marker' = 'heading') {
     super(
       kind === 'heading'
-        ? `Nothing was written: ${section} cannot contain a level-2 heading ('${line}') — it ` +
+        ? `Nothing was written: ${argument} cannot contain a level-2 heading ('${line}') — it ` +
             'would split off as its own section. Use ### or deeper.'
-        : `Nothing was written: ${section} cannot contain a GENERATED marker ('${line}') — the ` +
+        : `Nothing was written: ${argument} cannot contain a GENERATED marker ('${line}') — the ` +
             'server owns those blocks and would hide or overwrite the text beside one.',
     );
     this.name = 'SectionBreakInValue';
+  }
+}
+
+/** Thrown when an `add_fog` or `rule_out` value spans lines: a bullet is one line to the reader. */
+export class MultiLineBullet extends Error {
+  constructor(argument: string) {
+    super(
+      `Nothing was written: ${argument} must be a single line — a newline would split the ` +
+        'bullet, and the lines after the first could never be removed by value.',
+    );
+    this.name = 'MultiLineBullet';
   }
 }
 

@@ -9,7 +9,7 @@ import { frontierOf } from './frontier.ts';
 import { createDriverRegistry } from './driver-registry.ts';
 import { createMarkdownDriver } from './storage/markdown/driver.ts';
 import type { StorageDriver, TicketWriteResult } from './storage/driver.ts';
-import { NoSuchMap, RevisionMismatch } from './storage/driver.ts';
+import { NoSuchMap, NoSuchTicket, RevisionMismatch } from './storage/driver.ts';
 import {
   createTicketsDescription,
   createTicketsInputSchema,
@@ -32,6 +32,7 @@ import {
   listEffortsDescription,
   listEffortsInputSchema,
   renderEfforts,
+  renderNoTracker,
 } from './tools/list-efforts.ts';
 import {
   migrateEffortDescription,
@@ -47,7 +48,7 @@ import {
   updateTicketInputSchema,
 } from './tools/update-ticket.ts';
 import { readTrackerDoc, TRACKER_DOC_URI } from './tracker-doc.ts';
-import { resolveWorkspace, type WorkspaceContext } from './workspace.ts';
+import { locateWorkspace, resolveWorkspace, type WorkspaceContext } from './workspace.ts';
 
 export const SERVER_NAME = 'frontier';
 
@@ -160,8 +161,14 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async ({ root }) => {
-      const workspace = resolveWorkspace(root, context);
+      const { root: workspace, resolvedBy } = locateWorkspace(root, context);
       const driver = registry.forWorkspace(workspace);
+      const absent = driver.absentStorage();
+      if (absent !== undefined) {
+        return {
+          content: [{ type: 'text', text: renderNoTracker(workspace, resolvedBy, absent) }],
+        };
+      }
       const [efforts, tickets] = await Promise.all([driver.listEfforts(), driver.listTickets()]);
 
       return {
@@ -311,7 +318,7 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       };
       const find = (from: readonly TicketSummary[]): TicketSummary => {
         const ticket = from.find(entry => entry.id === id || entry.handle === id);
-        if (ticket === undefined) throw new Error(`No Ticket '${id}' in ${workspace}.`);
+        if (ticket === undefined) throw new NoSuchTicket(id, workspace);
         return ticket;
       };
 

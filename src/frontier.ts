@@ -18,7 +18,7 @@ export function indexById(all: readonly TicketSummary[]): ReadonlyMap<string, Ti
   const byId = new Map<string, TicketSummary>();
 
   for (const ticket of all) {
-    // A Legacy Ticket may carry no id at all. The first id wins, which is only
+    // A Foreign Ticket may carry no id at all. The first id wins, which is only
     // good enough for naming an Edge's Effort: takeability and cycles weigh
     // every claimant through claimantsById.
     if (ticket.id !== undefined && !byId.has(ticket.id)) byId.set(ticket.id, ticket);

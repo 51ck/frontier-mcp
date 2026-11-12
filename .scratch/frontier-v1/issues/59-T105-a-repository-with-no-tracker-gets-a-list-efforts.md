@@ -2,9 +2,10 @@
 id: T105
 title: A repository with no tracker gets a list_efforts result that explains itself
 kind: build
-status: open
+status: resolved
 triage: ready-for-agent
 blocked_by: []
+answer_gist: A repository with no storage directory gets four lines from list_efforts — root with the marker that resolved it, no tracker here, a start-one line that works verbatim, and the tracker-doc URI; an empty or populated `.scratch/` is unchanged and no read creates it
 ---
 
 Decided in [[T43]], 2026-11-12. Today a stranger installs, opens a repository, calls `list_efforts` and gets `(no efforts)`. That is correct and reads as broken. It also cannot tell a missing storage directory from an empty one, which call for different next moves.
@@ -32,8 +33,8 @@ conventions: frontier://tracker-doc
 
 ## Acceptance criteria
 
-- [ ] A repository with no storage directory gets the four lines, with the real resolved root and the real reason
-- [ ] An empty storage directory gets today's result, unchanged
-- [ ] A populated tracker's `list_efforts` result is byte-identical to today
-- [ ] Following the `start one` line verbatim creates an Effort
-- [ ] No read creates the storage directory
+- [x] A repository with no storage directory gets the four lines, with the real resolved root and the real reason
+- [x] An empty storage directory gets today's result, unchanged
+- [x] A populated tracker's `list_efforts` result is byte-identical to today
+- [x] Following the `start one` line verbatim creates an Effort
+- [x] No read creates the storage directory

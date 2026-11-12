@@ -1,3 +1,7 @@
+import { existsSync } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
+
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { SERVER_NAME } from '../src/server.ts';
@@ -44,8 +48,9 @@ describe('list_efforts', () => {
     );
   });
 
-  it('returns an empty list, not an error, for a repo with no .scratch/', async () => {
+  it('keeps the empty list for a .scratch/ that exists but holds nothing', async () => {
     const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
+    await mkdir(join(root, '.scratch'));
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
     expect(await frontier.call('list_efforts')).toBe(`root: ${root}\n(no efforts)`);
@@ -104,5 +109,95 @@ describe('list_efforts', () => {
       .map(line => line.split('  ')[0]);
 
     expect(slugs).toEqual(['alpha', 'mike', 'zulu']);
+  });
+});
+
+describe('list_efforts in a repository with no tracker', () => {
+  const START_ONE =
+    'start one: create_tickets { effort, create: true, tickets } or ' +
+    'edit_map { effort, create: true, destination }';
+
+  function bare(root: string, resolvedBy: string): string {
+    return [
+      `root: ${root} (resolved by ${resolvedBy})`,
+      'no tracker here: .scratch/ does not exist',
+      START_ONE,
+      'conventions: frontier://tracker-doc',
+    ].join('\n');
+  }
+
+  it('says so, naming the marker that located the root', async () => {
+    const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n', 'src/a.ts': '' });
+    const frontier = await connectFrontier({ cwd: join(root, 'src'), env: {} });
+
+    expect(await frontier.call('list_efforts')).toBe(bare(root, '.git'));
+  });
+
+  it('says when the root fell back to the working directory', async () => {
+    const root = await makeFixtureTree({ 'readme.txt': '' });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    expect(await frontier.call('list_efforts')).toBe(
+      bare(root, 'working directory, no root marker found'),
+    );
+  });
+
+  it('names an override as the source', async () => {
+    const root = await makeFixtureTree({ 'readme.txt': '' });
+    const frontier = await connectFrontier({ cwd: '/', env: { FRONTIER_ROOT: root } });
+
+    expect(await frontier.call('list_efforts')).toBe(bare(root, '$FRONTIER_ROOT'));
+    expect(await frontier.call('list_efforts', { root })).toBe(bare(root, 'root argument'));
+  });
+
+  it('never creates the storage directory on a read', async () => {
+    const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    await frontier.call('list_efforts');
+    await frontier.callExpectingError('get_board', { effort: 'nothing' });
+    await frontier.call('get_tickets', { ids: ['T1'] });
+    await frontier.callExpectingError('edit_map', { effort: 'nothing' });
+    await frontier.callExpectingError('spec', { effort: 'nothing' });
+    await frontier.callExpectingError('migrate_effort', { effort: 'nothing', preview: true });
+
+    expect(existsSync(join(root, '.scratch'))).toBe(false);
+  });
+
+  it('keeps the plain result when a file sits where the storage directory belongs', async () => {
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.scratch': 'not a directory\n',
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    expect(await frontier.call('list_efforts')).toBe(`root: ${root}\n(no efforts)`);
+  });
+
+  it('starts an Effort by following create_tickets in the start one line verbatim', async () => {
+    const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+    expect(await frontier.call('list_efforts')).toContain(START_ONE);
+
+    await frontier.call('create_tickets', {
+      effort: 'first',
+      create: true,
+      tickets: [{ title: 'Begin' }],
+    });
+
+    expect(await frontier.call('list_efforts')).toBe(
+      [`root: ${root}`, 'first  tickets=1  docs=none  frontier=1'].join('\n'),
+    );
+  });
+
+  it('starts an Effort by following edit_map in the start one line verbatim', async () => {
+    const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    await frontier.call('edit_map', { effort: 'first', create: true, destination: 'Somewhere.' });
+
+    expect(await frontier.call('list_efforts')).toBe(
+      [`root: ${root}`, 'first  tickets=0  docs=map  frontier=0'].join('\n'),
+    );
   });
 });
