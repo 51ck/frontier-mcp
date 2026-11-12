@@ -210,3 +210,38 @@ describe('frontier.yml id_pattern', () => {
     expect(await frontier.call('list_efforts')).toContain('tickets=1');
   });
 });
+
+describe('id-ness is the configured pattern', () => {
+  it('refuses a key the configured pattern accepts and allows one it does not', async () => {
+    const frontier = await workspace('id_pattern: AUTH-<N>\n');
+
+    const refused = await frontier.callExpectingError('create_tickets', {
+      effort: 'alpha',
+      tickets: [{ key: 'AUTH-7', title: 'Ambiguous' }],
+    });
+    expect(refused).toContain('looks like a Ticket id');
+
+    await frontier.call('create_tickets', {
+      effort: 'alpha',
+      tickets: [
+        { key: 'T8', title: 'Keyed' },
+        { title: 'Child', blocked_by: ['T8'] },
+      ],
+    });
+  });
+
+  it('keeps recognizing T<n> ids under the default pattern', async () => {
+    const frontier = await workspace(undefined);
+
+    const refused = await frontier.callExpectingError('create_tickets', {
+      effort: 'alpha',
+      tickets: [{ key: 'T34', title: 'Ambiguous' }],
+    });
+    expect(refused).toContain('looks like a Ticket id');
+    // A dangling Edge on an existing-style id is a forward reference, not a typo.
+    await frontier.call('create_tickets', {
+      effort: 'alpha',
+      tickets: [{ title: 'Child', blocked_by: ['T34'] }],
+    });
+  });
+});

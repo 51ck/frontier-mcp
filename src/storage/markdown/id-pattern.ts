@@ -128,6 +128,20 @@ export function compileIdPattern(source: string): IdPatternResult {
 }
 
 /**
+ * What the pattern accepts as an id. Random tokens match any length, not just
+ * the one minted: ids from an earlier pattern or a hand edit stay recognized,
+ * since nothing migrates (T35), so the default accepts `T34` as well as `Tk3x9q2`.
+ */
+export function idMatcher(pattern: IdPattern): RegExp {
+  const parts = pattern.tokens.map(token => {
+    if (token.kind === 'literal') return token.text.replace(/[.]/g, '\\.');
+    if (token.kind === 'counter') return '\\d+';
+    return token.base === 16 ? '[0-9a-f]+' : '[0-9a-z]+';
+  });
+  return new RegExp(`^${parts.join('')}$`);
+}
+
+/**
  * Read `<storageDir>/frontier.yml` once. An absent file or key is the default;
  * a file that cannot be read as a mapping, or a pattern that is illegal, is a
  * problem the caller surfaces — never a silent fallback to the default, since

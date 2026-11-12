@@ -29,7 +29,7 @@ import {
   RevisionMismatch,
 } from '../driver.ts';
 import { createTicketFiles, mintingPlan, type MintingPlan } from './create.ts';
-import { compileIdPattern, DEFAULT_ID_PATTERN, loadIdPattern } from './id-pattern.ts';
+import { compileIdPattern, DEFAULT_ID_PATTERN, idMatcher, loadIdPattern } from './id-pattern.ts';
 import { migrateEffortFiles } from './migrate.ts';
 import { applyEdit, type Defaults } from './serialize.ts';
 import {
@@ -124,10 +124,12 @@ export function createMarkdownDriver(
   // writes. T66 matches ids against it.
   const idPattern = loadIdPattern(storage, storageDir);
   // Under a broken pattern every write is refused before it mints, so the
-  // default plan here only ever feeds a migrate_effort preview.
-  const minting = mintingPlan(
-    idPattern.pattern ?? compileIdPattern(DEFAULT_ID_PATTERN).pattern ?? unreachable(),
-  );
+  // default here only ever feeds reads, pre-write checks and a migrate_effort
+  // preview, which then behave as an unconfigured repo does.
+  const effectivePattern =
+    idPattern.pattern ?? compileIdPattern(DEFAULT_ID_PATTERN).pattern ?? unreachable();
+  const minting = mintingPlan(effectivePattern);
+  const matchesId = idMatcher(effectivePattern);
   let writes: Promise<unknown> = Promise.resolve();
 
   const walk = async (): Promise<ScannedEffort[]> => {
@@ -190,6 +192,10 @@ export function createMarkdownDriver(
 
     async listTickets(): Promise<readonly TicketSummary[]> {
       return (await scan()).flatMap(entry => summariesOf(entry));
+    },
+
+    isId(name) {
+      return matchesId.test(name);
     },
 
     workspaceWarnings() {

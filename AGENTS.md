@@ -130,8 +130,11 @@ Design decisions settled and binding until an ADR revises them:
   paths still work, including `migrate_effort` preview and `edit_map`/`spec` calls that change
   nothing; a fix takes effect after a server restart. The
   compiled pattern carries `needsCoordination` and `survivesMerge`, and compiles once into the
-  minting plan (T65); id matching does not consume it yet (T66). Under a broken pattern a
-  `migrate_effort` preview shows default-pattern ids. Rules: T52–T55 in `.scratch/ids-patterns/`.
+  minting plan. Id matching consumes it too: `StorageDriver.isId()` answers from the pattern (any
+  length per random token, so existing `T<n>` ids still match the default), and `create_tickets`
+  refuses a temporary key exactly when it would match. Under a broken config `isId` answers from
+  the default and a `migrate_effort` preview shows default-pattern ids. Rules: T52–T55 in
+  `.scratch/ids-patterns/`.
 - **`.md` with YAML frontmatter.** Not `.mdc`.
 - **Formal metadata in frontmatter, prose in the body.** Identity, status, edges, and kind are fields.
   Everything an agent reads as prose stays prose.
@@ -288,7 +291,7 @@ Source layout:
 
 | Path | Holds |
 | --- | --- |
-| `src/domain.ts` | The CONTEXT.md vocabulary as types. Naming here is bound by the glossary, including its `_Avoid_` lines. |
+| `src/domain.ts` | The CONTEXT.md vocabulary as types. Naming here is bound by the glossary, including its `_Avoid_` lines. Ids are opaque here; their shape is the driver's (`isId`). |
 | `src/frontier.ts` | The Frontier computation. Takes every Ticket in the workspace, because Edges resolve repo-wide. |
 | `src/edges.ts` | Cycle detection over the Edge graph. Above the seam, because a cycle is a rule about the domain rather than about storage — the same reason the Status model is checked in the tool layer. |
 | `src/storage/driver.ts` | The ADR 0001 seam, its edit vocabulary, and its typed failures. A driver is the workspace cached and live, so `close()` sits here beside the reads and writes. |

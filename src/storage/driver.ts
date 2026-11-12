@@ -94,6 +94,12 @@ export interface StorageDriver {
   workspaceWarnings(): readonly string[];
 
   /**
+   * Whether `name` has the shape of an id this driver mints. Id shape is the
+   * driver's to define; the domain only promises ids are opaque strings.
+   */
+  isId(name: string): boolean;
+
+  /**
    * The named Tickets with their bodies, addressed by id or by the
    * `<effort>#<order>` handle an id-less Legacy Ticket answers to. A name the
    * workspace does not hold is simply absent: which names were asked for is the

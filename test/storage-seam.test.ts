@@ -33,6 +33,9 @@ function fixedDriver(
       workspaceWarnings() {
         return [];
       },
+      isId() {
+        return false;
+      },
       async readTickets(handles) {
         const wanted = new Set(handles);
         return tickets.filter(
@@ -130,6 +133,9 @@ describe('the storage driver seam', () => {
       },
       workspaceWarnings() {
         return [];
+      },
+      isId() {
+        return false;
       },
       async readTickets() {
         return [];
