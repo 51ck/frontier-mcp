@@ -158,7 +158,8 @@ Design decisions settled and binding until an ADR revises them:
 - **Lenient on read, strict on write.** Foreign files — no fence, a fence that does not parse, or a fence with no
   `id` and a key outside the schema — parse best-effort and are flagged Foreign. A write normalizes
   one with no parseable fence; a foreign fence is governed by its own rendering rule below. Reads
-  never mutate files.
+  never mutate files. See
+  [ADR 0007](./docs/adr/0007-conversion-is-lazy-and-foreign-is-a-conformance-predicate.md).
 - **A write never reformats what it did not touch.** Frontmatter round-trips through the `yaml`
   package's document API, not a frontmatter library that re-serializes the whole block. See
   [ADR 0003](./docs/adr/0003-frontmatter-round-trips-through-a-yaml-document.md).
