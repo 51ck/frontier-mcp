@@ -247,6 +247,17 @@ export class NoSuchFogPatch extends Error {
   }
 }
 
+/** Thrown when a Map value holds a line the Map reader would take as a new section. */
+export class SectionBreakInValue extends Error {
+  constructor(section: string, line: string) {
+    super(
+      `Nothing was written: ${section} cannot contain a level-2 heading ('${line}') — it would ` +
+        'split off as its own section. Use ### or deeper.',
+    );
+    this.name = 'SectionBreakInValue';
+  }
+}
+
 /** Thrown by every write while the workspace's configuration is broken. */
 export class InvalidWorkspaceConfig extends Error {
   constructor(problem: string) {

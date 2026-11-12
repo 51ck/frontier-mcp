@@ -1,5 +1,5 @@
 import { splitFrontmatter } from './frontmatter.ts';
-import { NoSuchFogPatch } from '../driver.ts';
+import { NoSuchFogPatch, SectionBreakInValue } from '../driver.ts';
 import type { MapDocument, MapEdit } from '../../domain.ts';
 
 /**
@@ -168,6 +168,32 @@ export function scaffoldMap(edit: MapEdit): string {
   ]
     .join('\n')
     .replace(/\n{3,}/g, '\n\n');
+}
+
+/**
+ * Refuse any value that, as written, holds a line {@link NEXT_HEADING} — the
+ * reader's own section break — would match. Written verbatim, such a line ends
+ * the section early: the value reads back truncated, and the rest is left as an
+ * orphan section a later replace never reaches.
+ */
+export function assertNoSectionBreaks(edit: MapEdit): void {
+  const placed: ReadonlyArray<readonly [string, string | undefined]> = [
+    [SECTION_HEADINGS.destination, edit.destination?.trim()],
+    [SECTION_HEADINGS.notes, edit.notes?.trim()],
+    [SECTION_HEADINGS.fog, edit.addFog === undefined ? undefined : `- ${edit.addFog.trim()}`],
+    [
+      SECTION_HEADINGS.outOfScope,
+      edit.ruleOut === undefined ? undefined : `- ${edit.ruleOut.trim()}`,
+    ],
+  ];
+  for (const [section, value] of placed) {
+    if (value === undefined) continue;
+    const match = NEXT_HEADING.exec(value);
+    if (match === null) continue;
+    const lineEnd = value.indexOf('\n', match.index);
+    const line = value.slice(match.index, lineEnd < 0 ? undefined : lineEnd).trimEnd();
+    throw new SectionBreakInValue(section, line);
+  }
 }
 
 export function ensureTrailingNewline(text: string): string {
