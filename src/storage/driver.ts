@@ -326,6 +326,35 @@ export class MultiLineBullet extends Error {
   }
 }
 
+/** Thrown when `drop_keys` names a key the schema imports — those change through their own arguments. */
+export class SchemaKeyNotDroppable extends Error {
+  constructor(keys: readonly string[]) {
+    super(
+      `Nothing was written: ${keys.join(', ')} ${keys.length === 1 ? 'is a schema key' : 'are schema keys'}. ` +
+        'drop_keys removes only Unimported frontmatter.',
+    );
+    this.name = 'SchemaKeyNotDroppable';
+  }
+}
+
+/** Thrown when `drop_keys` names a key the Ticket's frontmatter does not carry. */
+export class NoSuchKey extends Error {
+  constructor(keys: readonly string[]) {
+    super(`Nothing was written: no frontmatter key ${keys.map(key => `'${key}'`).join(', ')}.`);
+    this.name = 'NoSuchKey';
+  }
+}
+
+/** Thrown when `drop_keys` is addressed to a Ticket with no parseable frontmatter to drop from. */
+export class NoFrontmatterToDrop extends Error {
+  constructor() {
+    super(
+      'Nothing was written: this Ticket has no parseable frontmatter, so it has no keys to drop.',
+    );
+    this.name = 'NoFrontmatterToDrop';
+  }
+}
+
 /** Thrown by every write while the workspace's configuration is broken. */
 export class InvalidWorkspaceConfig extends Error {
   constructor(problem: string) {

@@ -301,7 +301,7 @@ Source layout:
 | `src/frontier.ts` | The Frontier computation. Takes every Ticket in the workspace, because Edges resolve repo-wide. |
 | `src/edges.ts` | Cycle detection over the Edge graph. Above the seam, because a cycle is a rule about the domain rather than about storage — the same reason the Status model is checked in the tool layer. |
 | `src/storage/driver.ts` | The ADR 0001 seam, its edit vocabulary, and its typed failures. A driver is the workspace cached and live, so `close()` sits here beside the reads and writes. |
-| `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout, which it takes as a construction parameter — `frontmatter.ts` splits the fence, `ticket.ts` parses a Ticket, `legacy.ts` infers one from prose when there is no parseable fence (named for that one shape, not for Foreign), `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` allocates ids and writes a new batch, `migrate.ts` normalizes an Effort at once, `id-pattern.ts` reads `<storageDir>/frontier.yml` once at construction and compiles `id_pattern`, `write.ts` renames it into place, `watcher.ts` tells the driver another process moved the workspace under it. |
+| `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout, which it takes as a construction parameter — `frontmatter.ts` splits the fence, `ticket.ts` parses a Ticket, `legacy.ts` infers one from prose when there is no parseable fence (named for that one shape, not for Foreign), `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` allocates ids and writes a new batch, `migrate.ts` normalizes an Effort at once, `schema.ts` is the one list of schema frontmatter keys, `id-pattern.ts` reads `<storageDir>/frontier.yml` once at construction and compiles `id_pattern`, `write.ts` renames it into place, `watcher.ts` tells the driver another process moved the workspace under it. |
 | `src/workspace.ts` | Workspace resolution — the only module above the driver that reads a *served* repository, and only to locate its root. `.scratch` is a marker only as a directory; `.git` counts as a file too, so a worktree or submodule resolves to itself rather than to the repository enclosing it. |
 | `src/driver-registry.ts` | One driver per resolved workspace, and the `closeAll()` that shuts them. A lookup, not a layer: it hands back the driver itself, so no read or write passes through it. |
 | `src/tools/` | One module per tool: its input schema, its description, and how its result renders. `workspace-line.ts` is the exception — the single rendering of which repository a call served, shared by `list_efforts` and every write. |
@@ -367,13 +367,20 @@ Rendering rules that are load-bearing, not cosmetic:
 - **Every Ticket is nameable.** A Ticket with no id gets an `<effort>#<order>` handle, which
   `get_tickets` accepts. It is an address, not an id — not repo-stable, and never usable as an Edge —
   but without it a whole Effort has no route to its own bodies.
-- **Unimported keys are shown, never written.** `get_tickets` appends a Ticket's frontmatter keys
+- **Unimported keys are shown until an agent drops them.** `get_tickets` appends a Ticket's frontmatter keys
   outside the schema (`Ticket.unimported`, body path only) under `## Unimported frontmatter` as a
   `yaml` block whose backtick delimiter outruns any run inside it. A foreign fence (no `id`) shows
   whole, byte for byte; a Ticket with an `id` shows only its unimported entries, each sliced from the
   file's own text. Conforming Tickets gain nothing. No ordinary write removes them: a comment or
   claim leaves a fence foreign, and `migrate_effort` mints the id but keeps the stray keys, which
-  then show as entries.
+  then show as entries. Only `update_ticket` `drop_keys` removes one (T103), cutting each named
+  entry out of the fence's text — block scalars, nested maps and sequences whole, a comment on its
+  line with it, an own-line comment above it kept — so a drop alone leaves the rest byte-identical.
+  A schema key (`SchemaKeyNotDroppable`), an absent key (`NoSuchKey`) or a Ticket with no parseable
+  fence (`NoFrontmatterToDrop`, file left un-normalized) fails the whole call. It is allowed on an
+  id-less foreign fence: dropping its last unimported key ends the Foreign predicate, so the Ticket
+  becomes a schema fence with no id — not Foreign, still in the Board's `no id (N)` warning, and
+  no id is minted. The schema key list is single-sourced in `src/storage/markdown/schema.ts`.
 - **A missing storage directory explains itself; an empty one does not** (T105). Only when
   `.scratch/` does not exist, `list_efforts` returns four lines: the root line suffixed
   `(resolved by <source>)`, `no tracker here`, a `start one` line naming real `create_tickets` /

@@ -63,6 +63,13 @@ export const updateTicketInputSchema = z.object({
         'as get_tickets returns them and re-joined onto one line. All references resolve before ' +
         'anything is written — one unmatched name fails the whole call and leaves the file untouched.',
     ),
+  drop_keys: z
+    .array(z.string().min(1))
+    .optional()
+    .describe(
+      'Unimported frontmatter keys to delete, as get_tickets lists them. A schema key or an ' +
+        'absent one fails the whole call; nothing else in the fence changes.',
+    ),
   title: z.string().min(1).optional().describe('Replace the Ticket title.'),
   kind: z.enum(['build', 'decision']).optional().describe('Replace the Ticket kind.'),
   type: z
@@ -77,7 +84,7 @@ export const updateTicketDescription =
   'Change one Ticket. Lifecycle: claim, resolve with a one-line gist, drop with a reason, reopen ' +
   'with a reason, or release a claim — at most one of those per call. Graph: replace the Edges, ' +
   'refused if they close a cycle. Identity: title, kind, and type. Annotations: triage role, a ' +
-  'comment, ticking acceptance criteria; these touch no part of the graph. Any of the four groups ' +
+  'comment, ticking acceptance criteria, dropping Unimported keys; these touch no part of the graph. Any of the four groups ' +
   'may accompany the others or stand alone.';
 
 export interface UpdateRequest {
@@ -91,6 +98,7 @@ export interface UpdateRequest {
   readonly blocked_by?: readonly string[] | undefined;
   readonly comment?: string | undefined;
   readonly tick?: readonly string[] | undefined;
+  readonly drop_keys?: readonly string[] | undefined;
   readonly title?: string | undefined;
   readonly kind?: Kind | undefined;
   readonly type?: string | undefined;
@@ -119,6 +127,7 @@ export function editFor(
     ...(request.triage === undefined ? {} : { triage: request.triage }),
     ...(request.comment === undefined ? {} : { comment: request.comment }),
     ...(request.tick === undefined ? {} : { tick: request.tick }),
+    ...(request.drop_keys === undefined ? {} : { dropKeys: request.drop_keys }),
     ...(request.blocked_by === undefined ? {} : { blockedBy: edgesFor(ticket, all, request) }),
   };
 
@@ -147,7 +156,7 @@ export function editFor(
     if (Object.keys(annotations).length === 0) {
       throw new Error(
         'Nothing to do: pass a lifecycle change, or title, kind, type, blocked_by, triage, comment, ' +
-          'or tick.',
+          'tick, or drop_keys.',
       );
     }
     return annotations;

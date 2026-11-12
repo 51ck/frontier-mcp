@@ -1,26 +1,9 @@
-import { Document, isSeq, parseDocument } from 'yaml';
+import { Document, isMap, isScalar, isSeq, parseDocument } from 'yaml';
 
 import type { TicketEdit } from '../../domain.ts';
+import { NoFrontmatterToDrop, NoSuchKey, SchemaKeyNotDroppable } from '../driver.ts';
 import { splitFrontmatter } from './frontmatter.ts';
-
-/**
- * Field order for frontmatter this driver *creates*. An existing file is never
- * reordered — a new field is appended, because moving keys a write did not name
- * is exactly the reformatting ADR 0003 forbids.
- */
-const FIELD_ORDER = [
-  'id',
-  'title',
-  'kind',
-  'type',
-  'status',
-  'triage',
-  'blocked_by',
-  'claimed_by',
-  'claimed_at',
-  'answer_gist',
-  'dropped_reason',
-] as const;
+import { FIELD_ORDER, SCHEMA_KEYS } from './schema.ts';
 
 /** The body sections a write may touch. Everything else is opaque prose. */
 const ANSWER_HEADING = '## Answer';
@@ -74,7 +57,9 @@ export function normalizeTicket(contents: string, defaults: Defaults): string {
  */
 export function applyEdit(contents: string, edit: TicketEdit, defaults: Defaults): string {
   const split = splitFrontmatter(contents);
-  const document = existingDocument(split.hasFence ? split.raw : undefined) ?? schemaFor(defaults);
+  const raw = withoutKeys(split.hasFence ? split.raw : undefined, edit.dropKeys);
+  const document = existingDocument(raw) ?? schemaFor(defaults);
+  const touchesFields = fieldsOf(edit).length > 0 || edit.blockedBy !== undefined;
 
   for (const [field, value] of fieldsOf(edit)) {
     if (value === null) document.delete(field);
@@ -82,7 +67,12 @@ export function applyEdit(contents: string, edit: TicketEdit, defaults: Defaults
   }
   if (edit.blockedBy !== undefined) setEdges(document, edit.blockedBy);
 
-  const frontmatter = render(document);
+  // A drop alone keeps the fence as text, so what remains is byte-identical
+  // rather than whatever a re-render would make of it.
+  const frontmatter =
+    edit.dropKeys !== undefined && raw !== undefined && !touchesFields
+      ? raw.trimEnd()
+      : render(document);
 
   // Only the outer edges are trimmed, and only newlines at the end — trailing
   // spaces on the last line of a comment are part of what the author wrote.
@@ -94,6 +84,53 @@ export function applyEdit(contents: string, edit: TicketEdit, defaults: Defaults
   body = withComment(body, edit.comment);
 
   return `---\n${frontmatter}\n---\n\n${body}\n`;
+}
+
+/**
+ * The fence's text with the named top-level keys cut out. Each entry goes from
+ * the start of its key's line to the end of its value, so a block scalar, a
+ * nested map or a sequence goes whole, and a comment on the entry's own line
+ * goes with it. A comment on its own line above stays: nothing says it was
+ * about this key rather than a heading for what follows, and it is prose the
+ * caller did not name. Every name is resolved before anything is cut.
+ */
+function withoutKeys(
+  raw: string | undefined,
+  dropKeys: readonly string[] | undefined,
+): string | undefined {
+  if (dropKeys === undefined || dropKeys.length === 0) return raw;
+
+  const document = existingDocument(raw);
+  if (raw === undefined || document === undefined || !isMap(document.contents)) {
+    throw new NoFrontmatterToDrop();
+  }
+
+  const refused = dropKeys.filter(key => SCHEMA_KEYS.has(key));
+  if (refused.length > 0) throw new SchemaKeyNotDroppable(refused);
+
+  const spans = new Map<string, [number, number]>();
+  for (const pair of document.contents.items) {
+    if (!isScalar(pair.key) || pair.key.range == null) continue;
+    const name = String(pair.key.value);
+    if (!dropKeys.includes(name)) continue;
+    const value = pair.value as { range?: [number, number, number] } | null;
+    const start = raw.lastIndexOf('\n', pair.key.range[0] - 1) + 1;
+    let end = value?.range?.[2] ?? pair.key.range[2];
+    if (raw[end - 1] !== '\n') {
+      const eol = raw.indexOf('\n', end);
+      end = eol === -1 ? raw.length : eol + 1;
+    }
+    spans.set(name, [start, end]);
+  }
+
+  const missing = [...new Set(dropKeys)].filter(key => !spans.has(key));
+  if (missing.length > 0) throw new NoSuchKey(missing);
+
+  let cut = raw;
+  for (const [start, end] of [...spans.values()].toSorted((a, b) => b[0] - a[0])) {
+    cut = cut.slice(0, start) + cut.slice(end);
+  }
+  return cut.replace(/\r?\n$/, '');
 }
 
 /**

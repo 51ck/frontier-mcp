@@ -1,6 +1,6 @@
 # Issue tracker — FrontierMCP and file fallback
 
-Tracker doc revision 6. To check a vendored copy, compare this number with the one in the
+Tracker doc revision 7. To check a vendored copy, compare this number with the one in the
 `frontier://tracker-doc` resource of the server you run; a lower number, or no revision line, is
 stale.
 
@@ -52,7 +52,7 @@ Eight tools permanently. Optional arguments extend an existing tool; there is no
 | `get_board` | See the whole Effort cheaply — Destination, one summary line per Ticket, Frontier marked. Never returns bodies. |
 | `get_tickets` | Fetch full bodies for specific ids after the Board tells you which Tickets matter. |
 | `create_tickets` | Publish a breakdown in one call. Declare Edges with temporary keys; the server assigns ids and numbers. |
-| `update_ticket` | Claim, resolve, drop, reopen, release, set title/kind/type, set triage, replace Edges, comment, or tick acceptance criteria. One Ticket per call. |
+| `update_ticket` | Claim, resolve, drop, reopen, release, set title/kind/type, set triage, replace Edges, comment, tick acceptance criteria, or `drop_keys` to delete Unimported frontmatter keys. One Ticket per call. |
 | `edit_map` | Edit Map sections — Destination, Notes, fog, Out of scope. Decisions-so-far regenerates from resolved Tickets. |
 | `spec` | Read or write a Spec as a whole document. |
 | `migrate_effort` | Normalize Foreign Tickets — those whose file does not conform to the schema — in an Effort. Filenames never change. Preview writes nothing and names a Ticket it would mint by its handle (`<effort>#<order>`), not a predicted id. |
@@ -89,7 +89,10 @@ a standing warning that the pattern collides across branches — it describes th
 that call; the remedy is a mixed pattern such as `T<N>-<b36{4}>`. When a Ticket's frontmatter carries
 keys outside the schema, `get_tickets` appends them as a fenced `yaml` block under `## Unimported
 frontmatter` — the whole fence for a Ticket with no `id`, only the unimported entries otherwise. The
-read leaves the file unchanged, and no ordinary write removes them. A Board counts `resolved` Tickets
+read leaves the file unchanged, and no ordinary write removes them: pass `update_ticket` `drop_keys`
+with the names to delete. A schema key or a key the fence does not carry fails the call and writes
+nothing; the rest of the fence stays byte-identical. Dropping the last one from a Ticket with no `id`
+leaves it no longer Foreign, still listed under the Board's `no id` warning. A Board counts `resolved` Tickets
 with no `answer_gist`, `dropped` with no `dropped_reason` and `claimed` with no `claimed_by` or `claimed_at` in its
 warnings, so set the field with the Status.
 
