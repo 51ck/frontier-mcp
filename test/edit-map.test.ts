@@ -875,20 +875,21 @@ describe('edit_map refuses values the Map reader would split (T96)', () => {
     expect(await readFile(path, 'utf8')).toBe(before);
   });
 
-  it.each(['add_fog', 'rule_out'])(
-    'refuses a multi-line %s and writes nothing (T98)',
-    async field => {
-      const { frontier, path, rev } = await freshMap();
-      const before = await readFile(path, 'utf8');
-      const error = await frontier.callExpectingError('edit_map', {
-        effort: 'fresh',
-        [field]: 'a\nb\n- c',
-        expected_revision: rev,
-      });
-      expect(error).toContain(`${field} must be a single line`);
-      expect(await readFile(path, 'utf8')).toBe(before);
-    },
-  );
+  it.each(
+    ['add_fog', 'rule_out'].flatMap(field =>
+      ['a\nb\n- c', 'a\r\nb', 'a\rb', 'a\u2028b', 'a\u2029b'].map(value => [field, value]),
+    ),
+  )('refuses a multi-line %s (%j) and writes nothing (T98)', async (field, value) => {
+    const { frontier, path, rev } = await freshMap();
+    const before = await readFile(path, 'utf8');
+    const error = await frontier.callExpectingError('edit_map', {
+      effort: 'fresh',
+      [field as string]: value,
+      expected_revision: rev,
+    });
+    expect(error).toContain(`${field} must be a single line`);
+    expect(await readFile(path, 'utf8')).toBe(before);
+  });
 
   it('refuses on create without making the Effort', async () => {
     const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });

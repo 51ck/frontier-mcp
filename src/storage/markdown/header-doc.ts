@@ -197,7 +197,8 @@ export function assertNoSectionBreaks(edit: MapEdit): void {
     const marker = GENERATED_MARKER.exec(value);
     if (marker !== null) throw new SectionBreakInValue(argument, marker[0], 'marker');
     // removeBullet matches one line at a time, so a multi-line bullet could never be graduated.
-    if ((argument === 'add_fog' || argument === 'rule_out') && /[\r\n]/.test(value)) {
+    // U+2028 and U+2029 count: BULLET's `.` stops at them, so the reader would drop the patch.
+    if ((argument === 'add_fog' || argument === 'rule_out') && /[\r\n\u2028\u2029]/.test(value)) {
       throw new MultiLineBullet(argument);
     }
   }
