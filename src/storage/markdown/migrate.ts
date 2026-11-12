@@ -20,6 +20,8 @@ export interface MigrateFilesRequest {
   readonly allTickets: readonly TicketSummary[];
   readonly preview: boolean;
   readonly rename: boolean;
+  /** Preview only: preserved ids already carried elsewhere, with every claimant file. */
+  readonly conflicts: ReadonlyMap<string, readonly string[]>;
   readonly rescan: Rescan;
   readonly readContents: (filename: string) => Promise<string>;
 }
@@ -51,7 +53,13 @@ export async function migrateEffortFiles(request: MigrateFilesRequest): Promise<
   const used = idsOf(request.allTickets);
 
   if (preview) {
-    const plan = planChanges(candidates, request.minting.peek(used, needMint), entries, rename);
+    const plan = planChanges(
+      candidates,
+      request.minting.peek(used, needMint),
+      entries,
+      rename,
+      request.conflicts,
+    );
     return { effort, preview: true, renamed: rename, changes: plan.map(file => file.change) };
   }
 
@@ -78,6 +86,7 @@ function planChanges(
   minted: readonly string[],
   entries: readonly TicketFileEntry[],
   rename: boolean,
+  conflicts: ReadonlyMap<string, readonly string[]> = new Map(),
 ): readonly PlannedFile[] {
   let mintAt = 0;
   const idByOrder = new Map<number, string>();
@@ -129,6 +138,7 @@ function planChanges(
         fromName: to === entry.filename ? undefined : entry.filename,
         toName: to === entry.filename ? undefined : to,
         blockedBy,
+        duplicateFiles: entry.ticket.id === undefined ? undefined : conflicts.get(id),
       },
     };
   });

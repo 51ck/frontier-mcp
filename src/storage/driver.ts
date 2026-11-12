@@ -100,11 +100,21 @@ export interface StorageDriver {
   isId(name: string): boolean;
 
   /**
-   * Whether ids minted independently on two branches stay distinct after a
-   * merge. False for a purely counted id pattern, which a second branch counts
-   * to the same number.
+   * The configured id pattern when ids minted independently on two branches
+   * can collide after a merge — a purely counted pattern, which a second branch
+   * counts to the same number — with where it is configured, for a reader to
+   * act on. Undefined when minted ids survive a merge.
    */
-  idsSurviveMerge(): boolean;
+  mergeCollidingIdPattern():
+    | { readonly pattern: string; readonly configuredIn: string }
+    | undefined;
+
+  /**
+   * Refuses as a write addressed to `handle` would refuse before it reads the
+   * Ticket — {@link DuplicateId} when more than one Ticket answers to it — and
+   * never writes. Lets a caller put that refusal ahead of its own rules.
+   */
+  assertAddressable(handle: string): Promise<void>;
 
   /**
    * The named Tickets with their bodies, addressed by id or by the

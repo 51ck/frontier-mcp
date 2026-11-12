@@ -30,7 +30,13 @@ import {
   RevisionMismatch,
 } from '../driver.ts';
 import { createTicketFiles, mintingPlan, type MintingPlan } from './create.ts';
-import { compileIdPattern, DEFAULT_ID_PATTERN, idMatcher, loadIdPattern } from './id-pattern.ts';
+import {
+  CONFIG_FILE,
+  compileIdPattern,
+  DEFAULT_ID_PATTERN,
+  idMatcher,
+  loadIdPattern,
+} from './id-pattern.ts';
 import { migrateEffortFiles } from './migrate.ts';
 import { applyEdit, type Defaults } from './serialize.ts';
 import {
@@ -132,9 +138,14 @@ export function createMarkdownDriver(
     idPattern.pattern ?? compileIdPattern(DEFAULT_ID_PATTERN).pattern ?? unreachable();
   const minting = mintingPlan(effectivePattern);
   const matchesId = idMatcher(effectivePattern);
+  const colliding = effectivePattern.survivesMerge
+    ? undefined
+    : { pattern: effectivePattern.source, configuredIn: `${storageDir}/${CONFIG_FILE}` };
   let writes: Promise<unknown> = Promise.resolve();
-  // From the latest completed walk rather than the cached scan, because
-  // workspaceWarnings is synchronous and the cache may be dropped in between.
+  // Set only when the cached scan completes, so a Board's duplicate warning
+  // describes the scan its lines were built from. The fresh walks behind
+  // readTickets, create and migrate never touch it. Kept beside the cache rather
+  // than in it because workspaceWarnings is synchronous.
   let duplicates: ReadonlyMap<string, readonly string[]> = new Map();
 
   const walk = async (): Promise<ScannedEffort[]> => {
@@ -143,11 +154,9 @@ export function createMarkdownDriver(
     const slugs = await readDirectories(storage);
     const scanned = await Promise.all(slugs.map(slug => readEffort(storage, slug)));
 
-    const efforts = scanned
+    return scanned
       .filter((entry): entry is ScannedEffort => entry !== undefined)
       .toSorted((a, b) => a.effort.slug.localeCompare(b.effort.slug));
-    duplicates = duplicateClaims(efforts);
-    return efforts;
   };
 
   /**
@@ -161,10 +170,16 @@ export function createMarkdownDriver(
    */
   let cachedScan: Promise<ScannedEffort[]> | undefined;
   const scan = () => {
-    cachedScan ??= walk().catch((error: unknown) => {
-      cachedScan = undefined;
-      throw error;
-    });
+    cachedScan ??= walk().then(
+      efforts => {
+        duplicates = duplicateClaims(efforts);
+        return efforts;
+      },
+      (error: unknown) => {
+        cachedScan = undefined;
+        throw error;
+      },
+    );
     return cachedScan;
   };
 
@@ -205,8 +220,8 @@ export function createMarkdownDriver(
       return matchesId.test(name);
     },
 
-    idsSurviveMerge() {
-      return effectivePattern.survivesMerge;
+    mergeCollidingIdPattern() {
+      return colliding;
     },
 
     workspaceWarnings() {
@@ -217,8 +232,12 @@ export function createMarkdownDriver(
               `${idPattern.problem} Writes are refused until it is fixed and the FrontierMCP ` +
                 'server is restarted.',
             ];
-      if (duplicates.size > 0) warnings.push(duplicateWarning(duplicates));
+      if (duplicates.size > 0) warnings.push(duplicateWarning(duplicates, colliding));
       return warnings;
+    },
+
+    async assertAddressable(handle) {
+      await locate(storage, handle);
     },
 
     async readTickets(handles): Promise<readonly Ticket[]> {
@@ -309,12 +328,16 @@ async function migrate(
 
   // An id inferred from Legacy prose is preserved, so one another file already
   // carries would be written into frontmatter as a duplicate — the same refusal
-  // as any write addressed to that id.
+  // as any write addressed to that id. A preview is a read, so it reports the
+  // conflict beside the rest of the plan instead.
   const claims = duplicateClaims(scanned);
+  const conflicts = new Map<string, readonly string[]>();
   for (const { ticket } of entries) {
     if (!ticket.legacy || ticket.id === undefined) continue;
     const files = claims.get(ticket.id);
-    if (files !== undefined) throw new DuplicateId(ticket.id, files);
+    if (files === undefined) continue;
+    if (options.preview !== true) throw new DuplicateId(ticket.id, files);
+    conflicts.set(ticket.id, files);
   }
   const issues = join(dir, ISSUES_DIR);
 
@@ -327,6 +350,7 @@ async function migrate(
     allTickets,
     preview: options.preview,
     rename: options.rename,
+    conflicts,
     // Allocation must not share a walk started before the guards — same reason
     // createTickets builds its own rescan.
     rescan: async () => (await walk()).flatMap(summariesOf),
@@ -699,13 +723,36 @@ function duplicateClaims(
 
 // Reported, never repaired: renumbering cannot reach the commit messages and
 // PR bodies that already name the id, so the fix stays a human act.
-function duplicateWarning(duplicates: ReadonlyMap<string, readonly string[]>): string {
-  const listed = [...duplicates]
-    .toSorted(([a], [b]) => a.localeCompare(b))
+// Capped because it rides every Board: the first few ids name their files, the
+// next few are named bare, and the rest are counted. The count stays exact.
+const DUPLICATES_WITH_FILES = 3;
+const DUPLICATES_NAMED = 10;
+
+function duplicateWarning(
+  duplicates: ReadonlyMap<string, readonly string[]>,
+  colliding: { readonly pattern: string } | undefined,
+): string {
+  const sorted = [...duplicates].toSorted(([a], [b]) => a.localeCompare(b));
+  const withFiles = sorted
+    .slice(0, DUPLICATES_WITH_FILES)
     .map(([id, files]) => `${id} (${files.join(', ')})`);
+  const named = sorted
+    .slice(DUPLICATES_WITH_FILES, DUPLICATES_WITH_FILES + DUPLICATES_NAMED)
+    .map(([id]) => id);
+  const rest = sorted.length - DUPLICATES_WITH_FILES - named.length;
+
+  let listed = withFiles.join('; ');
+  if (named.length > 0) listed += `; also ${named.join(' ')}`;
+  if (rest > 0) listed += ` and ${String(rest)} more`;
+  // T56's one-way cross-reference: the pattern is named only once a duplicate
+  // has actually happened, as its likely cause.
+  const cause =
+    colliding === undefined
+      ? ''
+      : `; the counted id pattern ${colliding.pattern} is the likely cause`;
   return (
     `duplicate ids, each carried by more than one Ticket file (${String(duplicates.size)}): ` +
-    `${listed.join('; ')} — writes to them are refused; renumber all but one by hand`
+    `${listed} — writes to them are refused; renumber all but one by hand${cause}`
   );
 }
 
@@ -811,15 +858,20 @@ async function readTicketFiles(dir: string, effort: string): Promise<TicketFileE
 }
 
 /**
- * Two files can share an `NN-` prefix, which would give two id-less Tickets the
- * same `<effort>#<order>` handle and make one of them unfetchable. Later
- * collisions get a suffix, so every Ticket stays individually addressable.
+ * Two id-less Tickets can land on one order — a shared `NN-` prefix, or a
+ * prefix-less file whose listing position matches another's prefix — which
+ * would make one of them unfetchable. Later collisions get a suffix.
+ *
+ * A Ticket with an id is never suffixed. Every claimant of a duplicated id must
+ * keep answering to that id, so a write addressed to it refuses; a suffix would
+ * be a handle reaching one claimant behind the refusal's back.
  */
 function withUniqueHandles(entries: readonly TicketFileEntry[]): TicketFileEntry[] {
   const seen = new Set<string>();
 
   return entries.map(entry => {
     const { ticket } = entry;
+    if (ticket.id !== undefined) return entry;
     if (!seen.has(ticket.handle)) {
       seen.add(ticket.handle);
       return entry;

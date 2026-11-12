@@ -244,6 +244,11 @@ export interface MigrationChange {
   readonly toName: string | undefined;
   /** Edges as they will be written after bare sort-order remapping. */
   readonly blockedBy: readonly string[];
+  /**
+   * Preview only: every Ticket file already carrying this preserved id, this
+   * one included. A real run refuses with DuplicateId instead.
+   */
+  readonly duplicateFiles: readonly string[] | undefined;
 }
 
 /** The result of migrating one Effort — enough for the tool to render a report. */

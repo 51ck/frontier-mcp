@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { cleanupFixtures, connectFrontier, makeFixtureTree } from './support/harness.ts';
-import { COUNTED_PATTERN_WARNING } from '../src/tools/create-tickets.ts';
+import { countedPatternWarning } from '../src/tools/create-tickets.ts';
 import { COUNTED, map, ticket } from './support/fixtures.ts';
 
 afterEach(cleanupFixtures);
@@ -146,7 +146,7 @@ describe('create_tickets', () => {
         'T10  Ship it  blocked_by=T9,T8',
         // This fixture counts, so every create carries T68's warning.
         'warnings:',
-        `- ${COUNTED_PATTERN_WARNING}`,
+        `- ${countedPatternWarning('T<N>', '.scratch/frontier.yml')}`,
       ].join('\n'),
     );
 

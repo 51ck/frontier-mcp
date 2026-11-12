@@ -268,16 +268,20 @@ describe('the counted-pattern warning on create_tickets', () => {
   it.each([
     ['T<N>', 'id_pattern: T<N>\n'],
     ['AUTH-<N>', 'id_pattern: AUTH-<N>\n'],
-  ])('rides every create under %s and never a read', async (_name, config) => {
+  ])('rides every create under %s and never a read', async (name, config) => {
     const frontier = await workspace(config);
 
     const first = await frontier.call('create_tickets', create);
     const second = await frontier.call('create_tickets', create);
     for (const result of [first, second]) {
       expect(result).toContain('warnings:');
+      expect(result).toContain(`id pattern \`${name}\` mints by counting`);
       expect(result).toContain('T<N>-<b36{4}>');
       expect(result).toContain('regression');
-      expect(result).toContain('duplicate-id');
+      expect(result).toContain('Set in .scratch/frontier.yml.');
+      expect(result).toContain('No action is required here — this describes the pattern');
+      // One-way (T56): this warning never mentions a duplicate that has not happened.
+      expect(result).not.toContain('duplicate');
     }
     expect(await frontier.call('get_board', { effort: 'alpha' })).not.toContain('regression');
     expect(await frontier.call('list_efforts', {})).not.toContain('regression');
