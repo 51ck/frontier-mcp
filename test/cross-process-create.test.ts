@@ -60,6 +60,26 @@ const IN_FRONTMATTER = /^id:[ \t]*(\S+)$/m;
 
 // Pinned: the random default needs no guard, so it would test nothing here.
 const COUNTED = 'id_pattern: T<N>\n';
+const DEFAULT_PATTERN = 'T<b36{6}>';
+
+/**
+ * The id a pattern string renders, as regex source. Built here from the string
+ * the test pinned, because tests cannot reach the driver's own compiler.
+ */
+function idSource(pattern: string): string {
+  return pattern
+    .split(/(<N>|<b36\{\d+\}>|<b16\{\d+\}>)/)
+    .map(part => {
+      if (part === '<N>') return '\\d+';
+      const random = /^<b(36|16)\{(\d+)\}>$/.exec(part);
+      if (random !== null) return `[${random[1] === '36' ? '0-9a-z' : '0-9a-f'}]{${random[2]}}`;
+      return part.replaceAll('.', '\\.');
+    })
+    .join('');
+}
+
+// The seed declares its own id, which a mixed pattern does not render.
+const inFilenameFor = (pattern: string) => new RegExp(`^\\d+-(${idSource(pattern)}|T1)-`);
 
 let workspace: string | undefined;
 
@@ -71,13 +91,10 @@ afterEach(async () => {
 describe('creation from separate processes', () => {
   // The mixed pattern is the guard-keying case: racers reaching one counter
   // render different ids, so only a guard keyed on <N> keeps the counters apart.
-  it.each([
-    ['T<N>', /^\d+-(T\d+)-/],
-    // Optional suffix: the seed is a plain T1.
-    ['T<N>-<b36{4}>', /^\d+-(T\d+(?:-[0-9a-z]{4})?)-/],
-  ])(
+  it.each(['T<N>', 'T<N>-<b36{4}>'])(
     'never issues one counter twice under %s',
-    async (pattern, inFilename) => {
+    async pattern => {
+      const inFilename = inFilenameFor(pattern);
       workspace = await mkdtemp(join(tmpdir(), 'frontier-alloc-'));
       const issues = join(workspace, '.scratch/alpha/issues');
       await mkdir(issues, { recursive: true });
@@ -153,5 +170,54 @@ describe('creation from separate processes', () => {
       'alpha',
       'frontier.yml',
     ]);
+  }, 60_000);
+
+  // Cross-process random draws are deliberately uncoordinated (T53), so this
+  // runs the default's full 36^6 space: a collision among a dozen ids is
+  // negligible, and a smaller space would make this test flaky by design.
+  it('draws distinct ids under the random default without a guard', async () => {
+    workspace = await mkdtemp(join(tmpdir(), 'frontier-alloc-'));
+    const issues = join(workspace, '.scratch/alpha/issues');
+    await mkdir(issues, { recursive: true });
+    await writeFile(join(issues, '01-T1-already-here.md'), SEED, 'utf8');
+
+    const scripts = join(import.meta.dirname, '..', 'node_modules', '.frontier-test');
+    await mkdir(scripts, { recursive: true });
+    const script = join(scripts, `creator-random-${String(process.pid)}.mjs`);
+    const src = join(import.meta.dirname, '..', 'src', 'server.ts');
+    await writeFile(script, CREATOR.replace('%SRC%', src), 'utf8');
+
+    const at = Date.now() + 1500;
+    const outcomes = await Promise.all(
+      Array.from({ length: SESSIONS }, async (_, index) => {
+        const { stdout } = await run(process.execPath, [
+          script,
+          `agent-${String(index)}`,
+          String(at),
+          workspace ?? '',
+        ]);
+        return stdout.trim();
+      }),
+    );
+    expect(outcomes).toEqual(Array.from({ length: SESSIONS }, () => 'OK'));
+
+    const files = (await readdir(issues)).filter(name => name.endsWith('.md'));
+    expect(files).toHaveLength(SESSIONS * PER_SESSION + 1);
+
+    const inFilename = inFilenameFor(DEFAULT_PATTERN);
+    const ids = await Promise.all(
+      files.map(async name => ({
+        inFilename: inFilename.exec(name)?.[1],
+        inFrontmatter: IN_FRONTMATTER.exec(await readFile(join(issues, name), 'utf8'))?.[1],
+      })),
+    );
+    expect(ids.filter(entry => entry.inFilename !== entry.inFrontmatter)).toEqual([]);
+    expect(new Set(ids.map(entry => entry.inFrontmatter)).size).toBe(ids.length);
+    const minted = ids.filter(entry => entry.inFrontmatter !== 'T1');
+    const shape = new RegExp(`^${idSource(DEFAULT_PATTERN)}$`);
+    expect(minted.filter(entry => !shape.test(entry.inFrontmatter ?? ''))).toEqual([]);
+
+    // A random pattern draws and rechecks; it never takes a guard at all.
+    expect(await readdir(join(workspace, '.scratch'))).toEqual(['alpha']);
   }, 60_000);
 });
