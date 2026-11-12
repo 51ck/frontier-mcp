@@ -1,3 +1,4 @@
+import { rmSync, writeFileSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -88,6 +89,41 @@ describe('filesystem watcher', { timeout: TEST_TIMEOUT_MS }, () => {
 
     expect(board).toContain('Edited on disk');
     expect(board).toContain('gist=Hand edit.');
+  });
+
+  it('survives a watched directory being replaced by a same-named file (T99)', async () => {
+    const root = await makeFixtureTree({
+      [FILE]: ticket('T1', 'Before the swap'),
+    });
+    const mapPath = join(root, '.scratch/alpha/map.md');
+    await mkdir(mapPath);
+    const frontier = await connectFrontier({ cwd: root, env: {}, watcherDebounceMs: DEBOUNCE_MS });
+    expect(await frontier.call('get_board', { effort: 'alpha' })).toContain('Before the swap');
+
+    // Synchronously, so no watch event is handled between the two: on Linux
+    // Node 24.22+ that is what turns its lstat of `map.md/map.md` into ENOTDIR
+    // rather than ENOENT, deterministically.
+    rmSync(mapPath, { recursive: true });
+    writeFileSync(mapPath, map('Now a file.'), 'utf8');
+    await waitFor(
+      () => frontier.call('get_board', { effort: 'alpha' }),
+      text => text.includes('Now a file.'),
+    );
+
+    // A directory created after the swap must be watched too, or the
+    // replacement watch would see only the tree it started with.
+    await mkdir(join(root, '.scratch/beta/issues'), { recursive: true });
+    await new Promise(resolve => setTimeout(resolve, DEBOUNCE_MS * 4));
+    await writeFile(
+      join(root, '.scratch/beta/issues/01-T2-later.md'),
+      ticket('T2', 'In a new directory'),
+      'utf8',
+    );
+    const board = await waitFor(
+      () => frontier.call('get_board', { effort: 'beta' }),
+      text => text.includes('In a new directory'),
+    );
+    expect(board).toContain('In a new directory');
   });
 
   it('reflects a Ticket added or deleted on disk', async () => {

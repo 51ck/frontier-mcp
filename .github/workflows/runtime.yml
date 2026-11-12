@@ -7,7 +7,13 @@ on:
 
 jobs:
   development:
-    name: Development (Node 24)
+    name: Development (Node ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor, and the newest 24.x: Linux recursive fs.watch was rewritten
+        # in 24.22.0 (T99), so the floor alone cannot see a watcher regression.
+        node: [24.15.0, '24']
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,14 +22,18 @@ jobs:
           version: 10
       - uses: actions/setup-node@v4
         with:
-          node-version: 24.15.0
+          node-version: ${{ matrix.node }}
+          check-latest: true
           cache: pnpm
+      - run: node --version
       - run: pnpm install --frozen-lockfile
       - run: pnpm run check
       - run: pnpm test
       - run: pnpm run build
-      - run: pnpm pack --pack-destination package
-      - uses: actions/upload-artifact@v4
+      - if: matrix.node == '24.15.0'
+        run: pnpm pack --pack-destination package
+      - if: matrix.node == '24.15.0'
+        uses: actions/upload-artifact@v4
         with:
           name: frontier-mcp-package
           path: package/*.tgz

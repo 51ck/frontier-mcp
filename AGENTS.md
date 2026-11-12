@@ -209,6 +209,11 @@ Stack, settled:
   landing in that window is dropped outright rather than replayed. So every attach also schedules a
   few unconditional invalidations on a settle schedule; without them a server started and
   hand-edited immediately serves a stale Board until the next edit.
+  `{ recursive: true }` is used only on macOS and Windows, where it is native. On Linux it is
+  Node's JavaScript emulation, which from 24.22.0 throws `ENOTDIR` inside its own event callback
+  when a watched directory is replaced by a same-named file — uncatchable, so the server died
+  (T99, nodejs/node#66791). There the watcher keeps one non-recursive watch per directory and
+  re-syncs that set before each debounced invalidation.
 - **`tsc` alone** for the build, no bundler. The SDK stopped being a heavy dependency at the scoped
   split: `/server` brings a runtime closure of three packages — itself, `/core` and zod — where the
   v1 monolith brought 91, express and hono among them. There is nothing left that bundling would
@@ -247,9 +252,10 @@ Stack, settled:
     else. Left on, it fails every release with `ERR_PNPM_GIT_UNCLEAN`. Turning it off here rather
     than in an `.npmrc` keeps the guard alive for every other `pnpm publish` in the repo.
   - **pnpm is pinned to 10** in the workflow. 11 404s on OIDC publish (pnpm/pnpm#11513).
-  - **Node is pinned to 24.15.0** in the workflow, the version `runtime.yml`'s development job
-    tests on. A floating `24` ran the `before:init` suite on a Node the gate had never seen and
-    failed a release on that Node's own watcher. Move both pins together.
+  - **Node is pinned to 24.15.0** in the workflow, the floor `runtime.yml`'s development job
+    tests on. That job also tests the newest 24, but a floating `24` here can resolve to a release
+    newer than the gate's last run, which is how a release once failed on a Node the gate had never
+    seen (T99). Move the floor pin in both files together.
 
   The CHANGELOG intro lives in the plugin's `header` option, because the plugin strips and
   re-prepends only the header it is given and would otherwise bury any prose beneath the newest
@@ -494,7 +500,9 @@ pnpm run release:dry  # needs a clean tree and an upstream branch
 ```
 
 `.github/workflows/runtime.yml` runs `check`, `test`, and `build` on Node 24 for every push
-and pull request. Its development job is the test gate; keep failures blocking the downstream
+and pull request, twice: on the 24.15.0 floor, which alone packs the tarball the downstream jobs
+use, and on the newest 24.x, so a Node regression on Linux surfaces in the gate rather than in a
+release (T99). Its development job is the test gate; keep failures blocking the downstream
 package compatibility and setup jobs. The setup matrix provisions real fnm and verifies registration
 and saved launches on macOS, Linux, and Windows; scripts DOX owns the checks. Reuse this gate rather than adding a second test workflow. The release
 workflow remains a separate manual publish path.

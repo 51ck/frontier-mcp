@@ -1,4 +1,4 @@
-import { existsSync, watch, type FSWatcher } from 'node:fs';
+import { existsSync, readdirSync, watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
 
 export interface StorageWatcher {
@@ -39,6 +39,67 @@ const DEFAULT_DEBOUNCE_MS = 50;
 const DEFAULT_SETTLE_MS: readonly number[] = [50, 250, 1000];
 
 /**
+ * Where `{ recursive: true }` is Node's own watch. Elsewhere — Linux — it is
+ * `lib/internal/fs/recursive_watch.js`, which from 24.22.0 throws inside its
+ * own event callback when a watched directory is replaced by a same-named
+ * file (`ENOTDIR`, nodejs/node#66791). No `error` listener sees that throw,
+ * so it kills the process; there we watch each directory ourselves instead.
+ */
+const NATIVE_RECURSIVE = process.platform === 'darwin' || process.platform === 'win32';
+
+/**
+ * One non-recursive watch per directory under `dir`. The set of directories is
+ * re-synced on `resync()`, which the caller runs before each invalidation, so a
+ * directory created during a debounce is watched before the scan that reads
+ * it. Every filesystem call is caught: this runs in our own event callback,
+ * which is the whole point. Returns undefined when `dir` cannot be watched.
+ */
+function watchDirectories(
+  dir: string,
+  onEvent: () => void,
+): (StorageWatcher & { resync(): boolean }) | undefined {
+  const watchers = new Map<string, FSWatcher>();
+  const resync = (): boolean => {
+    const seen = new Set<string>();
+    const visit = (path: string) => {
+      seen.add(path);
+      if (!watchers.has(path)) {
+        try {
+          const watcher = watch(path, onEvent);
+          watcher.on('error', () => {
+            watcher.close();
+            if (watchers.get(path) === watcher) watchers.delete(path);
+          });
+          watchers.set(path, watcher);
+        } catch {
+          seen.delete(path);
+          return;
+        }
+      }
+      let entries;
+      try {
+        entries = readdirSync(path, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) if (entry.isDirectory()) visit(join(path, entry.name));
+    };
+    visit(dir);
+    for (const [path, watcher] of watchers) {
+      if (seen.has(path)) continue;
+      watcher.close();
+      watchers.delete(path);
+    }
+    return watchers.has(dir);
+  };
+  const close = () => {
+    for (const watcher of watchers.values()) watcher.close();
+    watchers.clear();
+  };
+  return resync() ? { close, resync } : (close(), undefined);
+}
+
+/**
  * Watch `storageDir` under a resolved workspace and call `invalidate` when it
  * changes. Never writes — only schedules invalidation after debouncing.
  *
@@ -72,7 +133,8 @@ export function watchStorage(
 ): StorageWatcher {
   const storagePath = join(root, storageDir);
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let storageWatcher: FSWatcher | undefined;
+  let storageWatcher: StorageWatcher | undefined;
+  let resyncDirectories: (() => boolean) | undefined;
   let rootWatcher: FSWatcher | undefined;
   // Held so close() can clear them: a settle timer that outlives the driver
   // keeps a test worker's event loop alive long after the workspace is gone.
@@ -82,6 +144,11 @@ export function watchStorage(
     if (timer !== undefined) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = undefined;
+      if (resyncDirectories?.() === false) {
+        storageWatcher?.close();
+        storageWatcher = undefined;
+        resyncDirectories = undefined;
+      }
       invalidate();
     }, debounceMs);
   };
@@ -112,13 +179,21 @@ export function watchStorage(
   const attachStorageWatcher = () => {
     if (storageWatcher !== undefined || !existsSync(storagePath)) return;
     try {
-      storageWatcher = watch(storagePath, { recursive: true }, () => {
-        scheduleInvalidate();
-      });
-      storageWatcher.on('error', () => {
-        storageWatcher?.close();
-        storageWatcher = undefined;
-      });
+      if (NATIVE_RECURSIVE) {
+        const watcher = watch(storagePath, { recursive: true }, () => {
+          scheduleInvalidate();
+        });
+        watcher.on('error', () => {
+          watcher.close();
+          storageWatcher = undefined;
+        });
+        storageWatcher = watcher;
+      } else {
+        const tree = watchDirectories(storagePath, scheduleInvalidate);
+        if (tree === undefined) return;
+        storageWatcher = tree;
+        resyncDirectories = tree.resync;
+      }
       rootWatcher?.close();
       rootWatcher = undefined;
       settle();
@@ -161,6 +236,7 @@ export function watchStorage(
       storageWatcher?.close();
       rootWatcher?.close();
       storageWatcher = undefined;
+      resyncDirectories = undefined;
       rootWatcher = undefined;
     },
   };
