@@ -242,9 +242,9 @@ Blocked by: 02, 01
         '[alpha#2]  Is the colour-space fix a latent bug?  normalize+mint',
         '[alpha#3]  Port the texture leak fix  normalize+mint  blocked_by=[alpha#2],[T30]',
         '',
-        '[T30]: .scratch/alpha/issues/01-grammy-group-boot.md',
-        '[alpha#2]: .scratch/alpha/issues/02-colour.md',
-        '[alpha#3]: .scratch/alpha/issues/03-texture.md',
+        '[T30]: <.scratch/alpha/issues/01-grammy-group-boot.md>',
+        '[alpha#2]: <.scratch/alpha/issues/02-colour.md>',
+        '[alpha#3]: <.scratch/alpha/issues/03-texture.md>',
       ].join('\n'),
     );
     expect(report).not.toContain('#02');
@@ -291,8 +291,8 @@ Blocked by: 02, 01
     expect(report).toContain(
       '[T2]  Port the texture leak fix  normalize+mint  was alpha#2  blocked_by=[T1]',
     );
-    expect(report).toContain('[T1]: .scratch/alpha/issues/01-colour.md');
-    expect(report).toContain('[T2]: .scratch/alpha/issues/02-texture.md');
+    expect(report).toContain('[T1]: <.scratch/alpha/issues/01-colour.md>');
+    expect(report).toContain('[T2]: <.scratch/alpha/issues/02-texture.md>');
   });
 
   it('ignores unrecognized files in the Effort directory', async () => {
@@ -484,6 +484,41 @@ function ticketLines(board: string): string[] {
     .filter(entry => entry.includes('Port') || entry.startsWith('frontier:'))
     .map(entry => entry.replace(/^(> )?\S+/, '$1'));
 }
+
+describe('migrate_effort preview is a faithful plan', () => {
+  it('never coarsens a sub-slice onto the id the same call mints', async () => {
+    const root = await makeFixtureTree({
+      ...COUNTED,
+      '.scratch/rewrite/map.md': map('Somewhere.'),
+      '.scratch/rewrite/issues/01-port.md': '# Port\n\nStatus: open\nBlocked by: T1.4\n',
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const preview = await frontier.call('migrate_effort', { effort: 'rewrite', preview: true });
+    expect(preview).toContain('blocked_by=T1.4');
+
+    const report = await frontier.call('migrate_effort', { effort: 'rewrite' });
+    expect(report).toContain('[T1]  Port  normalize+mint  was rewrite#1  blocked_by=T1.4');
+    expect(await readFile(join(root, '.scratch/rewrite/issues/01-port.md'), 'utf8')).toContain(
+      'blocked_by: [T1.4]',
+    );
+  });
+
+  it('labels two files carrying one id by filename, and brackets a spaced path', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      '.scratch/alpha/issues/01 x y.md': '# T31 — One\n\nStatus: open\n',
+      '.scratch/alpha/issues/02-z.md': '# T31 — Two\n\nStatus: open\n',
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const preview = await frontier.call('migrate_effort', { effort: 'alpha', preview: true });
+
+    expect(preview).toContain('[01 x y.md]: <.scratch/alpha/issues/01 x y.md>');
+    expect(preview).toContain('[02-z.md]: <.scratch/alpha/issues/02-z.md>');
+    expect(preview).not.toContain('[T31]');
+  });
+});
 
 describe('a prose sub-slice is coarsened only within its own Effort (T82)', () => {
   const OTHER_T1 = '---\nid: T1\ntitle: Unrelated\nstatus: resolved\nblocked_by: []\n---\n';

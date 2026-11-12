@@ -33,9 +33,10 @@ export function renderMigration(report: MigrationReport): string {
     return lines.join('\n');
   }
 
-  const defined = new Set(report.changes.map(labelOf));
+  const labels = labelsOf(report.changes);
+  const defined = new Set(labels.values());
   for (const change of report.changes) {
-    lines.push(renderChange(change, defined));
+    lines.push(renderChange(change, labels.get(change) ?? change.filename, defined));
   }
 
   if (report.crossEffortEdges.length > 0) {
@@ -54,7 +55,10 @@ export function renderMigration(report: MigrationReport): string {
 
   lines.push('');
   for (const change of report.changes) {
-    lines.push(`[${labelOf(change)}]: ${report.directory}/${change.filename}`);
+    // Angle brackets keep a filename with a space a valid link destination.
+    lines.push(
+      `[${labels.get(change) ?? change.filename}]: <${report.directory}/${change.filename}>`,
+    );
   }
 
   return lines.join('\n');
@@ -70,11 +74,29 @@ function capped(items: readonly string[]): string {
   return rest > 0 ? `${named} and ${String(rest)} more` : named;
 }
 
-function labelOf(change: MigrationChange): string {
-  return change.id ?? change.beforeHandle;
+/**
+ * A Ticket's id, or its handle before it has one. Two files a preview finds
+ * carrying one id would share a label and the first definition would win, so
+ * those are labelled by filename, which an Effort cannot repeat.
+ */
+function labelsOf(changes: readonly MigrationChange[]): Map<MigrationChange, string> {
+  const natural = changes.map(change => change.id ?? change.beforeHandle);
+  return new Map(
+    changes.map((change, index) => {
+      const label = natural[index] ?? change.filename;
+      return [
+        change,
+        natural.indexOf(label) === natural.lastIndexOf(label) ? label : change.filename,
+      ];
+    }),
+  );
 }
 
-function renderChange(change: MigrationChange, defined: ReadonlySet<string>): string {
+function renderChange(
+  change: MigrationChange,
+  label: string,
+  defined: ReadonlySet<string>,
+): string {
   const flags = [
     change.normalized ? 'normalize' : undefined,
     change.minted ? 'mint' : undefined,
@@ -91,7 +113,7 @@ function renderChange(change: MigrationChange, defined: ReadonlySet<string>): st
       : `blocked_by=${change.blockedBy.map(edge => (defined.has(edge) ? `[${edge}]` : edge)).join(',')}`;
 
   return [
-    `[${labelOf(change)}]`,
+    `[${label}]`,
     change.title,
     flags.length === 0 ? undefined : flags.join('+'),
     was,

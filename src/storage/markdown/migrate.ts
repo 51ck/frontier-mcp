@@ -162,9 +162,13 @@ async function applyPlan(
     })),
   );
 
-  await Promise.all(
+  // Settled, not raced: the caller releases its `<N>` guards when this returns
+  // or throws, and they must stay held until every write has finished (T62).
+  const written = await Promise.allSettled(
     prepared.map(file => writeAtomically(join(request.issues, file.filename), file.contents)),
   );
+  const failed = written.find(result => result.status === 'rejected');
+  if (failed !== undefined) throw failed.reason;
 }
 
 /**
