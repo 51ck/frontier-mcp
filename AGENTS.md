@@ -341,6 +341,9 @@ Rendering rules that are load-bearing, not cosmetic:
   so, never silently the first; Edge resolution and the Frontier still take the first scanned.
 - **An unrecognized status is counted in the warnings block and is never takeable.** The Board line
   may still show `/open`, but the Ticket is kept off the Frontier until a write normalizes it.
+- **A `<N>`-only id pattern warns on every `create_tickets` result, never on a read, never
+  suppressed** (T68). The tool learns it from `StorageDriver.idsSurviveMerge()`; the text names
+  `T<N>-<b36{4}>`, says *regression*, and points one way at the Board's duplicate-id warning.
 - **Every Ticket is nameable.** A Legacy Ticket with no id gets an `<effort>#<order>` handle, which
   `get_tickets` accepts. It is an address, not an id — not repo-stable, and never usable as an Edge —
   but without it a whole Effort has no route to its own bodies.

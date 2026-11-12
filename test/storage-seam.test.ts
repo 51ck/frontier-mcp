@@ -36,6 +36,9 @@ function fixedDriver(
       isId() {
         return false;
       },
+      idsSurviveMerge() {
+        return true;
+      },
       async readTickets(handles) {
         const wanted = new Set(handles);
         return tickets.filter(
@@ -136,6 +139,9 @@ describe('the storage driver seam', () => {
       },
       isId() {
         return false;
+      },
+      idsSurviveMerge() {
+        return true;
       },
       async readTickets() {
         return [];

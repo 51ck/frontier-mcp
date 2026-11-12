@@ -247,7 +247,15 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       });
 
       return {
-        content: [{ type: 'text', text: withWorkspace(workspace, renderCreated(effort, created)) }],
+        content: [
+          {
+            type: 'text',
+            text: withWorkspace(
+              workspace,
+              renderCreated(effort, created, driver.idsSurviveMerge()),
+            ),
+          },
+        ],
       };
     },
   );

@@ -205,6 +205,10 @@ export function createMarkdownDriver(
       return matchesId.test(name);
     },
 
+    idsSurviveMerge() {
+      return effectivePattern.survivesMerge;
+    },
+
     workspaceWarnings() {
       const warnings =
         idPattern.problem === undefined

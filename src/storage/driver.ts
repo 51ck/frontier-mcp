@@ -100,6 +100,13 @@ export interface StorageDriver {
   isId(name: string): boolean;
 
   /**
+   * Whether ids minted independently on two branches stay distinct after a
+   * merge. False for a purely counted id pattern, which a second branch counts
+   * to the same number.
+   */
+  idsSurviveMerge(): boolean;
+
+  /**
    * The named Tickets with their bodies, addressed by id or by the
    * `<effort>#<order>` handle an id-less Legacy Ticket answers to. A name the
    * workspace does not hold is simply absent: which names were asked for is the

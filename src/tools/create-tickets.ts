@@ -232,7 +232,21 @@ function placeholderFor(index: number, keys: ReadonlySet<string>): string {
  * things a caller cannot work out for itself. The filename is deliberately not
  * here: it is cosmetic, and the id is what everything addresses a Ticket by.
  */
-export function renderCreated(effort: string, created: readonly TicketSummary[]): string {
+/**
+ * Rides every create under a counted-only pattern and never a read: minting is
+ * where the collision is realised, and a once-per-process suppression would
+ * hide it from every agent connecting later (T56, T68).
+ */
+export const COUNTED_PATTERN_WARNING =
+  'a <N>-only id pattern is a regression: it counts this working tree, so another branch mints ' +
+  'the same ids and a merge leaves two Tickets on one id. T<N>-<b36{4}> keeps the number and ' +
+  "cannot collide. A collision that happens shows in get_board's duplicate-id warning.";
+
+export function renderCreated(
+  effort: string,
+  created: readonly TicketSummary[],
+  idsSurviveMerge = true,
+): string {
   const lines = [`${effort}: ${String(created.length)} created`];
 
   for (const ticket of created) {
@@ -247,5 +261,6 @@ export function renderCreated(effort: string, created: readonly TicketSummary[])
     );
   }
 
+  if (!idsSurviveMerge) lines.push('warnings:', `- ${COUNTED_PATTERN_WARNING}`);
   return lines.join('\n');
 }
