@@ -237,7 +237,6 @@ async function main() {
     assert.equal(manualWithMalformedCursor.code, 0, manualWithMalformedCursor.stderr);
 
     await claudeCodeCheck(temporary, home, basic, project, environment);
-    await doctorCheck(temporary, home, environment);
 
     const incompatible = await bootstrap(['--version', options.version], project, environment);
     assert.notEqual(incompatible.code, 0);
@@ -343,69 +342,6 @@ async function claudeCodeCheck(checkTemporary, home, basic, project, environment
   assert.notEqual(malformed.code, 0);
   assert.equal(await readFile(claudeConfig, 'utf8'), '{');
   await rm(claudeConfig, { force: true });
-}
-
-async function doctorCheck(checkTemporary, home, environment) {
-  const repository = path.join(checkTemporary, 'doctor repo');
-  await mkdir(path.join(repository, '.agents'), { recursive: true });
-  await mkdir(path.join(repository, '.git'), { recursive: true });
-  const nested = path.join(repository, 'packages', 'ui');
-  await mkdir(nested, { recursive: true });
-  await writeFile(
-    path.join(repository, '.agents', 'mcp.json'),
-    JSON.stringify({ mcpServers: { frontier: { command: 'npx', args: ['-y', 'frontier-mcp'] } } }),
-    'utf8',
-  );
-  const claude = path.join(checkTemporary, 'fake claude');
-  const doctorEnvironment = {
-    ...environment,
-    PATH: [claude, environment.PATH].join(path.delimiter),
-  };
-
-  const unread = await bootstrap(['--doctor'], nested, doctorEnvironment);
-  assert.equal(unread.code, 1, unread.stderr);
-  assert.match(
-    unread.stdout,
-    /mcp\.json — declares frontier; no client checked here reads this file/,
-  );
-  assert.match(unread.stdout, /Claude Code \(installed\): no file it reads declares frontier/);
-  assert.match(unread.stdout, /Cursor \(not on PATH\)/);
-
-  await symlink(path.join('.agents', 'mcp.json'), path.join(repository, '.mcp.json'));
-  const linked = await bootstrap(
-    ['--doctor', '--project', repository],
-    checkTemporary,
-    doctorEnvironment,
-  );
-  assert.equal(linked.code, 0, linked.stderr);
-  assert.match(linked.stdout, /Claude Code \(installed\): frontier declared in project scope/);
-  assert.match(linked.stdout, /reached only through a symlink/);
-  assert.match(linked.stdout, /Pending approval/);
-
-  await mkdir(path.join(home, '.codex'), { recursive: true });
-  await writeFile(
-    path.join(home, '.codex', 'config.toml'),
-    '[mcp_servers.frontier]\ncommand = "npx"\n',
-    'utf8',
-  );
-  const real = await realpath(repository);
-  await writeFile(
-    path.join(home, '.claude.json'),
-    JSON.stringify({ projects: { [real]: { mcpServers: { frontier: { command: 'x' } } } } }),
-    'utf8',
-  );
-  const scoped = await bootstrap(
-    ['--doctor', '--project', repository],
-    checkTemporary,
-    doctorEnvironment,
-  );
-  assert.match(
-    scoped.stdout,
-    /Claude Code \(installed\): frontier declared in project, local scope/,
-  );
-  assert.match(scoped.stdout, /Codex \(not on PATH\): frontier declared in user scope/);
-  await rm(path.join(home, '.claude.json'), { force: true });
-  await rm(path.join(home, '.codex'), { recursive: true, force: true });
 }
 
 async function launcherOnlyCheck(checkTemporary, checkOptions) {

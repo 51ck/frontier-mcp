@@ -12,6 +12,7 @@ const {
   chmod,
   copyFile,
   lstat,
+  readlink,
   mkdtemp,
   mkdir,
   open,
@@ -59,7 +60,7 @@ async function main(args) {
   if (options.doctor) {
     const report = await doctor(options.project ?? process.cwd());
     process.stdout.write(report.text);
-    if (report.unread.length > 0) process.exitCode = 1;
+    if (report.failed) process.exitCode = 1;
     return;
   }
 
@@ -1606,13 +1607,14 @@ async function readClaudeConfig(target) {
   return config;
 }
 
-async function applyClaudeCode(claude, target, preview, replace) {
+async function applyClaudeCode(claude, target, preview, replace, platform = process.platform) {
   if (preview.identical) return;
   if (preview.existing !== undefined && !replace) {
     throw new Error(
       'Claude Code already has a different user-scope frontier entry. Review the preview and rerun with --replace.',
     );
   }
+  assertSpawnableClaude(claude, preview.desired, platform);
   const current = await readClaudeConfig(target);
   const now = isObject(current.mcpServers) ? current.mcpServers[SERVER] : undefined;
   if (JSON.stringify(now) !== preview.fingerprint) {
@@ -1620,32 +1622,66 @@ async function applyClaudeCode(claude, target, preview, replace) {
       `Claude Code frontier entry changed since preview; refusing to overwrite ${target}.`,
     );
   }
+  let backup;
   try {
-    const backup = `${target}.frontier-backup-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+    backup = `${target}.frontier-backup-${new Date().toISOString().replace(/[:.]/g, '-')}`;
     await copyFile(target, backup);
     process.stdout.write(`Backup: ${backup}\n`);
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
+    backup = undefined;
   }
   const options = { label: 'claude mcp', timeout: 60_000, env: process.env };
-  if (preview.existing !== undefined)
-    await run(claude, ['mcp', 'remove', '--scope', 'user', SERVER], options);
-  await run(
-    claude,
-    ['mcp', 'add-json', '--scope', 'user', SERVER, JSON.stringify(preview.desired)],
-    options,
+  const addJson = entry => ['mcp', 'add-json', '--scope', 'user', SERVER, JSON.stringify(entry)];
+  if (preview.existing === undefined) {
+    await run(claude, addJson(preview.desired), options);
+    return;
+  }
+  await run(claude, ['mcp', 'remove', '--scope', 'user', SERVER], options);
+  try {
+    await run(claude, addJson(preview.desired), options);
+  } catch (error) {
+    let restored;
+    try {
+      await run(claude, addJson(preview.existing), options);
+      restored = 'the previous entry was re-registered';
+    } catch (restoreError) {
+      restored = `re-registering the previous entry also failed (${restoreError.message})`;
+    }
+    throw new Error(
+      `${error.message}\nThe previous user-scope frontier entry had already been removed with \`claude mcp remove\`; ${restored}. ` +
+        (backup === undefined ? 'No backup was made.' : `Backup of ${target}: ${backup}`),
+      { cause: error },
+    );
+  }
+}
+
+// On Windows, PATH lookup can resolve the npm `claude.cmd` shim. Spawning a
+// batch file without a shell fails with EINVAL on current Node, and through
+// cmd.exe the JSON argument is re-parsed, so refuse rather than use a shell.
+function assertSpawnableClaude(claude, desired, platform) {
+  if (platform !== 'win32' || !/\.(cmd|bat)$/i.test(claude)) return;
+  const json = JSON.stringify(desired).replace(/'/g, "''");
+  throw new Error(
+    `Claude Code CLI resolved to the batch shim ${claude}, which setup cannot pass a JSON argument through safely. ` +
+      'Rerun with --claude pointing at claude.exe, or register the entry yourself in PowerShell:\n' +
+      `claude mcp add-json --scope user ${SERVER} '${json}'`,
   );
 }
 
-// Which file each installed client reads for MCP servers. Only locations the
-// clients document are listed; .agents/mcp.json is read by none of them and is
-// reachable only through a symlink at one of the paths below.
+// Which file each client reads for MCP servers. Claude Code and Cursor
+// locations are the ones those clients document; .agents/mcp.json is read by
+// neither and reaches them only through a symlink at one of their paths.
+// Codex is reported but never judged: only its user scope is verified.
+const VERIFIED_CLIENTS = new Set(['Claude Code', 'Cursor']);
+
 function clientConfigLocations(root, home) {
   return [
     {
       client: 'Claude Code',
       command: 'claude',
       scope: 'project',
+      repo: true,
       file: path.join(root, '.mcp.json'),
     },
     {
@@ -1666,6 +1702,7 @@ function clientConfigLocations(root, home) {
       client: 'Cursor',
       command: 'cursor',
       scope: 'project',
+      repo: true,
       file: path.join(root, '.cursor', 'mcp.json'),
     },
     {
@@ -1685,6 +1722,12 @@ function clientConfigLocations(root, home) {
 }
 
 const UNREAD_CANDIDATES = [path.join('.agents', 'mcp.json')];
+const FAILED_STATES = new Set([
+  'broken symlink',
+  'unreadable',
+  'invalid JSON',
+  'not a JSON object',
+]);
 
 async function doctor(start, environment = process.env, platform = process.platform) {
   const root = await doctorRoot(path.resolve(start));
@@ -1700,70 +1743,85 @@ async function doctor(start, environment = process.env, platform = process.platf
   );
   const locations = clientConfigLocations(root, home);
   const results = await Promise.all(
-    locations.map(async location => ({
-      location,
-      found: await declaresFrontier(location, root),
-      real: await realpathOrUndefined(location.file),
-      linked: await isSymlink(location.file),
-    })),
+    locations.map(async location => ({ location, ...(await inspectConfig(location, root)) })),
   );
   const lines = [`Repository: ${root}`];
-  const readTargets = new Set();
+  const readTargets = new Map();
   const reachable = { 'Claude Code': [], Cursor: [], Codex: [] };
-  for (const { location, found: result, real, linked } of results) {
-    if (real !== undefined) readTargets.add(real);
-    const status =
-      result.error ??
-      (result.declared ? 'declares frontier' : result.exists ? 'no frontier entry' : 'absent');
-    const via = linked && real !== undefined ? ` (-> ${real})` : '';
+  let repoDeclares = false;
+  let readFailure = false;
+  for (const result of results) {
+    const { location } = result;
+    if (result.real !== undefined && !readTargets.has(result.real))
+      readTargets.set(result.real, location.file);
+    const via = result.target !== undefined ? ` (-> ${result.target})` : '';
     lines.push(
-      `  ${location.client} ${location.scope}: ${location.file}${via} — ${status}; read by ${location.client} (${installed[location.command] ? 'installed' : 'not on PATH'})`,
+      `  ${location.client} ${location.scope}: ${location.file}${via} — ${describe(result)}; read by ${location.client} (${installed[location.command] ? 'installed' : 'not on PATH'})`,
     );
     if (result.declared) reachable[location.client].push(location.scope);
+    if (location.repo && (result.declared || result.others.length > 0)) repoDeclares = true;
+    if (FAILED_STATES.has(result.state) && VERIFIED_CLIENTS.has(location.client))
+      readFailure = true;
   }
+  lines.push(
+    `  Codex project scope: not verified; this check does not know whether Codex reads ${path.join('.agents', 'mcp.json')} or ${path.join('.codex', 'config.toml')} in a repository.`,
+  );
   const candidates = await Promise.all(
     UNREAD_CANDIDATES.map(async relative => {
       const file = path.join(root, relative);
-      return {
-        file,
-        found: await declaresFrontier({ file }, root),
-        real: await realpathOrUndefined(file),
-      };
+      return { file, result: await inspectConfig({ file }, root) };
     }),
   );
-  const unread = [];
-  for (const candidate of candidates) {
-    if (!candidate.found.declared) continue;
-    if (readTargets.has(candidate.real)) {
-      lines.push(
-        `  ${candidate.file} — declares frontier; reached only through a symlink listed above`,
-      );
-    } else {
-      unread.push(candidate.file);
-      lines.push(`  ${candidate.file} — declares frontier; no client checked here reads this file`);
+  for (const { file, result } of candidates) {
+    if (result.state === 'absent') continue;
+    if (result.declared || result.others.length > 0) repoDeclares = true;
+    const via = result.target !== undefined ? ` (-> ${result.target})` : '';
+    let reach = '';
+    if (result.declared) {
+      const reader = result.real === undefined ? undefined : readTargets.get(result.real);
+      reach =
+        reader === undefined
+          ? '; Claude Code and Cursor do not read this path (Codex: not verified)'
+          : `; reached through the symlink at ${reader}`;
     }
+    lines.push(`  ${file}${via} — ${describe(result)}${reach}`);
   }
+  const failing = [];
   lines.push('Summary:');
-  for (const location of locations.filter(
-    (l, i, all) => all.findIndex(o => o.client === l.client) === i,
-  )) {
-    const scopes = reachable[location.client];
-    const state = installed[location.command] ? 'installed' : 'not on PATH';
+  for (const client of ['Claude Code', 'Cursor', 'Codex']) {
+    const command = locations.find(location => location.client === client).command;
+    const state = installed[command] ? 'installed' : 'not on PATH';
+    const scopes = reachable[client];
+    const note = client === 'Codex' ? ' (user scope only; project scope not verified)' : '';
     lines.push(
       scopes.length > 0
-        ? `  ${location.client} (${state}): frontier declared in ${scopes.join(', ')} scope`
-        : `  ${location.client} (${state}): no file it reads declares frontier`,
+        ? `  ${client} (${state}): frontier declared in ${scopes.join(', ')} scope${note}`
+        : `  ${client} (${state}): no file checked here declares frontier${note}`,
     );
+    if (VERIFIED_CLIENTS.has(client) && installed[command] && scopes.length === 0)
+      failing.push(client);
   }
   if (reachable['Claude Code'].includes('project'))
     lines.push(
       '  Claude Code asks once per project before starting a .mcp.json server; check `claude mcp list` for Pending approval.',
     );
-  if (unread.length > 0)
+  const failed = failing.length > 0 && (repoDeclares || readFailure);
+  if (failed)
     lines.push(
-      `  ${unread.length} file(s) declare frontier where no client looks. Move or symlink to a path above.`,
+      `  This repository expects frontier, but ${failing.join(' and ')} would start without it. Declare it in a file listed above or symlink one to the repository's entry.`,
     );
-  return { text: `${lines.join('\n')}\n`, reachable, unread, installed };
+  return { text: `${lines.join('\n')}\n`, reachable, failing, failed, installed };
+}
+
+function describe(result) {
+  const parts = [];
+  if (result.state === 'declares') parts.push('declares frontier');
+  else if (result.state === 'present') parts.push('no frontier entry');
+  else
+    parts.push(result.detail === undefined ? result.state : `${result.state} (${result.detail})`);
+  for (const key of result.others)
+    parts.push(`runs frontier-mcp under key "${key}", not "frontier"`);
+  return parts.join('; ');
 }
 
 async function doctorRoot(start, current = start) {
@@ -1782,14 +1840,6 @@ async function doctorRoot(start, current = start) {
   return parent === current ? start : doctorRoot(start, parent);
 }
 
-async function isSymlink(file) {
-  try {
-    return (await lstat(file)).isSymbolicLink();
-  } catch {
-    return false;
-  }
-}
-
 async function realpathOrUndefined(file) {
   try {
     return await realpath(file);
@@ -1798,36 +1848,59 @@ async function realpathOrUndefined(file) {
   }
 }
 
-async function declaresFrontier(location, root) {
+async function inspectConfig(location, root) {
+  const base = { declared: false, others: [] };
+  let target;
+  try {
+    if ((await lstat(location.file)).isSymbolicLink()) target = await readlink(location.file);
+  } catch (error) {
+    if (error.code === 'ENOENT') return { ...base, state: 'absent' };
+    return { ...base, state: 'unreadable', detail: error.code };
+  }
+  const real = await realpathOrUndefined(location.file);
+  const linked = { ...base, target, real };
+  if (target !== undefined && real === undefined) return { ...linked, state: 'broken symlink' };
   let source;
   try {
     source = await readFile(location.file, 'utf8');
   } catch (error) {
-    if (error.code === 'ENOENT') return { exists: false, declared: false };
-    return { exists: true, declared: false, error: `unreadable (${error.code})` };
+    return { ...linked, state: 'unreadable', detail: error.code };
   }
   if (location.toml) {
     const declared = /^\s*\[\s*mcp_servers\s*\.\s*(?:frontier|"frontier"|'frontier')\s*\]/m.test(
       source,
     );
-    return { exists: true, declared };
+    return { ...linked, state: declared ? 'declares' : 'present', declared };
   }
   let config;
   try {
     config = JSON.parse(source);
   } catch {
-    return { exists: true, declared: false, error: 'invalid JSON' };
+    return { ...linked, state: 'invalid JSON' };
   }
-  if (!isObject(config)) return { exists: true, declared: false, error: 'not a JSON object' };
+  if (!isObject(config)) return { ...linked, state: 'not a JSON object' };
   let servers = config.mcpServers;
   if (location.claude === 'local') {
     // Claude Code keys local scope by project path; accept either spelling.
     const projects = isObject(config.projects) ? config.projects : {};
-    const real = await realpathOrUndefined(root);
-    const project = projects[root] ?? (real === undefined ? undefined : projects[real]);
+    const realRoot = await realpathOrUndefined(root);
+    const project = projects[root] ?? (realRoot === undefined ? undefined : projects[realRoot]);
     servers = isObject(project) ? project.mcpServers : undefined;
   }
-  return { exists: true, declared: isObject(servers) && servers[SERVER] !== undefined };
+  if (!isObject(servers)) return { ...linked, state: 'present' };
+  const declared = servers[SERVER] !== undefined;
+  const others = Object.keys(servers).filter(
+    key => key !== SERVER && runsFrontierMcp(servers[key]),
+  );
+  return { ...linked, state: declared ? 'declares' : 'present', declared, others };
+}
+
+function runsFrontierMcp(entry) {
+  if (!isObject(entry)) return false;
+  const words = [entry.command, ...(Array.isArray(entry.args) ? entry.args : [])];
+  return words.some(
+    word => typeof word === 'string' && /(^|[\\/@\s])frontier-mcp(@|$|[\\/\s])/.test(word),
+  );
 }
 
 // The check script imports these private helpers to force a fingerprint race
@@ -1835,6 +1908,7 @@ async function declaresFrontier(location, root) {
 module.exports = {
   testing: {
     applyClaudeCode,
+    assertSpawnableClaude,
     applyConfig,
     cursorConfigPath,
     doctor,
