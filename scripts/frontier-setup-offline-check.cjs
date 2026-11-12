@@ -43,6 +43,10 @@ function windowsShimCheck() {
   const expected =
     "claude mcp add --scope user frontier -- 'C:\\Program Files\\it''s\\frontier.cmd' '--flag' 'a b'";
   assert.equal(testing.manualClaudeCommand(desired, 'win32'), expected);
+  assert.equal(
+    testing.manualClaudeCommand({ command: 'C:\\Users\\O\u2019Brien\\f.cmd' }, 'win32'),
+    "claude mcp add --scope user frontier -- 'C:\\Users\\O\u2019\u2019Brien\\f.cmd'",
+  );
   for (const shim of ['C:\\npm\\claude.cmd', 'C:\\npm\\CLAUDE.BAT']) {
     assert.throws(
       () => testing.assertSpawnableClaude(shim, desired, 'win32'),

@@ -1456,6 +1456,7 @@ function printPreview({ runtime, release, installation, target, preview, client,
   );
   process.stdout.write(`${CLIENT_LABELS[client]}: ${target}\n`);
   if (client === 'claude-code') {
+    if (process.platform === 'win32') process.stdout.write('In PowerShell:\n');
     process.stdout.write(`${manualClaudeCommand(preview.desired, process.platform)}\n`);
   } else {
     process.stdout.write(
@@ -1672,7 +1673,8 @@ function assertSpawnableClaude(claude, desired, platform) {
 function manualClaudeCommand(desired, platform) {
   if (platform === 'win32') {
     const words = [desired.command, ...(desired.args || [])].map(
-      word => `'${String(word).replace(/'/g, "''")}'`,
+      // PowerShell also ends a single-quoted string at U+2018..U+201B.
+      word => `'${String(word).replace(/['\u2018\u2019\u201A\u201B]/g, '$&$&')}'`,
     );
     return `claude mcp add --scope user ${SERVER} -- ${words.join(' ')}`;
   }
