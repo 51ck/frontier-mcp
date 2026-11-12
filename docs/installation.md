@@ -38,10 +38,17 @@ already defined in `.mcp.json`; it never defines one.
 ### Per-repository configuration
 
 User scope is recommended. A team that wants one pin committed per repository can instead put the
-`frontier` entry in the file each client reads at the repository root: `.mcp.json` for Claude Code,
-which asks each user to approve it once, and `.cursor/mcp.json` for Cursor. Neither Claude Code
-nor Cursor reads `.agents/mcp.json`; it is reachable only when one of those two paths is a symlink
-to it. A server declared where no client reads it produces no tools and no error.
+`frontier` entry in the file each client reads at the repository root:
+
+| Client | Per-repository file |
+| --- | --- |
+| Claude Code | `.mcp.json`, which each user approves once |
+| Cursor | `.cursor/mcp.json` |
+| Codex | Not verified. `codex mcp add` writes user scope, `~/.codex/config.toml`; whether Codex reads a project-level file is untested here |
+
+Neither Claude Code nor Cursor reads `.agents/mcp.json`; it reaches them only when one of their
+paths is a symlink to it. A server declared where a client does not read it gives that client no
+tools and no error.
 
 This direct `npx` form uses the Node and `npx` on the client's `PATH`. Desktop applications often
 start with a smaller `PATH` than a terminal and do not load shell-managed runtimes. Use an absolute
@@ -107,16 +114,28 @@ user-data directory, and verifies MCP initialization plus `tools/list`. It then 
 entry. `--apply` writes Cursor user scope. `--client claude-code` verifies the same launcher and
 `--apply` registers it with `claude mcp add-json --scope user`, using `claude` from `PATH` or
 `--claude PATH`; setup reads `~/.claude.json` to compare entries and leaves the write to that CLI,
-backing the file up first. For another client, use `--client manual` and copy the printed
+backing the file up first. With `--replace`, if `add-json` fails after the old entry was removed,
+setup re-registers the old entry and reports whether that worked and where the backup is. On
+Windows, setup refuses a `claude.cmd` or `claude.bat` shim, because it cannot pass the JSON
+argument through `cmd.exe` safely; pass `--claude` pointing at `claude.exe`, or run the
+`claude mcp add-json` command it prints. For another client, use `--client manual` and copy the printed
 `frontier` entry into that client's user configuration. Use `--replace` only after reviewing
 a different existing `frontier` entry; setup creates a backup first.
 
-`--doctor`, run from inside a repository (or with `--project DIR`), needs no version. It lists the
-Claude Code, Cursor and Codex configuration files for that repository and user, says which declare
-`frontier` and which client reads each, and whether that client is on `PATH`. It exits 1 when a
-file such as `.agents/mcp.json` declares `frontier` and no client reads it. `--client claude-code`
-and `--doctor` arrive with bootstrap revision 3; the 0.5.0 tarball ships revision 2, so until a
-release carries revision 3, run them from a source checkout.
+`--doctor`, run from inside a repository (or with `--project DIR`), needs no version and never
+writes. It lists the Claude Code, Cursor and Codex configuration files for that repository and
+user, says which declare `frontier`, flags any that are unreadable, invalid JSON or broken
+symlinks, names a server that runs `frontier-mcp` under a key other than `frontier`, and says
+whether each client is on `PATH`. It exits 1 when the repository declares `frontier` (or a file
+Claude Code or Cursor reads cannot be parsed) and an installed Claude Code or Cursor would still
+start without it. Codex is reported, never judged: only its user scope is verified.
+
+Published releases through 0.6.0 ship bootstrap revision 2, which rejects `--doctor` and
+`--client claude-code`. Until a release carries revision 3, run them from a source checkout:
+
+```sh
+node path/to/frontier-mcp/scripts/frontier-setup.cjs --doctor --project .
+```
 
 The POSIX quick-start above, without `--apply`, passed on macOS arm64 with the published 0.5.0
 tarball, under both Node 24.15.0 and Node 16.20.2 running the bootstrap. Each preview installed and

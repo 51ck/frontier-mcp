@@ -76,19 +76,20 @@ reads from the repository root:
 | --- | --- |
 | Claude Code | `.mcp.json` (each user approves it once; `claude mcp list` shows it pending until then) |
 | Cursor | `.cursor/mcp.json` |
+| Codex | Not verified. `codex mcp add` writes user scope, `~/.codex/config.toml`; whether Codex reads a project-level file is untested here |
 
-Neither Claude Code nor Cursor reads `.agents/mcp.json`. This repository keeps its entry there and makes it reachable by
-committing `.mcp.json` and `.cursor/mcp.json` as symlinks to it; copying only `.agents/mcp.json`
-leaves every client without the server, and none of them reports an error. To see which files
-declare `frontier` and which installed clients read them, run the setup script's doctor from the
-repository:
+Neither Claude Code nor Cursor reads `.agents/mcp.json`. This repository keeps its entry there and
+makes it reachable by committing `.mcp.json` and `.cursor/mcp.json` as symlinks to it; copying
+only `.agents/mcp.json` leaves Claude Code and Cursor without the server, and neither reports an
+error. To see which files declare `frontier` and which installed clients read them, run the setup
+script's doctor from the repository.
+
+Published releases through 0.6.0 ship bootstrap revision 2, which rejects `--doctor` and
+`--client claude-code`. Until a release carries revision 3, run the doctor from a source checkout:
 
 ```sh
-node "$SETUP_DIR/package/scripts/frontier-setup.cjs" --doctor
+node path/to/frontier-mcp/scripts/frontier-setup.cjs --doctor --project .
 ```
-
-The doctor and `--client claude-code` arrive with bootstrap revision 3. The 0.5.0 tarball ships
-revision 2, so until a release carries it, run `scripts/frontier-setup.cjs` from a source checkout.
 
 The [installation guide](docs/installation.md) covers Node 16 projects, a PowerShell bootstrap,
 runtime managers, absolute desktop paths, Bun and Deno (enabled only for older pins), other
