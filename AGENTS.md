@@ -347,6 +347,11 @@ Rendering rules that are load-bearing, not cosmetic:
 - **Every Ticket is nameable.** A Legacy Ticket with no id gets an `<effort>#<order>` handle, which
   `get_tickets` accepts. It is an address, not an id — not repo-stable, and never usable as an Edge —
   but without it a whole Effort has no route to its own bodies.
+- **A foreign fence is shown, never written.** `get_tickets` appends a foreign-fenced Ticket's raw
+  fence (`Ticket.foreignFence`, body path only) under `## Foreign frontmatter (not imported; file
+  unchanged)` as a `yaml` block whose backtick delimiter outruns any run inside it. Conforming
+  Tickets gain nothing. Only a write that mints an id (`migrate_effort`) clears it; a comment or
+  claim leaves the fence foreign.
 - **A Spec-only Effort opens with its Spec's first paragraph**, labelled `spec:` rather than
   `destination:`. Destination is a Map section; calling a Spec's opening one would be a lie in the
   vocabulary. Multi-line header prose has its continuation lines indented so it can never be read as

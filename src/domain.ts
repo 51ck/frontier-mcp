@@ -77,6 +77,12 @@ export interface TicketSummary {
 /** A Ticket with its prose. */
 export interface Ticket extends TicketSummary {
   readonly body: string;
+  /**
+   * The raw, unparsed YAML of a frontmatter fence that is not this schema —
+   * no id and keys outside it. Carried on the body path only, so the agent can
+   * read what was never imported; undefined for every conforming Ticket.
+   */
+  readonly foreignFence?: string;
 }
 
 /**

@@ -50,7 +50,7 @@ import {
   scaffoldMap,
   SECTION_HEADINGS,
 } from './header-doc.ts';
-import { parseTicketSummary, ticketBody } from './ticket.ts';
+import { foreignFence, parseTicketSummary, ticketBody } from './ticket.ts';
 import { watchStorage, type StorageWatcher } from './watcher.ts';
 
 /**
@@ -768,13 +768,13 @@ async function readBodies(
       })),
   );
 
-  return Promise.all(
-    found.map(async ({ ticket, path }) => withBody(ticket, ticketBody(await readText(path)))),
-  );
+  return Promise.all(found.map(async ({ ticket, path }) => withBody(ticket, await readText(path))));
 }
 
-function withBody(ticket: TicketSummary, body: string): Ticket {
-  return { ...ticket, body };
+function withBody(ticket: TicketSummary, contents: string): Ticket {
+  const body = ticketBody(contents);
+  const fence = foreignFence(contents);
+  return fence === undefined ? { ...ticket, body } : { ...ticket, body, foreignFence: fence };
 }
 
 /**

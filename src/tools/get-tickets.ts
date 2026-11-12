@@ -75,5 +75,18 @@ function renderOne(ticket: Ticket): string {
     ticket.legacy ? 'legacy' : undefined,
   ].filter(field => field !== undefined);
 
-  return `# ${ticket.handle} — ${ticket.title}\n${fields.join('  ')}\n\n${ticket.body}`;
+  const head = `# ${ticket.handle} — ${ticket.title}\n${fields.join('  ')}\n\n${ticket.body}`;
+  return ticket.foreignFence === undefined
+    ? head
+    : `${head}\n\n${renderFence(ticket.foreignFence)}`;
+}
+
+/**
+ * The fence verbatim, never re-serialized. Its delimiter outruns any backtick
+ * run inside it, so YAML holding a code fence cannot close the block early.
+ */
+function renderFence(raw: string): string {
+  const longest = Math.max(0, ...(raw.match(/`+/g) ?? []).map(run => run.length));
+  const delimiter = '`'.repeat(Math.max(3, longest + 1));
+  return `## Foreign frontmatter (not imported; file unchanged)\n\n${delimiter}yaml\n${raw}\n${delimiter}`;
 }
