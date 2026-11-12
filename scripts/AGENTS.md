@@ -42,14 +42,18 @@ These scripts provide runtime probes and setup helpers for T88–T91.
   registers is the launcher the handshake verified. If `add-json` fails after `--replace` removed
   the old entry, it re-registers the old entry and its error names the removal, the restore result
   and the backup. On Windows it refuses a resolved `claude.cmd`/`.bat` (no shell is ever used) and
-  prints the manual `add-json` command instead.
+  prints the manual command instead. Preview and refusal print one form: POSIX shell-quotes every
+  word of `claude mcp add-json`; Windows prints `claude mcp add --scope user frontier -- '<word>' ...`
+  with PowerShell single quotes, because Windows PowerShell 5.1 mangles JSON passed to native programs.
 - `--doctor` needs no version and never writes. It resolves the repository like the launcher, lists
   Claude Code `.mcp.json` / `~/.claude.json` (user and local), Cursor `.cursor/mcp.json` /
   `~/.cursor/mcp.json`, Codex `~/.codex/config.toml`, and `.agents/mcp.json`, and reports for each
-  whether it declares `frontier`, is absent, a broken symlink, unreadable or invalid JSON, and any
-  other key that runs `frontier-mcp`. It exits 1 when a repository file declares frontier (or a
-  Claude Code/Cursor location fails to parse) and an installed Claude Code or Cursor has no
-  declaration it reads. Codex is reported, never judged: only its user scope is verified, so its
+  whether it declares `frontier` (an object with a string `command` or `url`; a null or empty entry
+  is reported as having no command), is absent, a broken symlink, unreadable or invalid JSON, and any
+  other key that runs `frontier-mcp`. Failures are judged per client: an installed Claude Code or
+  Cursor with no declaration it reads fails when a repository file declares frontier or when one of
+  its own locations fails to read, and the latter is named as that file and that client. It never
+  says the repository expects frontier when the repository declares nothing. Codex is reported, never judged: only its user scope is verified, so its
   project-scope reading is stated as unverified. Only locations the clients document belong in
   that list.
 - When its current Node is unsuitable and no explicit `--node` was supplied, `frontier-setup.cjs`
@@ -89,8 +93,11 @@ These scripts provide runtime probes and setup helpers for T88–T91.
   disposable verification fixtures.
 - `frontier-setup-offline-check.cjs` needs no registry and no real client. It covers the doctor
   cases against temporary repositories, the Windows shim refusal, and Claude Code apply (refusal,
-  restore after a failed `add-json`, replace, idempotence) against a stand-in `claude` that edits a
-  temporary `~/.claude.json`. Symlink and stand-in cases are POSIX-only and skipped on Windows.
+  restore after a failed `add-json`, a failed restore, a failed `remove`, no backup, plain add,
+  replace, idempotence) against a stand-in `claude` that edits a temporary `~/.claude.json`.
+  Symlink and stand-in cases are POSIX-only and skipped on Windows. **Apply and restore never run on
+  Windows in CI**, because the stand-in `claude` is a shell script; there only the printed command
+  and the shim refusal message are checked.
 - `frontier-setup-check.cjs` also runs Claude Code apply end to end against the stand-in, so the
   registered entry is the launcher a real handshake verified.
 - `frontier-setup-check.cjs` runs that bootstrap under Node 16 against an explicit newer Node and the

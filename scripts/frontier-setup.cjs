@@ -1456,9 +1456,7 @@ function printPreview({ runtime, release, installation, target, preview, client,
   );
   process.stdout.write(`${CLIENT_LABELS[client]}: ${target}\n`);
   if (client === 'claude-code') {
-    process.stdout.write(
-      `claude mcp add-json --scope user ${SERVER} '${JSON.stringify(preview.desired)}'\n`,
-    );
+    process.stdout.write(`${manualClaudeCommand(preview.desired, process.platform)}\n`);
   } else {
     process.stdout.write(
       `${JSON.stringify({ mcpServers: { [SERVER]: preview.desired } }, null, 2)}\n`,
@@ -1661,12 +1659,25 @@ async function applyClaudeCode(claude, target, preview, replace, platform = proc
 // cmd.exe the JSON argument is re-parsed, so refuse rather than use a shell.
 function assertSpawnableClaude(claude, desired, platform) {
   if (platform !== 'win32' || !/\.(cmd|bat)$/i.test(claude)) return;
-  const json = JSON.stringify(desired).replace(/'/g, "''");
   throw new Error(
     `Claude Code CLI resolved to the batch shim ${claude}, which setup cannot pass a JSON argument through safely. ` +
       'Rerun with --claude pointing at claude.exe, or register the entry yourself in PowerShell:\n' +
-      `claude mcp add-json --scope user ${SERVER} '${json}'`,
+      manualClaudeCommand(desired, platform),
   );
+}
+
+// Windows PowerShell 5.1 passes embedded double quotes to native programs
+// unescaped, so a JSON argument arrives mangled; the Windows form carries no
+// JSON and single-quotes every word PowerShell-style.
+function manualClaudeCommand(desired, platform) {
+  if (platform === 'win32') {
+    const words = [desired.command, ...(desired.args || [])].map(
+      word => `'${String(word).replace(/'/g, "''")}'`,
+    );
+    return `claude mcp add --scope user ${SERVER} -- ${words.join(' ')}`;
+  }
+  const json = `'${JSON.stringify(desired).replace(/'/g, "'\\''")}'`;
+  return `claude mcp add-json --scope user ${SERVER} ${json}`;
 }
 
 // Which file each client reads for MCP servers. Claude Code and Cursor
@@ -1727,6 +1738,7 @@ const FAILED_STATES = new Set([
   'unreadable',
   'invalid JSON',
   'not a JSON object',
+  'frontier entry has no command',
 ]);
 
 async function doctor(start, environment = process.env, platform = process.platform) {
@@ -1749,7 +1761,7 @@ async function doctor(start, environment = process.env, platform = process.platf
   const readTargets = new Map();
   const reachable = { 'Claude Code': [], Cursor: [], Codex: [] };
   let repoDeclares = false;
-  let readFailure = false;
+  const readFailures = { 'Claude Code': new Map(), Cursor: new Map(), Codex: new Map() };
   for (const result of results) {
     const { location } = result;
     if (result.real !== undefined && !readTargets.has(result.real))
@@ -1761,7 +1773,7 @@ async function doctor(start, environment = process.env, platform = process.platf
     if (result.declared) reachable[location.client].push(location.scope);
     if (location.repo && (result.declared || result.others.length > 0)) repoDeclares = true;
     if (FAILED_STATES.has(result.state) && VERIFIED_CLIENTS.has(location.client))
-      readFailure = true;
+      readFailures[location.client].set(location.file, result.state);
   }
   lines.push(
     `  Codex project scope: not verified; this check does not know whether Codex reads ${path.join('.agents', 'mcp.json')} or ${path.join('.codex', 'config.toml')} in a repository.`,
@@ -1798,15 +1810,27 @@ async function doctor(start, environment = process.env, platform = process.platf
         ? `  ${client} (${state}): frontier declared in ${scopes.join(', ')} scope${note}`
         : `  ${client} (${state}): no file checked here declares frontier${note}`,
     );
-    if (VERIFIED_CLIENTS.has(client) && installed[command] && scopes.length === 0)
+    if (
+      VERIFIED_CLIENTS.has(client) &&
+      installed[command] &&
+      scopes.length === 0 &&
+      (repoDeclares || readFailures[client].size > 0)
+    )
       failing.push(client);
   }
   if (reachable['Claude Code'].includes('project'))
     lines.push(
       '  Claude Code asks once per project before starting a .mcp.json server; check `claude mcp list` for Pending approval.',
     );
-  const failed = failing.length > 0 && (repoDeclares || readFailure);
-  if (failed)
+  const failed = failing.length > 0;
+  for (const client of failing)
+    for (const [file, state] of readFailures[client])
+      lines.push(
+        state === 'frontier entry has no command'
+          ? `  ${file}: frontier entry has no command; ${client} reads it.`
+          : `  ${file} cannot be ${state === 'invalid JSON' || state === 'not a JSON object' ? 'parsed' : 'read'}; ${client} reads it.`,
+      );
+  if (failed && repoDeclares)
     lines.push(
       `  This repository expects frontier, but ${failing.join(' and ')} would start without it. Declare it in a file listed above or symlink one to the repository's entry.`,
     );
@@ -1888,11 +1912,18 @@ async function inspectConfig(location, root) {
     servers = isObject(project) ? project.mcpServers : undefined;
   }
   if (!isObject(servers)) return { ...linked, state: 'present' };
-  const declared = servers[SERVER] !== undefined;
+  const entry = servers[SERVER];
+  const declared =
+    isObject(entry) && (typeof entry.command === 'string' || typeof entry.url === 'string');
   const others = Object.keys(servers).filter(
     key => key !== SERVER && runsFrontierMcp(servers[key]),
   );
-  return { ...linked, state: declared ? 'declares' : 'present', declared, others };
+  const state = declared
+    ? 'declares'
+    : entry === undefined
+      ? 'present'
+      : 'frontier entry has no command';
+  return { ...linked, state, declared, others };
 }
 
 function runsFrontierMcp(entry) {
@@ -1912,6 +1943,7 @@ module.exports = {
     applyConfig,
     cursorConfigPath,
     doctor,
+    manualClaudeCommand,
     prepareClaudeCode,
     discoverManagedRuntimes,
     durableLaunch,

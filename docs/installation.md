@@ -118,7 +118,8 @@ backing the file up first. With `--replace`, if `add-json` fails after the old e
 setup re-registers the old entry and reports whether that worked and where the backup is. On
 Windows, setup refuses a `claude.cmd` or `claude.bat` shim, because it cannot pass the JSON
 argument through `cmd.exe` safely; pass `--claude` pointing at `claude.exe`, or run the
-`claude mcp add-json` command it prints. For another client, use `--client manual` and copy the printed
+`claude mcp add --scope user frontier -- ...` command it prints (a form with no JSON, since
+Windows PowerShell 5.1 mangles quoted JSON passed to native programs). For another client, use `--client manual` and copy the printed
 `frontier` entry into that client's user configuration. Use `--replace` only after reviewing
 a different existing `frontier` entry; setup creates a backup first.
 

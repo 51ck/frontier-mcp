@@ -6,6 +6,7 @@
 // symlink and shell stand-in cases are POSIX-only.
 
 const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
 const { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
@@ -22,6 +23,7 @@ async function main() {
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'frontier-setup-offline-'));
   try {
     windowsShimCheck();
+    if (POSIX) posixQuotingCheck();
     await doctorCheck(temporary);
     if (POSIX) await claudeApplyCheck(temporary);
     process.stdout.write(
@@ -33,19 +35,38 @@ async function main() {
 }
 
 function windowsShimCheck() {
-  const desired = { type: 'stdio', command: "C:\\it's\\frontier.cmd", args: [] };
+  const desired = {
+    type: 'stdio',
+    command: "C:\\Program Files\\it's\\frontier.cmd",
+    args: ['--flag', 'a b'],
+  };
+  const expected =
+    "claude mcp add --scope user frontier -- 'C:\\Program Files\\it''s\\frontier.cmd' '--flag' 'a b'";
+  assert.equal(testing.manualClaudeCommand(desired, 'win32'), expected);
   for (const shim of ['C:\\npm\\claude.cmd', 'C:\\npm\\CLAUDE.BAT']) {
     assert.throws(
       () => testing.assertSpawnableClaude(shim, desired, 'win32'),
       error =>
         /--claude pointing at claude\.exe/.test(error.message) &&
-        error.message.includes(
-          `claude mcp add-json --scope user frontier '${JSON.stringify(desired).replace(/'/g, "''")}'`,
-        ),
+        error.message.endsWith(`\n${expected}`),
     );
   }
   testing.assertSpawnableClaude('C:\\bin\\claude.exe', desired, 'win32');
   testing.assertSpawnableClaude('/usr/bin/claude.cmd', desired, 'linux');
+}
+
+// The printed POSIX command survives a real shell with a quote in the path.
+function posixQuotingCheck() {
+  const desired = { type: 'stdio', command: "/home/o'brien/frontier launch", args: ["it's"] };
+  const command = testing.manualClaudeCommand(desired, 'linux');
+  assert.match(command, /^claude mcp add-json --scope user frontier '/);
+  const words = execFileSync('sh', ['-c', command.replace(/^claude/, "printf '%s\\n'")], {
+    encoding: 'utf8',
+  })
+    .trimEnd()
+    .split('\n');
+  assert.deepEqual(words.slice(0, 5), ['mcp', 'add-json', '--scope', 'user', 'frontier']);
+  assert.deepEqual(JSON.parse(words[5]), desired);
 }
 
 async function doctorCheck(temporary) {
@@ -107,6 +128,31 @@ async function doctorCheck(temporary) {
   report = await run(await repository({}));
   assert.match(report.text, /\.claude\.json — invalid JSON/);
   assert.equal(report.failed, true, report.text);
+  assert.match(report.text, /\.claude\.json cannot be parsed; Claude Code reads it\./);
+  assert.doesNotMatch(report.text, /expects frontier/);
+
+  // A broken file of a client not on PATH never fails an installed one.
+  await writeFile(path.join(home, '.claude.json'), '{}', 'utf8');
+  await mkdir(path.join(home, '.cursor'), { recursive: true });
+  await writeFile(path.join(home, '.cursor', 'mcp.json'), '{', 'utf8');
+  report = await run(await repository({}));
+  assert.match(report.text, /\.cursor[\\/]mcp\.json — invalid JSON/);
+  assert.equal(report.failed, false, report.text);
+  assert.doesNotMatch(report.text, /expects frontier|cannot be parsed/);
+  await rm(path.join(home, '.cursor'), { recursive: true });
+
+  // A null or empty frontier entry is not a declaration.
+  const emptyEntries = await Promise.all(
+    [null, {}].map(async value =>
+      run(await repository({ '.mcp.json': JSON.stringify({ mcpServers: { frontier: value } }) })),
+    ),
+  );
+  for (report of emptyEntries) {
+    assert.match(report.text, /\.mcp\.json — frontier entry has no command/);
+    assert.match(report.text, /\.mcp\.json: frontier entry has no command; Claude Code reads it/);
+    assert.doesNotMatch(report.text, /— declares frontier/);
+    assert.equal(report.failed, true, report.text);
+  }
   // Codex is reported, never judged.
   await writeFile(path.join(home, '.claude.json'), '{}', 'utf8');
   await writeFile(
@@ -123,6 +169,15 @@ async function doctorCheck(temporary) {
   report = await run(await repository({}));
   assert.equal(report.failed, false, report.text);
   await rm(path.join(home, '.codex', 'config.toml'));
+
+  // An installed Codex with nothing declared is still never judged.
+  const codex = path.join(bin, POSIX ? 'codex' : 'codex.exe');
+  await writeFile(codex, '', 'utf8');
+  report = await run(await repository({ '.mcp.json': declaring }));
+  assert.match(report.text, /Codex \(installed\): no file checked here declares frontier/);
+  assert.equal(report.failed, false, report.text);
+  assert.deepEqual(report.failing, []);
+  await rm(codex);
 
   if (!POSIX) return;
   // .cursor/mcp.json links to .agents/mcp.json; Claude Code gets nothing.
@@ -180,12 +235,15 @@ let config = {};
 try { config = JSON.parse(fs.readFileSync(target, 'utf8')); } catch {}
 config.mcpServers = config.mcpServers || {};
 if (args[1] === 'add-json') {
-  if (JSON.parse(args[5]).command === process.env.FRONTIER_FAKE_CLAUDE_REJECT) {
+  if ((process.env.FRONTIER_FAKE_CLAUDE_REJECT || '').split('\\n').includes(JSON.parse(args[5]).command)) {
     process.stderr.write('rejected'); process.exit(1);
   }
   if (config.mcpServers[args[4]]) { process.stderr.write('exists'); process.exit(1); }
   config.mcpServers[args[4]] = JSON.parse(args[5]);
-} else if (args[1] === 'remove') delete config.mcpServers[args[4]];
+} else if (args[1] === 'remove') {
+  if (process.env.FRONTIER_FAKE_CLAUDE_REMOVE_FAIL) { process.stderr.write('remove failed'); process.exit(1); }
+  delete config.mcpServers[args[4]];
+}
 fs.writeFileSync(target, JSON.stringify(config));
 `,
     'utf8',
@@ -202,9 +260,82 @@ fs.writeFileSync(target, JSON.stringify(config));
   const launch = { command: '/opt/frontier/launch', args: [] };
   const saved = { HOME: process.env.HOME, reject: process.env.FRONTIER_FAKE_CLAUDE_REJECT };
   process.env.HOME = home;
+  const readCalls = async () => {
+    try {
+      return (await readFile(log, 'utf8'))
+        .trim()
+        .split('\n')
+        .map(line => JSON.parse(line));
+    } catch (error) {
+      if (error.code === 'ENOENT') return [];
+      throw error;
+    }
+  };
+  const restoreTarget = () =>
+    writeFile(
+      target,
+      JSON.stringify({ mcpServers: { other: { command: 'other' }, frontier: previous } }),
+    );
   try {
     let preview = await testing.prepareClaudeCode(target, launch);
     await assert.rejects(testing.applyClaudeCode(claude, target, preview, false), /--replace/);
+
+    // The apply path itself refuses a Windows shim before touching anything.
+    await assert.rejects(
+      testing.applyClaudeCode(path.join(directory, 'claude.cmd'), target, preview, true, 'win32'),
+      /batch shim/,
+    );
+    assert.equal((await readCalls()).length, 0);
+
+    // A failed remove changes nothing and propagates.
+    process.env.FRONTIER_FAKE_CLAUDE_REMOVE_FAIL = '1';
+    await assert.rejects(testing.applyClaudeCode(claude, target, preview, true), /remove failed/);
+    delete process.env.FRONTIER_FAKE_CLAUDE_REMOVE_FAIL;
+    assert.deepEqual(JSON.parse(await readFile(target, 'utf8')).mcpServers.frontier, previous);
+    assert.deepEqual(
+      (await readCalls()).map(call => call[1]),
+      ['remove'],
+    );
+
+    // Restore itself fails: the error says so and names the backup.
+    process.env.FRONTIER_FAKE_CLAUDE_REJECT = `${launch.command}\n${previous.command}`;
+    await assert.rejects(
+      testing.applyClaudeCode(claude, target, preview, true),
+      error =>
+        /re-registering the previous entry also failed \(.*rejected\)/.test(error.message) &&
+        /Backup of .*\.claude\.json\.frontier-backup-/.test(error.message),
+    );
+    assert.equal(JSON.parse(await readFile(target, 'utf8')).mcpServers.frontier, undefined);
+
+    // No file to back up: the error says no backup was made.
+    await rm(target);
+    await assert.rejects(
+      testing.applyClaudeCode(
+        claude,
+        target,
+        { desired: { type: 'stdio', ...launch }, existing: previous, identical: false },
+        true,
+      ),
+      /No backup was made\./,
+    );
+
+    // Plain add with no previous entry issues no remove.
+    delete process.env.FRONTIER_FAKE_CLAUDE_REJECT;
+    await rm(target, { force: true });
+    const before = (await readCalls()).length;
+    preview = await testing.prepareClaudeCode(target, launch);
+    await testing.applyClaudeCode(claude, target, preview, false);
+    assert.deepEqual(
+      (await readCalls()).slice(before).map(call => call[1]),
+      ['add-json'],
+    );
+    assert.deepEqual(JSON.parse(await readFile(target, 'utf8')).mcpServers.frontier, {
+      type: 'stdio',
+      ...launch,
+    });
+    await restoreTarget();
+
+    preview = await testing.prepareClaudeCode(target, launch);
 
     process.env.FRONTIER_FAKE_CLAUDE_REJECT = launch.command;
     await assert.rejects(
@@ -237,6 +368,7 @@ fs.writeFileSync(target, JSON.stringify(config));
   } finally {
     if (saved.HOME === undefined) delete process.env.HOME;
     else process.env.HOME = saved.HOME;
+    delete process.env.FRONTIER_FAKE_CLAUDE_REMOVE_FAIL;
     if (saved.reject === undefined) delete process.env.FRONTIER_FAKE_CLAUDE_REJECT;
     else process.env.FRONTIER_FAKE_CLAUDE_REJECT = saved.reject;
   }
