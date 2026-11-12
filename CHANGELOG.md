@@ -2,6 +2,19 @@
 
 Package release notes for `frontier-mcp` (npm). Not part of the `.scratch/` issue tracker.
 
+## [0.6.0](https://github.com/51ck/frontier-mcp/compare/v0.5.0...v0.6.0) (2026-11-12)
+
+### Features
+
+* **ids:** warn on a duplicate id on read and refuse it on write ([7255874](https://github.com/51ck/frontier-mcp/commit/7255874c2df43db2470b793d66f10321faf77ff4))
+* **ids:** warn on every create under a <N>-only id pattern ([31c70fe](https://github.com/51ck/frontier-mcp/commit/31c70feb0388574eb2209b53116b18a8eb0ec4cb))
+* **read:** get_tickets surfaces a foreign fence without writing it ([4d2e474](https://github.com/51ck/frontier-mcp/commit/4d2e474cf6808cb21caa3e92cea62be0ae0e3eca))
+
+### Bug Fixes
+
+* **ids:** keep a duplicated Ticket off the Frontier ([3e6c2b6](https://github.com/51ck/frontier-mcp/commit/3e6c2b6c566dd1fbae422b54f5dac0ddcd4a568a))
+* **ids:** keep duplicate claimants on their id and never write to detect one ([a77e7a0](https://github.com/51ck/frontier-mcp/commit/a77e7a0d5f80eedb29e3a8b5c375b079392bad6d))
+
 ## [0.5.0](https://github.com/51ck/frontier-mcp/compare/v0.4.1...v0.5.0) (2026-11-12)
 
 ### Features
