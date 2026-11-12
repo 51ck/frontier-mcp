@@ -468,3 +468,48 @@ describe('migrate_effort against real Foreign fixtures', () => {
     expect(after).toBe(before);
   });
 });
+
+describe('migrate_effort and Edges that leave the Effort (T82)', () => {
+  const OTHER_T1 = '---\nid: T1\ntitle: Unrelated\nstatus: resolved\nblocked_by: []\n---\n';
+
+  it('never coarsens a milestone label onto another Effort’s Ticket', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/consume/map.md': map('Elsewhere.'),
+      '.scratch/consume/issues/01-T1-unrelated.md': OTHER_T1,
+      '.scratch/rewrite/map.md': map('Somewhere.'),
+      '.scratch/rewrite/issues/01-port.md': '# 01 — Port\n\nStatus: open\nBlocked by: T1.4\n',
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const preview = await frontier.call('migrate_effort', { effort: 'rewrite', preview: true });
+    expect(preview).toContain('blocked_by=T1.4');
+    expect(preview).toContain(
+      'sub-slice Edges kept as declared, parent not in this Effort (1): T1.4',
+    );
+
+    await frontier.call('migrate_effort', { effort: 'rewrite' });
+    const written = await readFile(join(root, '.scratch/rewrite/issues/01-port.md'), 'utf8');
+    expect(written).toMatch(/blocked_by: \[["']?T1\.4["']?\]/);
+    expect(written).not.toMatch(/blocked_by: \[T1\]/);
+
+    // It now dangles, so every Board names it rather than resolving it quietly.
+    const board = await frontier.call('get_board', { effort: 'rewrite' });
+    expect(board).toContain('T1.4?');
+  });
+
+  it('still coarsens a sub-slice of a sibling, and names Edges minted across Efforts', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/consume/map.md': map('Elsewhere.'),
+      '.scratch/consume/issues/01-T1-unrelated.md': OTHER_T1,
+      '.scratch/rewrite/map.md': map('Somewhere.'),
+      '.scratch/rewrite/issues/01-base.md': '# T7 — Base\n\nStatus: open\n',
+      '.scratch/rewrite/issues/02-next.md': '# T8 — Next\n\nStatus: open\nBlocked by: T7.2, T1\n',
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const report = await frontier.call('migrate_effort', { effort: 'rewrite' });
+    expect(report).toContain('blocked_by=T7,T1');
+    expect(report).toContain('Edges to another Effort (1) — check each is meant: T1@consume');
+    expect(report).not.toContain('kept as declared');
+  });
+});

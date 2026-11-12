@@ -39,6 +39,19 @@ export function renderMigration(report: MigrationReport): string {
     lines.push(renderChange(change));
   }
 
+  if (report.crossEffortEdges.length > 0) {
+    lines.push(
+      `> Edges to another Effort (${String(report.crossEffortEdges.length)}) — check each is meant: ` +
+        report.crossEffortEdges.join(' '),
+    );
+  }
+  if (report.keptSubSlices.length > 0) {
+    lines.push(
+      `> sub-slice Edges kept as declared, parent not in this Effort (${String(report.keptSubSlices.length)}): ` +
+        report.keptSubSlices.join(' '),
+    );
+  }
+
   return lines.join('\n');
 }
 

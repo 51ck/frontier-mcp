@@ -413,6 +413,11 @@ Write rules, equally load-bearing:
   Decisions-so-far / dropped Out-of-scope must not make a completed lifecycle change look like a
   failure. The tool returns success with a warning that those blocks may be stale; a later
   successful refresh or Map mutation catches them up.
+- **Migration never coarsens a sub-slice onto another Effort** (T82). The prose parser reads
+  `T38.1` as an Edge to `T38` for the Board. `migrate_effort` writes that coarsened id only when
+  `T38` is a Ticket of the same Effort. Otherwise it writes `T38.1` as declared, which then dangles
+  where it would have resolved wrongly. Its report, preview and real, ends with grouped lines for
+  sub-slices kept this way and for written Edges that land on another Effort (`T9@beta`).
 - **A write normalizes the Foreign file it touches when that file has no parseable fence**, and keeps
   the prose it inferred from verbatim. A foreign-fenced file keeps its fence, per the rendering rule.
 - **Claims are flagged when stale, never auto-released.** 24h; use `release` to drop a claim explicitly.

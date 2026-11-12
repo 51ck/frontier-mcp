@@ -46,7 +46,14 @@ export async function migrateEffortFiles(request: MigrateFilesRequest): Promise<
   const candidates = entries.filter(entry => entry.ticket.foreign || entry.ticket.id === undefined);
 
   if (candidates.length === 0) {
-    return { effort, preview, renamed: rename, changes: [] };
+    return {
+      effort,
+      preview,
+      renamed: rename,
+      changes: [],
+      crossEffortEdges: [],
+      keptSubSlices: [],
+    };
   }
 
   const needMint = candidates.filter(entry => entry.ticket.id === undefined).length;
@@ -60,7 +67,13 @@ export async function migrateEffortFiles(request: MigrateFilesRequest): Promise<
       rename,
       request.conflicts,
     );
-    return { effort, preview: true, renamed: rename, changes: plan.map(file => file.change) };
+    return {
+      effort,
+      preview: true,
+      renamed: rename,
+      changes: plan.map(file => file.change),
+      ...edgeNotes(plan, request),
+    };
   }
 
   return withIdReservations(
@@ -76,6 +89,7 @@ export async function migrateEffortFiles(request: MigrateFilesRequest): Promise<
         preview: false,
         renamed: rename,
         changes: plan.map(file => file.change),
+        ...edgeNotes(plan, request),
       };
     },
   );
@@ -115,7 +129,11 @@ function planChanges(
     if (id === undefined) throw new Error(`No id planned for ${entry.ticket.handle}.`);
 
     const to = rename ? ticketFilename(entry.ticket.order, id, entry.ticket.title) : entry.filename;
-    const blockedBy = remapEdges(entry.ticket.blockedBy, idByOrder);
+    const blockedBy = keepForeignSubSlices(
+      remapEdges(entry.ticket.blockedBy, idByOrder),
+      entry.ticket.collapsedRefs,
+      idByOrder,
+    );
 
     return {
       from: entry.filename,
@@ -230,6 +248,52 @@ function remapEdges(edges: readonly string[], idByOrder: ReadonlyMap<number, str
     if (!/^\d+$/.test(edge)) return edge;
     return idByOrder.get(Number(edge)) ?? edge;
   });
+}
+
+/**
+ * The prose parser coarsens `T38.1` to `T38` for the Board, which is right for a
+ * sibling's slice. Written into frontmatter, though, the coarsening is permanent
+ * and silent: a `T1.4` milestone label landed on another Effort's resolved `T1`
+ * (T82). So a sub-slice whose parent is not a Ticket of this Effort is written
+ * as declared — it dangles and every Board names it — rather than guessed at.
+ */
+function keepForeignSubSlices(
+  edges: readonly string[],
+  collapsed: readonly string[],
+  idByOrder: ReadonlyMap<number, string>,
+): string[] {
+  const local = new Set(idByOrder.values());
+  const declared = new Map<string, string[]>();
+  for (const ref of collapsed) {
+    const parent = ref.slice(0, ref.indexOf('.'));
+    if (local.has(parent)) continue;
+    declared.set(parent, [...(declared.get(parent) ?? []), ref]);
+  }
+  return [...new Set(edges.flatMap(edge => declared.get(edge) ?? [edge]))];
+}
+
+/** Grouped, never per Ticket: what a reader must check by hand after this call. */
+function edgeNotes(
+  plan: readonly PlannedFile[],
+  request: MigrateFilesRequest,
+): Pick<MigrationReport, 'crossEffortEdges' | 'keptSubSlices'> {
+  const effortOf = new Map<string, string>();
+  for (const ticket of request.allTickets) {
+    if (ticket.id !== undefined && ticket.effort !== request.effort) {
+      effortOf.set(ticket.id, ticket.effort);
+    }
+  }
+  const local = new Set(plan.map(file => file.change.id));
+  const cross = new Set<string>();
+  const kept = new Set<string>();
+  for (const file of plan) {
+    for (const edge of file.change.blockedBy) {
+      const foreign = effortOf.get(edge);
+      if (foreign !== undefined && !local.has(edge)) cross.add(`${edge}@${foreign}`);
+    }
+    for (const ref of file.change.blockedBy) if (/^T\d+\.\d+$/.test(ref)) kept.add(ref);
+  }
+  return { crossEffortEdges: [...cross].toSorted(), keptSubSlices: [...kept].toSorted() };
 }
 
 function idsOf(tickets: readonly TicketSummary[]): ReadonlySet<string> {

@@ -283,4 +283,8 @@ export interface MigrationReport {
   readonly preview: boolean;
   readonly renamed: boolean;
   readonly changes: readonly MigrationChange[];
+  /** Written Edges landing on another Effort's Ticket, as `T9@beta` — likelier a misparse than intent. */
+  readonly crossEffortEdges: readonly string[];
+  /** Sub-slice references (`T1.4`) written as declared because their parent is not in this Effort. */
+  readonly keptSubSlices: readonly string[];
 }
