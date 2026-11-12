@@ -226,8 +226,8 @@ Stack, settled:
 - **`release-it`** with **`@release-it/conventional-changelog`** cuts releases, configured in
   `.release-it.json` and driven by `.github/workflows/release.yml`. **This bullet is the only place
   the release rationale is written down**; the README tells a releaser what to do and points here for
-  why, so a change lands in one file rather than three. Five things in that config are load-bearing
-  and will look like cruft to anyone who does not know the reason:
+  why, so a change lands in one file rather than three. Six things in that config and workflow are
+  load-bearing and will look like cruft to anyone who does not know the reason:
   - It publishes through **`pnpm publish`**, not npm — `npm.publishPackageManager`. No step needs a
     globally installed npm, and whatever OIDC needs has to come from pnpm.
   - Auth is npm **Trusted Publishing (OIDC)**, so the workflow sets no `NODE_AUTH_TOKEN` *and* no
@@ -244,6 +244,9 @@ Stack, settled:
     else. Left on, it fails every release with `ERR_PNPM_GIT_UNCLEAN`. Turning it off here rather
     than in an `.npmrc` keeps the guard alive for every other `pnpm publish` in the repo.
   - **pnpm is pinned to 10** in the workflow. 11 404s on OIDC publish (pnpm/pnpm#11513).
+  - **Node is pinned to 24.15.0** in the workflow, the version `runtime.yml`'s development job
+    tests on. A floating `24` ran the `before:init` suite on a Node the gate had never seen and
+    failed a release on that Node's own watcher. Move both pins together.
 
   The CHANGELOG intro lives in the plugin's `header` option, because the plugin strips and
   re-prepends only the header it is given and would otherwise bury any prose beneath the newest
