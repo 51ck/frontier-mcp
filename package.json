@@ -44,19 +44,19 @@
     "release:dry": "release-it --dry-run --ci"
   },
   "dependencies": {
-    "@modelcontextprotocol/server": "^2.0.0",
-    "yaml": "^2.9.0",
-    "zod": "^4.4.3"
+    "@modelcontextprotocol/server": "^2.4.0",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@modelcontextprotocol/client": "^2.0.0",
-    "@release-it/conventional-changelog": "^12.0.0",
-    "@types/node": "^24.10.1",
-    "oxfmt": "^0.62.0",
-    "oxlint": "^1.77.0",
-    "release-it": "^21.0.1",
+    "@modelcontextprotocol/client": "^2.4.0",
+    "@release-it/conventional-changelog": "^12.0.2",
+    "@types/node": "^24.19.2",
+    "oxfmt": "^0.78.0",
+    "oxlint": "^1.93.0",
+    "release-it": "^21.1.2",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.10"
+    "vitest": "^5.1.0"
   },
   "engines": {
     "node": "^20.20.2 || ^22.17.1 || ^24.15.0"

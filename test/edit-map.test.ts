@@ -807,19 +807,19 @@ header: spec
   });
 });
 
-describe('edit_map refuses values the Map reader would split (T96)', () => {
-  async function freshMap() {
-    const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
-    const frontier = await connectFrontier({ cwd: root, env: {} });
-    const text = await frontier.call('edit_map', {
-      effort: 'fresh',
-      create: true,
-      destination: 'Ship it.',
-    });
-    const path = join(root, '.scratch/fresh/map.md');
-    return { frontier, path, rev: revisionOf(text, 'map') };
-  }
+async function freshMap() {
+  const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
+  const frontier = await connectFrontier({ cwd: root, env: {} });
+  const text = await frontier.call('edit_map', {
+    effort: 'fresh',
+    create: true,
+    destination: 'Ship it.',
+  });
+  const path = join(root, '.scratch/fresh/map.md');
+  return { frontier, path, rev: revisionOf(text, 'map') };
+}
 
+describe('edit_map refuses values the Map reader would split (T96)', () => {
   it('refuses ## in notes, writes nothing, and round-trips ### with one copy', async () => {
     const { frontier, path, rev } = await freshMap();
     const before = await readFile(path, 'utf8');
