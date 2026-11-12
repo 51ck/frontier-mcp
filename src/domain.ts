@@ -242,39 +242,35 @@ export interface SpecDocument {
   readonly revision: string;
 }
 
-/** How a migration call may rewrite filenames. */
+/** How a migration call runs. Filenames never change (T69). */
 export interface MigrateOptions {
   /**
-   * Report every change and write nothing. Planned mint ids come from the
-   * current scan (`max + 1`) without taking allocation guards.
+   * Report every change and write nothing. Takes no allocation guards and
+   * predicts no ids: a Ticket that would be minted is named by its handle.
    */
   readonly preview: boolean;
-  /**
-   * Rename Ticket files to `<NN>-T<n>-<slug>.md`. Off by default so relative
-   * links in Maps and Tickets keep resolving.
-   */
-  readonly rename: boolean;
 }
 
 /** One Ticket a migration would touch, or did. */
 export interface MigrationChange {
   /** Handle before the call — the id when it had one, else `<effort>#<order>`. */
   readonly beforeHandle: string;
-  /** Id after migration — preserved or newly minted. */
-  readonly id: string;
+  /**
+   * Id after migration — preserved or newly minted. Undefined in a preview of
+   * a Ticket that would be minted: which id is not knowable until the real run.
+   */
+  readonly id: string | undefined;
   readonly title: string;
   /** True when this call (or preview) assigns a fresh id. */
   readonly minted: boolean;
   /** True when the file was Foreign: a fenceless one gains schema frontmatter, a fenced one an id. */
   readonly normalized: boolean;
+  /** The Ticket's basename, unchanged by migration. */
+  readonly filename: string;
   /**
-   * Cosmetic Ticket filenames (basenames only) when rename would move the file.
-   * Absent when filenames stay put. Not filesystem paths — those stay below the
-   * storage seam.
+   * Edges as they will be written after bare sort-order remapping. In a preview
+   * a sibling that would be minted appears as its handle.
    */
-  readonly fromName: string | undefined;
-  readonly toName: string | undefined;
-  /** Edges as they will be written after bare sort-order remapping. */
   readonly blockedBy: readonly string[];
   /**
    * Preview only: every Ticket file already carrying this preserved id, this
@@ -287,7 +283,8 @@ export interface MigrationChange {
 export interface MigrationReport {
   readonly effort: string;
   readonly preview: boolean;
-  readonly renamed: boolean;
+  /** The Effort's Ticket directory relative to the workspace root, `/`-separated. */
+  readonly directory: string;
   readonly changes: readonly MigrationChange[];
   /** Written Edges landing on another Effort's Ticket, as `T9@beta` — likelier a misparse than intent. */
   readonly crossEffortEdges: readonly string[];

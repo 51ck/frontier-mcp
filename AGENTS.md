@@ -133,7 +133,7 @@ Design decisions settled and binding until an ADR revises them:
   minting plan. Id matching consumes it too: `StorageDriver.isId()` answers from the pattern (any
   length per random token, so existing `T<n>` ids still match the default), and `create_tickets`
   refuses a temporary key that would match it or that is an existing Ticket's id. Under a broken config `isId` answers from
-  the default and a `migrate_effort` preview shows default-pattern ids. Rules: T52–T55 in
+  the default. Rules: T52–T55 in
   `.scratch/ids-patterns/`.
 - **`.md` with YAML frontmatter.** Not `.mdc`.
 - **Formal metadata in frontmatter, prose in the body.** Identity, status, edges, and kind are fields.
@@ -380,6 +380,12 @@ Rendering rules that are load-bearing, not cosmetic:
   `src/workspace.ts`; existence crosses the seam as `StorageDriver.absentStorage()`, which never
   creates the directory. An empty `.scratch/` keeps `(no efforts)`, and no other result carries the
   `resolved by` suffix — a populated tracker is its own proof of the root.
+- **A `migrate_effort` preview predicts no id** (T69). It takes no guard, so a counted prediction
+  could be stolen and a random one is discarded; an unminted Ticket is named by its unpadded
+  handle everywhere, `blocked_by=` included, so two previews of unchanged files are identical.
+  Every report line is labelled reference-style and resolved once in a closing block of
+  workspace-root-relative paths. Migration never renames a file: another Effort's prose may link it
+  by path, and the server cannot see that link.
 - **A Spec-only Effort opens with its Spec's first paragraph**, labelled `spec:` rather than
   `destination:`. Destination is a Map section; calling a Spec's opening one would be a lie in the
   vocabulary. Multi-line header prose has its continuation lines indented so it can never be read as

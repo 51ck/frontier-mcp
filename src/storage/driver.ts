@@ -203,9 +203,9 @@ export interface StorageDriver {
   ): Promise<SpecDocument>;
 
   /**
-   * Normalize every Foreign Ticket in one Effort, mint ids for Tickets that have
-   * none, and optionally rename files to the schema convention. Preview writes
-   * nothing. Unrecognized files in the Effort directory are ignored.
+   * Normalize every Foreign Ticket in one Effort and mint ids for Tickets that
+   * have none. Filenames never change. Preview writes nothing and names a
+   * Ticket it would mint by its handle. Unrecognized files in the Effort directory are ignored.
    */
   migrateEffort(effort: string, options: MigrateOptions): Promise<MigrationReport>;
 

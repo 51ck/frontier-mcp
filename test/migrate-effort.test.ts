@@ -201,56 +201,21 @@ blocked_by: []
     await access(join(root, '.scratch/alpha/issues/01-grammy-group-boot.md'));
   });
 
-  it('renames to NN-T<n>-<slug>.md only when rename is set', async () => {
-    const root = await makeFixtureTree({
-      '.scratch/alpha/map.md': map('Somewhere.'),
-      '.scratch/alpha/issues/01-grammy-group-boot.md': FOREIGN_WITH_ID,
-    });
+  it('has no rename argument', async () => {
+    const root = await makeFixtureTree({ '.scratch/alpha/map.md': map('Somewhere.') });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    await frontier.call('migrate_effort', { effort: 'alpha', rename: true });
-
-    const names = await readdir(join(root, '.scratch/alpha/issues'));
-    expect(names).toEqual(['01-T30-grammy-group-boot.md']);
-
-    const onDisk = await readFile(
-      join(root, '.scratch/alpha/issues/01-T30-grammy-group-boot.md'),
-      'utf8',
-    );
-    expect(onDisk).toContain('id: T30');
+    const tools = await frontier.client.listTools();
+    const migrate = tools.tools.find(tool => tool.name === 'migrate_effort');
+    expect(Object.keys(migrate?.inputSchema.properties ?? {}).toSorted()).toEqual([
+      'effort',
+      'preview',
+      'root',
+    ]);
   });
 
-  it('preview with rename reports the planned filename moves and writes nothing', async () => {
+  it('preview names unminted Tickets by unpadded handle, linked reference-style', async () => {
     const root = await makeFixtureTree({
-      '.scratch/alpha/map.md': map('Somewhere.'),
-      '.scratch/alpha/issues/01-grammy-group-boot.md': FOREIGN_WITH_ID,
-    });
-    const frontier = await connectFrontier({ cwd: root, env: {} });
-
-    const before = await readFile(
-      join(root, '.scratch/alpha/issues/01-grammy-group-boot.md'),
-      'utf8',
-    );
-    const report = await frontier.call('migrate_effort', {
-      effort: 'alpha',
-      preview: true,
-      rename: true,
-    });
-
-    expect(report.toLowerCase()).toContain('preview');
-    expect(report).toContain('01-grammy-group-boot.md -> 01-T30-grammy-group-boot.md');
-    expect(report).toContain('blocked_by=T31');
-    expect(
-      await readFile(join(root, '.scratch/alpha/issues/01-grammy-group-boot.md'), 'utf8'),
-    ).toBe(before);
-    expect(await readdir(join(root, '.scratch/alpha/issues'))).toEqual(['01-grammy-group-boot.md']);
-  });
-
-  it('preview reports every change and writes nothing', async () => {
-    // No dangling Depends-on:T31 here — colour mints as T31 (max+1 after T30),
-    // and a prose Edge naming T31 would make the report ambiguous.
-    const root = await makeFixtureTree({
-      ...COUNTED,
       '.scratch/alpha/map.md': map('Somewhere.'),
       '.scratch/alpha/issues/01-grammy-group-boot.md': `# T30 — Grammy group boot
 
@@ -259,38 +224,75 @@ Status: open
 **Problem:** Without a running group bot entry, no Telegram MVP path is real.
 `,
       '.scratch/alpha/issues/02-colour.md': FOREIGN_NO_ID,
+      '.scratch/alpha/issues/03-texture.md': `# 03 — Port the texture leak fix
+
+Status: open
+Blocked by: 02, 01
+`,
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    const beforeBoot = await readFile(
-      join(root, '.scratch/alpha/issues/01-grammy-group-boot.md'),
-      'utf8',
+    const before = await readFile(join(root, '.scratch/alpha/issues/02-colour.md'), 'utf8');
+    const report = await frontier.call('migrate_effort', { effort: 'alpha', preview: true });
+
+    expect(report).toBe(
+      [
+        'alpha: preview — would migrate 3',
+        '[T30]  Grammy group boot  normalize',
+        '[alpha#2]  Is the colour-space fix a latent bug?  normalize+mint',
+        '[alpha#3]  Port the texture leak fix  normalize+mint  blocked_by=[alpha#2],[T30]',
+        '',
+        '[T30]: .scratch/alpha/issues/01-grammy-group-boot.md',
+        '[alpha#2]: .scratch/alpha/issues/02-colour.md',
+        '[alpha#3]: .scratch/alpha/issues/03-texture.md',
+      ].join('\n'),
     );
-    const beforeColour = await readFile(join(root, '.scratch/alpha/issues/02-colour.md'), 'utf8');
-    const report = await frontier.call('migrate_effort', {
-      effort: 'alpha',
-      preview: true,
+    expect(report).not.toContain('#02');
+    expect(await readFile(join(root, '.scratch/alpha/issues/02-colour.md'), 'utf8')).toBe(before);
+    expect(await readdir(join(root, '.scratch/alpha/issues'))).toHaveLength(3);
+  });
+
+  it.each([
+    ['random', {}],
+    ['counted', COUNTED],
+  ])('preview run twice against unchanged files is identical (%s pattern)', async (_, config) => {
+    const root = await makeFixtureTree({
+      ...config,
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      '.scratch/alpha/issues/01-colour.md': FOREIGN_NO_ID,
+      '.scratch/alpha/issues/02-texture.md': FOREIGN_NO_ID_TWO,
     });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    expect(report.toLowerCase()).toContain('preview');
-    // Both Tickets appear: preserved id and the id that would be minted.
-    expect(report).toContain('T30');
-    expect(report).toContain('Grammy group boot');
-    expect(report).toContain('Is the colour-space fix a latent bug?');
-    expect(report).toMatch(/\bmint(?:ed|s)?\b/i);
-    // Workspace already holds T30 — the counter continues at max+1.
-    expect(report).toContain('T31');
-    expect(report).toContain('was alpha#2');
+    const first = await frontier.call('migrate_effort', { effort: 'alpha', preview: true });
+    const second = await frontier.call('migrate_effort', { effort: 'alpha', preview: true });
 
-    expect(
-      await readFile(join(root, '.scratch/alpha/issues/01-grammy-group-boot.md'), 'utf8'),
-    ).toBe(beforeBoot);
-    expect(await readFile(join(root, '.scratch/alpha/issues/02-colour.md'), 'utf8')).toBe(
-      beforeColour,
+    expect(second).toBe(first);
+    expect(first).toContain(
+      '[alpha#2]  Port the texture leak fix  normalize+mint  blocked_by=[alpha#1]',
     );
+    expect(first).not.toMatch(/\bT[0-9a-z]+\b/);
+  });
 
-    const board = await frontier.call('get_board', { effort: 'alpha' });
-    expect(board).toContain('are Foreign');
+  it('a real run labels each line by its id and links the unchanged file', async () => {
+    const root = await makeFixtureTree({
+      ...COUNTED,
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      '.scratch/alpha/issues/01-colour.md': FOREIGN_NO_ID,
+      '.scratch/alpha/issues/02-texture.md': FOREIGN_NO_ID_TWO,
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const report = await frontier.call('migrate_effort', { effort: 'alpha' });
+
+    expect(report).toContain(
+      '[T1]  Is the colour-space fix a latent bug?  normalize+mint  was alpha#1',
+    );
+    expect(report).toContain(
+      '[T2]  Port the texture leak fix  normalize+mint  was alpha#2  blocked_by=[T1]',
+    );
+    expect(report).toContain('[T1]: .scratch/alpha/issues/01-colour.md');
+    expect(report).toContain('[T2]: .scratch/alpha/issues/02-texture.md');
   });
 
   it('ignores unrecognized files in the Effort directory', async () => {
@@ -508,7 +510,7 @@ describe('migrate_effort and Edges that leave the Effort (T82)', () => {
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
     const report = await frontier.call('migrate_effort', { effort: 'rewrite' });
-    expect(report).toContain('blocked_by=T7,T1');
+    expect(report).toContain('blocked_by=[T7],T1');
     expect(report).toContain('Edges to another Effort (1) — check each is meant: T1@consume');
     expect(report).not.toContain('kept as declared');
   });

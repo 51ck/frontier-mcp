@@ -292,7 +292,7 @@ export function createMarkdownDriver(
 
     migrateEffort(effort, options) {
       return moved(
-        () => serialized(() => migrate(storage, minting, effort, options, walk)),
+        () => serialized(() => migrate(storage, storageDir, minting, effort, options, walk)),
         options.preview !== true,
       );
     },
@@ -324,6 +324,7 @@ function unreachable(): never {
 
 async function migrate(
   storage: string,
+  storageDir: string,
   minting: MintingPlan,
   effort: string,
   options: MigrateOptions,
@@ -334,7 +335,6 @@ async function migrate(
 
   const entries = await readTicketFiles(dir, effort);
   const scanned = await walk();
-  const allTickets = scanned.flatMap(summariesOf);
 
   // An id inferred from Foreign prose is preserved, so one another file already
   // carries would be written into frontmatter as a duplicate — the same refusal
@@ -356,10 +356,10 @@ async function migrate(
     minting,
     effort,
     issues,
+    directory: [...storageDir.split(/[\\/]/), effort, ISSUES_DIR].filter(Boolean).join('/'),
     entries,
-    allTickets,
+    allTickets: scanned.flatMap(summariesOf),
     preview: options.preview,
-    rename: options.rename,
     conflicts,
     // Allocation must not share a walk started before the guards — same reason
     // createTickets builds its own rescan.

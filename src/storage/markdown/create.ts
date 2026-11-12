@@ -247,8 +247,6 @@ interface Reserved {
  */
 export interface MintingPlan {
   reserve(storage: string, count: number, rescan: Rescan): Promise<Reserved>;
-  /** Advisory ids for a preview, taking no guards. */
-  peek(used: ReadonlySet<string>, count: number): readonly string[];
 }
 
 export function mintingPlan(pattern: IdPattern): MintingPlan {
@@ -291,7 +289,6 @@ function randomPlan(pattern: IdPattern): MintingPlan {
       const tickets = await rescan();
       return { ids: draw(idsOf(tickets), count), tickets, release: () => Promise.resolve() };
     },
-    peek: draw,
   };
 }
 
@@ -342,14 +339,6 @@ function derivedPlan(pattern: IdPattern): MintingPlan {
 
   return {
     reserve: (storage, count, rescan) => reserve(storage, count, rescan, 1),
-    peek(usedIds, count) {
-      const used = countersOf(usedIds);
-      const ids: string[] = [];
-      for (let candidate = highest(used) + 1; ids.length < count; candidate += 1) {
-        if (!used.has(candidate)) ids.push(render(pattern.tokens, candidate));
-      }
-      return ids;
-    },
   };
 }
 

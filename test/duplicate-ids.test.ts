@@ -324,7 +324,8 @@ describe('a duplicate id', () => {
       'duplicate id, carried by alpha/issues/01-foreign.md, beta/issues/01-T5-second.md — ' +
         'a real run refuses',
     );
-    expect(preview).toContain('T6  Untitled work');
+    expect(preview).toContain('[alpha#2]  Untitled work  normalize+mint');
+    expect(preview).not.toContain('T6');
     expect(await readFile(foreign, 'utf8')).toBe(before);
     expect(await frontier.callExpectingError('migrate_effort', { effort: 'alpha' })).toContain(
       'Nothing was written: T5 is carried by 2 Ticket files',

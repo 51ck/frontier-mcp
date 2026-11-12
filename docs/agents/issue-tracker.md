@@ -55,7 +55,7 @@ Eight tools permanently. Optional arguments extend an existing tool; there is no
 | `update_ticket` | Claim, resolve, drop, reopen, release, set title/kind/type, set triage, replace Edges, comment, or tick acceptance criteria. One Ticket per call. |
 | `edit_map` | Edit Map sections — Destination, Notes, fog, Out of scope. Decisions-so-far regenerates from resolved Tickets. |
 | `spec` | Read or write a Spec as a whole document. |
-| `migrate_effort` | Normalize Foreign Tickets — those whose file does not conform to the schema — in an Effort. Preview writes nothing; filename rename is opt-in. |
+| `migrate_effort` | Normalize Foreign Tickets — those whose file does not conform to the schema — in an Effort. Filenames never change. Preview writes nothing and names a Ticket it would mint by its handle (`<effort>#<order>`), not a predicted id. |
 
 ### Typical agent flow
 

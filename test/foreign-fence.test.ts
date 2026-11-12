@@ -179,11 +179,13 @@ describe('get_tickets on a foreign fence', () => {
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
     const report = await frontier.call('migrate_effort', { effort: 'alpha', preview: false });
-    // The minted id leads its report line, whatever shape the pattern gives it.
+    // The minted id leads its report line as a reference label, whatever shape
+    // the pattern gives it.
     const id = report
       .split('\n')
       .find(line => line.includes('  GitHub export  '))
-      ?.split('  ')[0];
+      ?.split('  ')[0]
+      ?.slice(1, -1);
 
     expect(id).toBeDefined();
     const out = await frontier.call('get_tickets', { ids: [id ?? ''] });
