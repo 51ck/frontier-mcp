@@ -4,7 +4,7 @@ title: An ADR for lazy conversion and the Foreign predicate
 kind: build
 status: open
 triage: ready-for-agent
-blocked_by: [T73, T74, T75, T77]
+blocked_by: [T73, T74, T75, T77, T101]
 ---
 
 **What to build:** the written record of [[T57]]. Numbered after [[T72]]'s ADR 0006, so 0007 unless that one slips.
@@ -35,3 +35,7 @@ Detection writes nothing, extending [[T38]]'s warn-on-read rule and keeping the 
 - [ ] It records `awaits_migration` as designed and not built, with the reason
 - [ ] The four rejected alternatives are named
 - [ ] No figure in it is unmeasured
+
+## Comments
+
+Edge to T101 added 2026-11-12: T74 found that T57's "a write normalizes lazily" and T73's predicate disagree for a fenced Ticket. This ADR records the Foreign predicate, so it waits on that decision.
