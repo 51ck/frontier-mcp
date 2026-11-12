@@ -7,34 +7,35 @@ stop re-parsing prose to learn what is open, blocked, or takeable.
 
 **Pre-1.0: the API can change in a breaking way on any release.** The tool surface is fixed at eight
 tools, but their arguments, results, and the on-disk conventions under `.scratch/` are still being
-settled — Ticket id format among them. Semver is honoured within `0.x` as best it can be, and the
+settled. The Ticket id format is settled as a configurable pattern (see below). Semver is honoured within `0.x` as best it can be, and the
 `CHANGELOG.md` records every break, but a `0.x` bump is not a promise of compatibility. Pin an exact
 version (see below) and read the changelog before moving the pin. From `v1.0.0` on, breaking changes
 wait for a major.
 
 ## Requirements
 
-- Node 20.20.2+ on 20.x, 22.17.1+ on 22.x, or 24.15.0+ on 24.x for `frontier-mcp@0.4.0`
+- Node 20.20.2+ on 20.x, 22.17.1+ on 22.x, or 24.15.0+ on 24.x for `frontier-mcp@0.5.0`
 - Node 16.20.2+ to run the setup bootstrap; pnpm for development of this repository
 
 Node 24 LTS is recommended for new installations. The package floors passed on macOS, Linux, and Windows in
-[runtime CI](https://github.com/51ck/frontier-mcp/actions/runs/35074448965).
+[runtime CI](https://github.com/51ck/frontier-mcp/actions/runs/43211864369), on commit `7bc26d9`.
+That commit has the same tree as `9c28ac4`; the `v0.5.0` commit adds only the version bump and
+changelog.
 
 ## Install
 
 Register FrontierMCP once in the client's user scope. The recommended setup downloads the bootstrap
-from the published 0.4.1 tarball, installs the exact 0.4.0 server outside your project, verifies its
-MCP handshake, and previews a Cursor user-scope entry before applying it. npm's current release is
-0.4.1; the server stays pinned to 0.4.0 here because that is the exact version covered by the runtime
-measurements in the installation guide.
+from the published 0.5.0 tarball, installs the exact 0.5.0 server outside your project, verifies its
+MCP handshake, and previews a Cursor user-scope entry before applying it. The guide states what was
+measured for 0.5.0 and what still rests on earlier releases.
 
 ```sh
 SETUP_DIR="$(mktemp -d)"
-curl -fsSL https://registry.npmjs.org/frontier-mcp/-/frontier-mcp-0.4.1.tgz \
-  -o "$SETUP_DIR/frontier-mcp-0.4.1.tgz"
-tar -xzf "$SETUP_DIR/frontier-mcp-0.4.1.tgz" -C "$SETUP_DIR" \
+curl -fsSL https://registry.npmjs.org/frontier-mcp/-/frontier-mcp-0.5.0.tgz \
+  -o "$SETUP_DIR/frontier-mcp-0.5.0.tgz"
+tar -xzf "$SETUP_DIR/frontier-mcp-0.5.0.tgz" -C "$SETUP_DIR" \
   package/scripts/frontier-setup.cjs
-node "$SETUP_DIR/package/scripts/frontier-setup.cjs" --version 0.4.0 --apply
+node "$SETUP_DIR/package/scripts/frontier-setup.cjs" --version 0.5.0 --apply
 ```
 
 It may run from a project pinned to Node 16; project runtime markers are evaluated later from the
@@ -49,7 +50,7 @@ Cursor entry instead:
     },
     "frontier": {
       "command": "npx",
-      "args": ["-y", "frontier-mcp@0.4.0"]
+      "args": ["-y", "frontier-mcp@0.5.0"]
     }
   }
 }
@@ -58,8 +59,8 @@ Cursor entry instead:
 Restart Cursor after saving. The pin is the version you get; updates remain manual.
 
 The [installation guide](docs/installation.md) covers Node 16 projects, a PowerShell bootstrap,
-runtime managers, absolute desktop paths, Bun 0.4.0 support, Deno's Node fallback, other clients,
-updates, recovery, and removal.
+runtime managers, absolute desktop paths, Bun and Deno (enabled only for older pins), other
+clients, updates, recovery, and removal.
 
 ## First use in a repository
 
@@ -74,6 +75,21 @@ updates, recovery, and removal.
 
 A repository with no `.scratch/` directory is not an error. Create the first Effort with
 `create_tickets`, `edit_map`, or `spec` and `create: true`.
+
+## Ticket ids
+
+New Ticket ids are minted from `id_pattern` in `.scratch/frontier.yml`. With no file or no key the
+pattern is `T<b36{6}>`, which gives random ids such as `Tk39fq`. Existing `T<n>` ids stay valid.
+
+```yaml
+id_pattern: T<N>-<b36{4}>
+```
+
+A pattern with `<N>` counts upward instead of drawing at random. A purely counted one such as
+`T<N>` hands the same id to two branches that create Tickets in parallel; mixing in a random part,
+as above, keeps them apart. The server reads the file once at startup, so restart it after a
+change. An invalid file is reported on the Board and blocks writes until fixed. See
+[`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md) for the conventions.
 
 ## Override the workspace
 
@@ -116,7 +132,7 @@ to avoid.
    last tag is releasable, `auto` exits green having shipped nothing, so confirm a new tag appeared.
 3. The workflow runs checks + tests, bumps `package.json`, updates `CHANGELOG.md`, tags
    `v*`, creates a GitHub Release, and publishes to npm with `pnpm`.
-4. Replace the current `frontier-mcp@0.4.0` pin in your user MCP config with the exact version you
+4. Replace the current `frontier-mcp@0.5.0` pin in your user MCP config with the exact version you
    released when you want the new build — pins stay manual on purpose.
 
 The workflow is dispatchable from any branch but refuses to run off `master`: release-it commits,
