@@ -2,6 +2,20 @@
 
 Package release notes for `frontier-mcp` (npm). Not part of the `.scratch/` issue tracker.
 
+## [0.5.0](https://github.com/51ck/frontier-mcp/compare/v0.4.1...v0.5.0) (2026-11-12)
+
+### Features
+
+* **ids:** mint from the compiled id pattern (T65) ([210a31a](https://github.com/51ck/frontier-mcp/commit/210a31a1d50eee954f0505387000b6fe64558b3d))
+* **ids:** read and compile id_pattern from frontier.yml ([f06d03f](https://github.com/51ck/frontier-mcp/commit/f06d03f3999d5b954c97f7eea59542d9ddef0527))
+
+### Bug Fixes
+
+* **ids:** refuse a key naming an existing Ticket; steady the random tests ([1babcf3](https://github.com/51ck/frontier-mcp/commit/1babcf3d7003f82adf16222863b956492c2f6e0d))
+* **map:** refuse a GENERATED marker in a Map value ([525c0d4](https://github.com/51ck/frontier-mcp/commit/525c0d4afceb290ad286f840d15b9f7f2d16f720))
+* **map:** refuse Map values holding a level-2 heading ([3839134](https://github.com/51ck/frontier-mcp/commit/3839134bcdd8e6176edccf5934344f6bfbdb9b16))
+* **runtime-check:** read the minted id instead of assuming T1 ([d81a84b](https://github.com/51ck/frontier-mcp/commit/d81a84bb71b5d5b57556e17ab5979aee9fd1b8dc))
+
 ## [0.4.1](https://github.com/51ck/frontier-mcp/compare/v0.4.0...v0.4.1) (2026-09-16)
 
 ### Bug Fixes
