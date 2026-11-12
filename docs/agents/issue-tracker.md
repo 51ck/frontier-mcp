@@ -1,8 +1,11 @@
 # Issue tracker — FrontierMCP and file fallback
 
+Describes frontier-mcp 0.5.0 and later. A copy without this line, or naming an older version than
+the `frontier://tracker-doc` resource of the server you run, is stale.
+
 Use **FrontierMCP** as the issue tracker. Its canonical storage is markdown under `.scratch/`.
 Vocabulary is defined in the project's `CONTEXT.md` when present — Effort, Board, Header doc, Map,
-Spec, Ticket, Edge, Frontier.
+Spec, Ticket, Edge, Frontier, Handle, Temporary key.
 
 When **FrontierMCP** (server name `frontier`) is loaded in your session, use the tools below. They
 own the schema, compute the graph, and answer orientation questions for a fraction of the token cost
@@ -30,7 +33,7 @@ session.** Moving to another worktree mid-session does not retarget it: pass `ro
 reports no Efforts — that is the worktree being served correctly, not the tracker going missing.
 
 **Every call that writes opens with `root: <path>`**, naming the repository it just changed. Read it
-— a Ticket id is not repo-unique, so `T10 updated` looks the same whichever repository answered, and
+— a Ticket id is unique within a repository, not across them, so `T10 updated` looks the same whichever repository answered, and
 this line is the only part of the result that tells you. Reads do not carry it, and neither do the
 read paths of write-capable tools: `edit_map` with no section fields, `spec` with no `content`, and
 `migrate_effort` with `preview`.
@@ -87,35 +90,40 @@ These conventions are canonical whether FrontierMCP is loaded or not. FrontierMC
 the same files; a session without the server still produces valid Tickets by following this section.
 
 **Canonical is not licence to allocate ids by hand.** When FrontierMCP is loaded, ids come from
-`create_tickets` and are never derived by scanning. The server allocates each candidate under a
-repo-global `.scratch/.frontier-id-T<n>.guard` and re-scans while holding every guard; a file
-written straight to disk takes part in none of that, so it is the naive `max + 1` that
-[ADR 0005](../adr/0005-ids-are-allocated-under-a-guard-and-a-rescan.md) was written against —
-measured there, four processes creating three Tickets each produced thirteen files carrying four
-distinct ids, and duplicates are silent. A *guessed* id passed to `create_tickets` costs nothing;
-the server allocates and discards the guess. Only the hand-written file breaks.
+`create_tickets`, and you never scan for one: the server mints every id it is present for. It knows
+the repo's id pattern, and under a pattern containing `<N>` it counts under a guard
+(`.scratch/.frontier-id-N-<n>.guard`, keyed on the counter value) that a file written straight to
+disk cannot take — ADR 0006 in the frontier-mcp repository. Hand-writing while the server is loaded
+bypasses the mint whatever the pattern.
 
 ### Layout
 
-- One Effort per directory: `.scratch/<effort-slug>/`
+- One Effort per directory: `.scratch/<effort-slug>/`. The only other file FrontierMCP reads there
+  is `.scratch/frontier.yml`, whose one key `id_pattern` shapes Ticket ids.
 - The header doc is `spec.md` (from `/to-spec`) or `map.md` (from `/wayfinder`). An Effort charted as a
   Map may later gain a Spec — that is wayfinder's handoff, not a mistake.
 - Tickets are one file per Ticket under `.scratch/<effort-slug>/issues/` — never a single combined
   tickets file.
-- Ticket filenames are `<NN>-T<n>-<slug>.md`. `NN` is sort order only and may be rewritten. `T<n>` is
-  the identity and never changes.
-- **Ticket ids are `T<n>`, unique across the whole repo.** With FrontierMCP loaded, `create_tickets`
-  assigns them and you never scan for the next one. Only when the server is absent: before creating
-  a Ticket by hand, scan every `.scratch/*/issues/` for the highest existing `T` number and continue
-  from there — ids do not restart per Effort. A bare `T47` therefore resolves anywhere in the repo,
-  including in commit messages.
+- Ticket filenames are `<NN>-<id>-<slug>.md`. `NN` is sort order only and may be rewritten. The id
+  is the identity and never changes.
+- **Ticket ids are unique across the whole repo**, so a bare id resolves anywhere in it, including
+  in commit messages. With FrontierMCP loaded, `create_tickets` assigns them. Only when the server is
+  absent, mint one by hand:
+  1. Read `id_pattern` from `.scratch/frontier.yml`. No file or no key means `T<b36{6}>`: `T`
+     and six random lowercase base36 characters. `<b16{n}>` is n hex characters; anything outside
+     `<>` is literal.
+  2. **No `<N>` in the pattern:** generate the random tokens. Do not scan for a highest id; check
+     only that yours is not already in use.
+  3. **`<N>` in the pattern:** scan every `.scratch/*/issues/` for the highest value `<N>` has
+     reached in ids of that shape and add one. A hand-writer cannot take the server's guard, so if
+     any session might be minting at the same time you can both reach the same number unseen.
 - Formal metadata goes in YAML frontmatter. Prose stays prose.
 
 ### Ticket frontmatter
 
 ```yaml
 ---
-id: T12                     # T<n>, repo-unique, never reused
+id: T12                     # shaped by id_pattern; repo-unique, never reused or changed
 title: Parse legacy tickets without frontmatter
 kind: build                 # build | decision
 type: research              # decision only: research | prototype | grilling | task
@@ -164,8 +172,8 @@ When FrontierMCP is loaded, prefer the MCP calls in the table above over hand-ed
 
 **Everything below holds only while FrontierMCP is absent from the session.** With the server
 loaded, `create_tickets` publishes the breakdown and is the only thing that may allocate an id;
-hand-writing the file bypasses the guards, per the File conventions preamble.
+hand-writing the file bypasses the mint, per the File conventions preamble.
 
 When a skill says "publish to the issue tracker" and FrontierMCP is not loaded, create
-`.scratch/<effort-slug>/issues/<NN>-T<n>-<slug>.md` (creating directories as needed), assign the next
-repo-global `T<n>` by scanning as described above, and write frontmatter matching the template above.
+`.scratch/<effort-slug>/issues/<NN>-<id>-<slug>.md` (creating directories as needed), mint the id
+as the Layout steps above describe, and write frontmatter matching the template above.

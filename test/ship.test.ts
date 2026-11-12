@@ -148,7 +148,23 @@ describe('the shipped surface', () => {
     // scanned for the highest T<n> itself, the naive `max + 1` ADR 0005 measured.
     expect(text).toMatch(/ids\s+come\s+from\s+`create_tickets`/i);
     expect(text).toMatch(/never[\s\S]{0,40}\bscan/i);
-    expect(text).toMatch(/ADR 0005/);
+    expect(text).toMatch(/ADR 0006/);
+  });
+
+  it('names the package version its text describes, never one later than this package', async () => {
+    const { default: packageJson } = await import('../package.json', { with: { type: 'json' } });
+    const marker = /^Describes frontier-mcp (\d+)\.(\d+)\.(\d+) and later\./m.exec(
+      shippedTrackerDoc(),
+    );
+    expect(marker).not.toBeNull();
+
+    // At most, not equal: release-it bumps package.json after this suite runs,
+    // so a marker pinned to the package version would publish one behind or
+    // fail the release. The marker moves by hand when the text's contract does.
+    const described = marker!.slice(1).map(Number);
+    const current = packageJson.version.split('.').map(Number);
+    const order = described.map((part, i) => part - current[i]!).find(diff => diff !== 0) ?? 0;
+    expect(order).toBeLessThanOrEqual(0);
   });
 });
 

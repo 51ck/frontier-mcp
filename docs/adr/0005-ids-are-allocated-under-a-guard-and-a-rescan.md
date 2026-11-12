@@ -1,5 +1,7 @@
 # Ids are allocated under a guard and a re-scan, not by creating the Ticket file
 
+Superseded by [ADR 0006](./0006-ids-are-minted-by-pattern-and-guarded-only-when-counted.md).
+
 The spec's mechanism is to create the Ticket file itself with an exclusive-create flag and bump on
 collision, so that the filesystem provides the mutual exclusion and no counter file can drift. The
 derived counter survives that reading; the exclusive create does not. Ids are unique **repo-wide**,

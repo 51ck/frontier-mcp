@@ -149,7 +149,7 @@ Design decisions settled and binding until an ADR revises them:
   no counter file to drift. The exclusive create is taken on a separate guard file keyed on the `<N>`
   value rather than on the Ticket file or the rendered id, because two sessions minting one counter
   into different Efforts, or with different random parts, write different paths and would collide
-  over nothing. See [ADR 0005](./docs/adr/0005-ids-are-allocated-under-a-guard-and-a-rescan.md).
+  over nothing. See [ADR 0006](./docs/adr/0006-ids-are-minted-by-pattern-and-guarded-only-when-counted.md).
 - **Type what gets surgically mutated; leave the rest opaque.** The Map has typed sections because
   wayfinder edits them section by section. The Spec is an opaque body because nothing edits it.
 - **Derive, don't store, what tickets already know.** The Map's Decisions-so-far renders from resolved
@@ -253,7 +253,7 @@ Stack, settled:
   release. Keep that string byte-identical to the head of `CHANGELOG.md`.
 
 **A full workspace scan costs 9–13ms at this repo's size, and this paragraph is the only place those
-numbers are written down** — the watcher comments and ADR 0005 cite it rather than restating it.
+numbers are written down** — the watcher comments and ADRs 0005 and 0006 cite it rather than restating it.
 Harness: [`bench/scan-cost.ts`](./bench/scan-cost.ts), `pnpm run bench:scan`; throwaway by intent
 and not shipped. On Node v24.15.0, darwin arm64, Apple M4 Pro, 12 cores, 24GB, n=30 per group,
 against this repo's own `.scratch/` — 33 Tickets, 3 Efforts, 102KB — a cold scan is 8.91ms median /
@@ -323,7 +323,7 @@ Rendering rules that are load-bearing, not cosmetic:
   is the only route to a body — it walks fresh rather than reading the cached scan, which is why
   `get_tickets` can never serve prose another process has already rewritten.
 - **A write names the workspace it resolved; a read does not** ([T11](./.scratch/frontier-v1/issues/11-T11-should-a-mutating-call-report-the-workspace-it-r.md)).
-  Ticket ids are not repo-unique — every Effort numbers from T1 — so `T10 updated` is as plausible
+  Ticket ids are unique within a repository, not across repositories, so `T10 updated` is as plausible
   against the wrong repository as the right one, and it is the one result a caller cannot check from
   what it got back. A read needs no such line: the wrong repository returns visibly wrong content.
   What decides is *whether the call wrote*, not whether the tool can — `edit_map` with no section
