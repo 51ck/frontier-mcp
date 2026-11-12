@@ -1,6 +1,6 @@
 # Issue tracker — FrontierMCP and file fallback
 
-Tracker doc revision 2. To check a vendored copy, compare this number with the one in the
+Tracker doc revision 3. To check a vendored copy, compare this number with the one in the
 `frontier://tracker-doc` resource of the server you run; a lower number, or no revision line, is
 stale.
 
@@ -48,7 +48,7 @@ Eight tools permanently. Optional arguments extend an existing tool; there is no
 
 | Tool | Use when |
 | --- | --- |
-| `list_efforts` | Orient — list Efforts with Ticket counts, header doc kinds, and Frontier size. |
+| `list_efforts` | Orient — list Efforts with Ticket counts, header doc kinds, and Frontier size. A repository with no `.scratch/` at all gets `no tracker here`, the marker that located the root, and a `start one` line to copy; an empty `.scratch/` still reads `(no efforts)`. |
 | `get_board` | See the whole Effort cheaply — Destination, one summary line per Ticket, Frontier marked. Never returns bodies. |
 | `get_tickets` | Fetch full bodies for specific ids after the Board tells you which Tickets matter. |
 | `create_tickets` | Publish a breakdown in one call. Declare Edges with temporary keys; the server assigns ids and numbers. |

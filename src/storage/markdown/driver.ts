@@ -1,4 +1,5 @@
 import { mkdir, readdir, readFile } from 'node:fs/promises';
+import { statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type {
@@ -227,6 +228,10 @@ export function createMarkdownDriver(
 
     mergeCollidingIdPattern() {
       return colliding;
+    },
+
+    absentStorage() {
+      return isDirectory(storage) ? undefined : `${storageDir}/`;
     },
 
     workspaceWarnings() {
@@ -951,4 +956,13 @@ async function readDir(dir: string) {
 function isMissing(error: unknown): boolean {
   const code = (error as NodeJS.ErrnoException | null)?.code;
   return code === 'ENOENT' || code === 'ENOTDIR';
+}
+
+/** Follows symlinks, as the root walk does: a linked `.scratch` is still the tracker. */
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
 }

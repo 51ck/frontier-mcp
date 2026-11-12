@@ -94,6 +94,13 @@ export interface StorageDriver {
   workspaceWarnings(): readonly string[];
 
   /**
+   * How a reader would name this workspace's storage when it does not exist at
+   * all — the markdown driver's `.scratch/` — and undefined when it exists,
+   * empty or not. Never creates it: a read must leave a bare repository bare.
+   */
+  absentStorage(): string | undefined;
+
+  /**
    * Whether `name` has the shape of an id this driver mints. Id shape is the
    * driver's to define; the domain only promises ids are opaque strings.
    */

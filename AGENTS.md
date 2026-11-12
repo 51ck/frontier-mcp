@@ -359,6 +359,13 @@ Rendering rules that are load-bearing, not cosmetic:
   unchanged)` as a `yaml` block whose backtick delimiter outruns any run inside it. Conforming
   Tickets gain nothing. Only a write that mints an id (`migrate_effort`) clears it; a comment or
   claim leaves the fence foreign.
+- **A missing storage directory explains itself; an empty one does not** (T105). Only when
+  `.scratch/` does not exist, `list_efforts` returns four lines: the root line suffixed
+  `(resolved by <source>)`, `no tracker here`, a `start one` line naming real `create_tickets` /
+  `edit_map` arguments, and the tracker-doc URI. The source comes from `locateWorkspace()` in
+  `src/workspace.ts`; existence crosses the seam as `StorageDriver.absentStorage()`, which never
+  creates the directory. An empty `.scratch/` keeps `(no efforts)`, and no other result carries the
+  `resolved by` suffix — a populated tracker is its own proof of the root.
 - **A Spec-only Effort opens with its Spec's first paragraph**, labelled `spec:` rather than
   `destination:`. Destination is a Map section; calling a Spec's opening one would be a lie in the
   vocabulary. Multi-line header prose has its continuation lines indented so it can never be read as

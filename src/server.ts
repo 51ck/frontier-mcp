@@ -32,6 +32,7 @@ import {
   listEffortsDescription,
   listEffortsInputSchema,
   renderEfforts,
+  renderNoTracker,
 } from './tools/list-efforts.ts';
 import {
   migrateEffortDescription,
@@ -47,7 +48,7 @@ import {
   updateTicketInputSchema,
 } from './tools/update-ticket.ts';
 import { readTrackerDoc, TRACKER_DOC_URI } from './tracker-doc.ts';
-import { resolveWorkspace, type WorkspaceContext } from './workspace.ts';
+import { locateWorkspace, resolveWorkspace, type WorkspaceContext } from './workspace.ts';
 
 export const SERVER_NAME = 'frontier';
 
@@ -160,8 +161,14 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     async ({ root }) => {
-      const workspace = resolveWorkspace(root, context);
+      const { root: workspace, resolvedBy } = locateWorkspace(root, context);
       const driver = registry.forWorkspace(workspace);
+      const absent = driver.absentStorage();
+      if (absent !== undefined) {
+        return {
+          content: [{ type: 'text', text: renderNoTracker(workspace, resolvedBy, absent) }],
+        };
+      }
       const [efforts, tickets] = await Promise.all([driver.listEfforts(), driver.listTickets()]);
 
       return {
