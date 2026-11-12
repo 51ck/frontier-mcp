@@ -33,9 +33,9 @@ try {
   workspace = await mkdtemp(join(tmpdir(), 'frontier-runtime-'));
   await writeFile(join(workspace, '.git'), 'gitdir: ./git\n', 'utf8');
 
-  await verifyPublicSurface(workspace);
-  await verifyWatcher(workspace);
-  await verifyCrossProcessClaim(workspace);
+  const ticket = await verifyPublicSurface(workspace);
+  await verifyWatcher(workspace, ticket);
+  await verifyCrossProcessClaim(workspace, ticket);
   await verifyCrossProcessCreate(workspace);
 
   console.log(`Runtime check passed: ${runtime} ${entry}`);
@@ -67,7 +67,9 @@ function parseArguments(args) {
   };
 }
 
+/** Returns the id the server minted and the file it wrote, which no caller may guess. */
 async function verifyPublicSurface(root) {
+  let minted;
   await withServer(root, 'surface', async client => {
     const { tools } = await client.listTools();
     assertEqual(
@@ -85,33 +87,42 @@ async function verifyPublicSurface(root) {
     const trackerDoc = contents.map(content => ('text' in content ? content.text : '')).join('\n');
     assert(trackerDoc.includes('get_board'), 'the shipped tracker resource is readable');
 
-    await call(client, 'create_tickets', {
+    const created = await call(client, 'create_tickets', {
       effort: 'alpha',
       create: true,
       tickets: [{ title: 'Runtime lifecycle', body: 'Created through the packaged server.' }],
     });
+    const id = /^(\S+) +Runtime lifecycle$/m.exec(created)?.[1];
+    assert(id !== undefined, 'create_tickets reports the id it minted');
+    assert(/^T[0-9a-z]{6}$/.test(id), `the default id pattern mints T<b36{6}>; got ${id}`);
     const board = await call(client, 'get_board', { effort: 'alpha' });
     assert(board.includes('Runtime lifecycle'), 'created Ticket appears on its Board');
-    const ticket = await call(client, 'get_tickets', { ids: ['T1'] });
+    const ticket = await call(client, 'get_tickets', { ids: [id] });
     assert(
       ticket.includes('Created through the packaged server.'),
       'created Ticket body is readable',
     );
 
-    await call(client, 'update_ticket', { id: 'T1', claim: { by: 'runtime-check' } });
-    await call(client, 'update_ticket', { id: 'T1', release: true });
+    await call(client, 'update_ticket', { id, claim: { by: 'runtime-check' } });
+    await call(client, 'update_ticket', { id, release: true });
     await call(client, 'update_ticket', {
-      id: 'T1',
+      id,
       resolve: { answer_gist: 'Runtime check landed.' },
     });
     await call(client, 'update_ticket', {
-      id: 'T1',
+      id,
       reopen: { reason: 'Exercise the full lifecycle.' },
     });
+
+    const issues = join(root, '.scratch', 'alpha', 'issues');
+    const [file] = await readdir(issues);
+    assert(file !== undefined, 'the created Ticket has a file');
+    minted = { id, path: join(issues, file) };
   });
+  return minted;
 }
 
-async function verifyWatcher(root) {
+async function verifyWatcher(root, ticket) {
   await withServer(root, 'watcher', async client => {
     await call(client, 'get_board', { effort: 'alpha' });
     await sleep(WATCHER_SETTLE_MS);
@@ -119,7 +130,7 @@ async function verifyWatcher(root) {
     // a filesystem event. Prime it again so the edit must trigger invalidation.
     await call(client, 'get_board', { effort: 'alpha' });
 
-    const ticketPath = join(root, '.scratch', 'alpha', 'issues', '01-T1-runtime-lifecycle.md');
+    const ticketPath = ticket.path;
     const original = await readFile(ticketPath, 'utf8');
     await writeFile(
       ticketPath,
@@ -165,7 +176,7 @@ async function verifyWatcher(root) {
   });
 }
 
-async function verifyCrossProcessClaim(root) {
+async function verifyCrossProcessClaim(root, ticket) {
   const servers = await Promise.all(
     Array.from({ length: CLAIMANTS }, (_, index) => openServer(root, `claim-${String(index)}`)),
   );
@@ -175,10 +186,12 @@ async function verifyCrossProcessClaim(root) {
     const outcomes = await Promise.all(
       servers.map(({ client }, index) => {
         const by = `claim-${String(index)}`;
-        return callResult(client, 'update_ticket', { id: 'T1', claim: { by } }).then(result => ({
-          by,
-          result,
-        }));
+        return callResult(client, 'update_ticket', { id: ticket.id, claim: { by } }).then(
+          result => ({
+            by,
+            result,
+          }),
+        );
       }),
     );
     const winners = outcomes.filter(({ result }) => result.isError !== true);
@@ -193,7 +206,7 @@ async function verifyCrossProcessClaim(root) {
           .join('\n'),
     );
 
-    const ticketPath = join(root, '.scratch', 'alpha', 'issues', '01-T1-runtime-lifecycle.md');
+    const ticketPath = ticket.path;
     const onDisk = await readFile(ticketPath, 'utf8');
     const holder = /claimed_by:\s*(\S+)/.exec(onDisk)?.[1];
     assert(holder === winners[0]?.by, 'the process told it won is the process recorded on disk');
@@ -203,6 +216,11 @@ async function verifyCrossProcessClaim(root) {
 }
 
 async function verifyCrossProcessCreate(root) {
+  // Only a counted pattern allocates under guards, so only one can show that
+  // separate processes never hand out the same counter. Read at construction,
+  // so it must be in place before these servers start.
+  await writeFile(join(root, '.scratch', 'frontier.yml'), 'id_pattern: T<N>\n', 'utf8');
+
   const servers = await Promise.all(
     Array.from({ length: CREATORS }, (_, index) => openServer(root, `create-${String(index)}`)),
   );
@@ -232,7 +250,7 @@ async function verifyCrossProcessCreate(root) {
     );
     const ids = await Promise.all(
       files.map(
-        async file => /^id:\s*(T\d+)$/m.exec(await readFile(join(issues, file), 'utf8'))?.[1],
+        async file => /^id:\s*(\S+)$/m.exec(await readFile(join(issues, file), 'utf8'))?.[1],
       ),
     );
     assert(
@@ -240,6 +258,10 @@ async function verifyCrossProcessCreate(root) {
       'every concurrent Ticket has an id',
     );
     assert(new Set(ids).size === ids.length, 'concurrent creation never issues an id twice');
+    assert(
+      ids.filter(id => /^T\d+$/.test(id)).length === CREATORS * TICKETS_PER_CREATOR,
+      'every concurrent Ticket is counted under the pinned pattern',
+    );
   } finally {
     await closeServers(servers);
   }
