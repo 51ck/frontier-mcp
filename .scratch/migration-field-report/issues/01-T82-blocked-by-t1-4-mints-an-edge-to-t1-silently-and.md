@@ -2,9 +2,10 @@
 id: T82
 title: "`Blocked by: T1.4` mints an Edge to `T1`, silently and to the wrong board"
 kind: build
-status: open
+status: resolved
 triage: ready-for-agent
 blocked_by: []
+answer_gist: A prose sub-slice `T38.1` coarsens to `T38` only when `T38` is another Ticket of the same Effort, decided once per scan so the Board, the Frontier, a lazy write and migration agree; otherwise it stays as declared and dangles, a plain `T1` beside `T1.4` keeps its own Edge, and `migrate_effort` names kept sub-slices and cross-Effort Edges in two capped lines
 ---
 
 Found migrating a 191-Ticket, 20-Effort repo (`tag-customizer`) onto the schema.
@@ -34,3 +35,11 @@ A prose Edge reference should match a Ticket id exactly, not by prefix. `T1.4` m
 A cross-Effort Edge minted by migration is also inherently suspicious: `Blocked by:` prose in a legacy board almost always names a sibling by sort order, so an Edge that lands on another board is more likely a misparse than an intent. Worth at least naming in the migration report.
 
 Under the uncoordinated-id format from [[T35]] the concrete `T1.4` case disappears, since `T1` stops being a plausible id shape. The general one does not: prefix-matching an id out of arbitrary prose is what failed, and a six-character base36 id can still sit inside a longer token.
+
+## Answer
+
+The rule is deliberately conservative: a legitimate cross-Effort sub-slice (sobrina's `core T18.4`, and three more: `T11.1`, `T21.4`, `T21.5`) now dangles and keeps its Ticket off the Frontier until `blocked_by` is set by hand, where before it resolved to the parent in the other Effort. That was right for sobrina and silently wrong for tag-customizer's `T1.4`. Honouring an Effort the prose names explicitly was not built; it is open to a later decision.
+
+The first build changed only `migrate_effort`. Review showed any ordinary write to an unfenced Ticket still wrote the coarsened Edge, so the decision moved to the scan (`resolveSubSlices`).
+
+Not covered here, filed as [[T108]]: an id minted later can capture a dangling prose Edge.

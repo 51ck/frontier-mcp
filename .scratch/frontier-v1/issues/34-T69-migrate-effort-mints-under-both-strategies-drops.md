@@ -2,9 +2,10 @@
 id: T69
 title: migrate_effort mints under both strategies, drops rename, previews by handle
 kind: build
-status: open
+status: resolved
 triage: ready-for-agent
 blocked_by: [T65, T62, T58]
+answer_gist: "`migrate_effort` mints through the pattern's own strategy on a real run and predicts nothing in a preview: unminted Tickets are named by unpadded handle, lines are labelled reference-style against one definition block of workspace-root-relative paths, two previews are identical, `rename` is gone, and guards stay held until every write has settled"
 ---
 
 **What to build:** the mechanical floor of [[T40]], as reconciled by [[T62]].
@@ -47,14 +48,14 @@ resolves.
 pattern; and T58, which decides the handle separator this report is written in.
 
 
-- [ ] Migration mints correctly under both strategies, per T62
-- [ ] An existing id is always preserved; a collision with an id elsewhere refuses and names both
+- [x] Migration mints correctly under both strategies, per T62
+- [x] An existing id is always preserved; a collision with an id elsewhere refuses and names both
       files
-- [ ] `rename` is gone, with `fromName`/`toName`; `MigrationChange` carries `filename`
-- [ ] Preview names unminted Tickets by handle, inside `blocked_by=` too, with one reference-style
+- [x] `rename` is gone, with `fromName`/`toName`; `MigrationChange` carries `filename`
+- [x] Preview names unminted Tickets by handle, inside `blocked_by=` too, with one reference-style
       definition block and workspace-root-relative paths
-- [ ] Preview run twice against unchanged files produces the same report
-- [ ] Handles render unpadded, matching `handleFor`
+- [x] Preview run twice against unchanged files produces the same report
+- [x] Handles render unpadded, matching `handleFor`
 
 ## Comments
 
@@ -71,3 +72,5 @@ Read [[T40]] with its amended gist: its minting half stands, its migration-shape
 One correction it hands over. [[T40]]'s worked example prints handles zero-padded — `ship-0-5-0#01` — and `handleFor` emits no padding (`src/storage/markdown/ticket.ts:106-108`); the filename pads (`pad`, `src/storage/markdown/create.ts:379-380`), the handle does not. A builder following T40's example verbatim renders a handle nothing resolves. The existing criterion "Handles render unpadded, matching `handleFor`" is the one that catches this — take the form from `handleFor`, not from T40's example.
 
 From the T65 review (2026-11-12): under a random pattern `randomPlan.peek` is `draw`, so a `migrate_effort` preview prints ids the real run will not reuse. T53's "What the build inherits" says the preview should say so rather than show candidates it will not honour. T65 left this here because preview-by-handle is this Ticket's criterion. Also: under a broken `frontier.yml` the preview shows default-pattern ids.
+
+Left untested at resolve, 2026-11-12: nothing pins that guards stay held when one write fails mid-batch. Reverting `applyPlan` to a raced `Promise.all` passes the suite. The reviewer read the code as correct; a test needs one write in a batch to fail, which the harness has no clean way to force.
