@@ -231,7 +231,7 @@ export function createMarkdownDriver(
     },
 
     absentStorage() {
-      return isDirectory(storage) ? undefined : `${storageDir}/`;
+      return isAbsent(storage) ? `${storageDir}/` : undefined;
     },
 
     workspaceWarnings() {
@@ -961,10 +961,12 @@ function isMissing(error: unknown): boolean {
 }
 
 /** Follows symlinks, as the root walk does: a linked `.scratch` is still the tracker. */
-function isDirectory(path: string): boolean {
+/** Only a path with nothing at it: a file where the directory belongs is present, and unusable. */
+function isAbsent(path: string): boolean {
   try {
-    return statSync(path).isDirectory();
-  } catch {
+    statSync(path);
     return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT';
   }
 }

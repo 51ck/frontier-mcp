@@ -157,8 +157,21 @@ describe('list_efforts in a repository with no tracker', () => {
     await frontier.call('list_efforts');
     await frontier.callExpectingError('get_board', { effort: 'nothing' });
     await frontier.call('get_tickets', { ids: ['T1'] });
+    await frontier.callExpectingError('edit_map', { effort: 'nothing' });
+    await frontier.callExpectingError('spec', { effort: 'nothing' });
+    await frontier.callExpectingError('migrate_effort', { effort: 'nothing', preview: true });
 
     expect(existsSync(join(root, '.scratch'))).toBe(false);
+  });
+
+  it('keeps the plain result when a file sits where the storage directory belongs', async () => {
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.scratch': 'not a directory\n',
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    expect(await frontier.call('list_efforts')).toBe(`root: ${root}\n(no efforts)`);
   });
 
   it('starts an Effort by following create_tickets in the start one line verbatim', async () => {
