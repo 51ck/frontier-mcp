@@ -113,7 +113,7 @@ function watchDirectories(
  * answer, handed down.
  *
  * If the storage directory does not exist yet, the workspace root is watched
- * until it appears, then the recursive watch is attached.
+ * until it appears, then the storage watch is attached.
  *
  * **A watch is not live the moment `watch()` returns.** On macOS libuv
  * registers the FSEvents stream off-thread, and multiplexes every watch in the
@@ -161,7 +161,7 @@ export function watchStorage(
    * Each pass retries the attach before dropping the scan, because the event a
    * root watch is warming up to miss is "the storage directory appeared" — and
    * losing that one costs more than a stale scan. Nothing would ever call
-   * {@link attachStorageWatcher} again, so the recursive watch would never take
+   * {@link attachStorageWatcher} again, so the storage watch would never take
    * over and every later change would go unseen. Re-attaching here is idempotent:
    * a watch already in place returns immediately.
    */
@@ -210,7 +210,7 @@ export function watchStorage(
       rootWatcher = watch(root, (_event, filename) => {
         // One segment deep, so the name a root watch reports can match it
         // whole. A nested path would never match, and the watch would never
-        // hand over to the recursive one.
+        // hand over to the storage one.
         if (filename !== storageDir) return;
         attachStorageWatcher();
         scheduleInvalidate();

@@ -201,8 +201,8 @@ Stack, settled:
   - The move changed nothing on the wire; it was a dependency-line decision, measured in
     `docs/research/sdk-v2-family.md`.
 - **`yaml`** (`parseDocument`) for frontmatter, per ADR 0003. Not `gray-matter`.
-- **`node:fs.watch` with `{ recursive: true }`** for T8 — supported on macOS and Windows, and on
-  Linux since Node 19.1. A re-scan costs ~13ms at this repo's size — see the scan-cost paragraph
+- **`node:fs.watch`** for T8 — recursive on macOS and Windows, one watch per directory on Linux,
+  for the reason at the end of this bullet. A re-scan costs ~13ms at this repo's size — see the scan-cost paragraph
   below — cheap enough that the watcher debounces and drops the driver's whole scan; per-file event
   granularity, which is what chokidar actually buys, is worth nothing here. A watch is **not live
   when `watch()` returns** — on macOS libuv registers the FSEvents stream off-thread, and a change
@@ -502,7 +502,9 @@ pnpm run release:dry  # needs a clean tree and an upstream branch
 `.github/workflows/runtime.yml` runs `check`, `test`, and `build` on Node 24 for every push
 and pull request, twice: on the 24.15.0 floor, which alone packs the tarball the downstream jobs
 use, and on the newest 24.x, so a Node regression on Linux surfaces in the gate rather than in a
-release (T99). Its development job is the test gate; keep failures blocking the downstream
+release (T99). The newest-24.x leg floats, so a new Node release can turn it red on a change that
+touched nothing relevant — check the Node version the leg printed before blaming the change. Its
+development job is the test gate; keep failures blocking the downstream
 package compatibility and setup jobs. The setup matrix provisions real fnm and verifies registration
 and saved launches on macOS, Linux, and Windows; scripts DOX owns the checks. Reuse this gate rather than adding a second test workflow. The release
 workflow remains a separate manual publish path.
