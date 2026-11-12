@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from 'node:util';
+
 import { Document, isMap, isScalar, isSeq, parse, parseDocument } from 'yaml';
 
 import type { TicketEdit } from '../../domain.ts';
@@ -100,9 +102,11 @@ export function applyEdit(contents: string, edit: TicketEdit, defaults: Defaults
  * caller did not name. Every name is resolved before anything is cut.
  *
  * The cut is text surgery, so its result is read back the way the reader reads
- * a fence and refused unless exactly the other keys survive: an alias left
- * without its anchor, or a flow mapping sharing the dropped entry's line, would
- * otherwise land a fence that no longer parses and take the Ticket's id with it.
+ * a fence and refused unless exactly the other entries survive with the values
+ * they had: an alias left without its anchor, a flow mapping sharing the
+ * dropped entry's line, or an alias that falls back to an earlier anchor of the
+ * same name would otherwise land a fence that no longer parses, or one whose
+ * `status` quietly changed.
  * When no key survives there is no fence left to keep, and undefined hands the
  * write to the schema block every fenceless file gets.
  */
@@ -143,29 +147,56 @@ function withoutKeys(
     cut = cut.slice(0, start) + cut.slice(end);
   }
 
-  const expected = Object.keys(document.toJS() as object).filter(key => !spans.has(key));
-  if (!sameKeys(survivingKeys(cut), expected)) throw new KeyNotCleanlyDroppable([...spans.keys()]);
-  if (expected.length === 0) return undefined;
+  // Compared on the text that will be written, trimming included: a `|+`
+  // scalar left as the last entry would otherwise lose its trailing blank lines.
+  const written = cut.replace(/(?:\r?\n)+$/, '');
+  const expected = withoutEntries(valueOf(document), spans);
+  if (expected === undefined) throw new NoFrontmatterToDrop();
+  const surviving = plainValue(written);
+  if (
+    surviving === undefined ||
+    !isDeepStrictEqual(surviving, expected) ||
+    Object.keys(surviving).join('\0') !== Object.keys(expected).join('\0')
+  ) {
+    throw new KeyNotCleanlyDroppable([...spans.keys()]);
+  }
+  if (Object.keys(expected).length === 0) return undefined;
 
-  return cut.replace(/\r?\n$/, '');
+  return written;
 }
 
-function survivingKeys(cut: string): readonly string[] | undefined {
+type PlainMap = Record<string, unknown>;
+
+/** A fence the reader would refuse — an alias with no anchor — has no values to compare. */
+function valueOf(document: Document): PlainMap | undefined {
   try {
-    const value: unknown = parse(cut);
-    if (value === null || value === undefined) return [];
-    return typeof value === 'object' && !Array.isArray(value) ? Object.keys(value) : undefined;
+    return asPlainMap(document.toJS());
   } catch {
     return undefined;
   }
 }
 
-function sameKeys(actual: readonly string[] | undefined, expected: readonly string[]): boolean {
-  return (
-    actual !== undefined &&
-    actual.length === expected.length &&
-    actual.every((key, index) => key === expected[index])
-  );
+function plainValue(text: string): PlainMap | undefined {
+  try {
+    const value: unknown = parse(text);
+    return value === null || value === undefined ? {} : asPlainMap(value);
+  } catch {
+    return undefined;
+  }
+}
+
+function asPlainMap(value: unknown): PlainMap | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as PlainMap)
+    : undefined;
+}
+
+function withoutEntries(
+  value: PlainMap | undefined,
+  dropped: ReadonlyMap<string, unknown>,
+): PlainMap | undefined {
+  if (value === undefined) return undefined;
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !dropped.has(key)));
 }
 
 /**

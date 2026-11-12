@@ -223,6 +223,12 @@ describe('drop_keys refuses a cut that would damage the fence', () => {
       '{id: T1, title: One, status: open, z: 2}',
       'z',
     ],
+    [
+      'an anchor whose alias would fall back to an earlier one',
+      'id: T1\ntitle: One\nx: &s open\nz: &s resolved\nstatus: *s',
+      'z',
+    ],
+    ['the entry after a keep-chomped scalar', 'id: T1\ntitle: One\nlit: |+\n  a\n\nz: 1', 'z'],
   ])('refuses %s and writes nothing', async (_, fence, key) => {
     const { frontier, read } = await setup(file(fence));
     const before = await read();
@@ -235,6 +241,19 @@ describe('drop_keys refuses a cut that would damage the fence', () => {
     expect(error).toContain(`'${key}' cannot be cut out`);
     expect(await read()).toBe(before);
     expect(await frontier.call('get_board', { effort: 'alpha' })).toContain('T1  One');
+  });
+
+  it('refuses a fence the reader cannot parse with the typed failure', async () => {
+    const { frontier, read } = await setup(file('id: T1\ntitle: One\nw: *q\nz: 1'));
+    const before = await read();
+
+    const error = await frontier.callExpectingError('update_ticket', {
+      id: 'alpha#1',
+      drop_keys: ['z'],
+    });
+
+    expect(error).toContain('no parseable frontmatter');
+    expect(await read()).toBe(before);
   });
 
   it('refuses an empty list rather than writing a no-op', async () => {

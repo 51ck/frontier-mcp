@@ -378,9 +378,10 @@ Rendering rules that are load-bearing, not cosmetic:
   line with it, an own-line comment above it kept — so a drop alone leaves the rest byte-identical.
   A schema key (`SchemaKeyNotDroppable`), an absent key (`NoSuchKey`) or a Ticket with no parseable
   fence (`NoFrontmatterToDrop`, file left un-normalized) fails the whole call. The cut is read back
-  before it is written, and refused with `KeyNotCleanlyDroppable` unless exactly the other keys
-  survive — an alias left without its anchor, or a flow mapping sharing the entry's line, would
-  land a fence that no longer parses. A fence left with no key gets the schema block a fenceless
+  before it is written, and refused with `KeyNotCleanlyDroppable` unless exactly the other entries
+  survive with the values they had — an alias left without its anchor, a flow mapping sharing the
+  entry's line, or an alias falling back to an earlier anchor of the same name would land a fence
+  that no longer parses, or one whose `status` quietly changed. A fence left with no key gets the schema block a fenceless
   file gets, never an empty fence. It is allowed on an
   id-less foreign fence: dropping its last unimported key ends the Foreign predicate, so the Ticket
   becomes a schema fence with no id — not Foreign, still in the Board's `no id (N)` warning, and
