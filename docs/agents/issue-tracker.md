@@ -89,7 +89,9 @@ a standing warning that the pattern collides across branches — it describes th
 that call; the remedy is a mixed pattern such as `T<N>-<b36{4}>`. When a Ticket's frontmatter carries
 keys outside the schema, `get_tickets` appends them as a fenced `yaml` block under `## Unimported
 frontmatter` — the whole fence for a Ticket with no `id`, only the unimported entries otherwise. The
-read leaves the file unchanged, and no ordinary write removes them.
+read leaves the file unchanged, and no ordinary write removes them. A Board counts `resolved` Tickets
+with no `answer_gist`, `dropped` with no `dropped_reason` and `claimed` with no `claimed_by` in its
+warnings, so set the field with the Status.
 
 Claims are compare-and-set — a parallel session that already holds the Ticket wins. Writes carry the
 `revision` from the last read; a mismatch is refused, never retried over the caller's edit.

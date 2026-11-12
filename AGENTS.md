@@ -352,6 +352,10 @@ Rendering rules that are load-bearing, not cosmetic:
   fence keeps `are Foreign — … inferred`; a foreign-fenced one is counted apart, as fields that
   `came from frontmatter that was not imported`. The distinction crosses the seam as
   `TicketSummary.foreignFenced`.
+- **A lifecycle Status missing its field is counted, per Status** (T85): `N/M resolved Tickets
+  carry no answer_gist`, likewise `dropped` / `dropped_reason` and `claimed` / `claimed_by`. M is
+  that Status's count; no handles are listed. A Ticket with no parseable fence is left out of both,
+  since its answer is prose. Computed from the cached scan. `list_efforts` stays silent on it.
 - **An unrecognized status is counted in the warnings block and is never takeable.** The Board line
   may still show `/open`, but the Ticket is kept off the Frontier until a write normalizes it.
 - **A `<N>`-only id pattern warns on every `create_tickets` result, never on a read, never
