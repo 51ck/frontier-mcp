@@ -696,6 +696,9 @@ async function measureSessions(fixture: Fixture, count: number): Promise<Session
   }
 }
 
+const markerTitle = (tickets: readonly { id: string | undefined; title: string }[]) =>
+  tickets.find(ticket => ticket.id === MARKER_ID)?.title;
+
 /**
  * One session: a driver with the production watcher settings, re-reading every
  * {@link POLL_MS} and reporting the first read that reflects a new marker. That
@@ -706,9 +709,6 @@ async function runSession(): Promise<void> {
   const root = required('root');
   const trials = Number(required('trials'));
   const driver = createMarkdownDriver(root);
-
-  const markerTitle = (tickets: readonly { id: string | undefined; title: string }[]) =>
-    tickets.find(ticket => ticket.id === MARKER_ID)?.title;
 
   let seen = markerTitle(await driver.listTickets());
   process.stdout.write('READY\n');
