@@ -73,6 +73,7 @@ agent's. Design work happens now because it is free; construction waits on the m
 ## Decisions so far
 
 <!-- GENERATED: overwritten on every mutation through the server. Do not hand-edit. -->
+- [T29 — Is the scan cost worth sharing one driver across processes](issues/01-T29-is-the-scan-cost-worth-sharing-one-driver-across.md) — Partly, and small: no shared driver and no external engine; per-file invalidation is filed as T106 and parked until a real repo shows re-scan cost. ADR 0004 and 0006 guards unchanged.
 <!-- /GENERATED -->
 
 ## Not yet specified

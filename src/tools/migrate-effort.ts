@@ -66,6 +66,9 @@ function renderChange(change: MigrationChange): string {
     was,
     rename,
     edges,
+    change.duplicateFiles === undefined
+      ? undefined
+      : `duplicate id, carried by ${change.duplicateFiles.join(', ')} — a real run refuses`,
   ]
     .filter(part => part !== undefined)
     .join('  ');

@@ -132,7 +132,7 @@ Design decisions settled and binding until an ADR revises them:
   compiled pattern carries `needsCoordination` and `survivesMerge`, and compiles once into the
   minting plan. Id matching consumes it too: `StorageDriver.isId()` answers from the pattern (any
   length per random token, so existing `T<n>` ids still match the default), and `create_tickets`
-  refuses a temporary key exactly when it would match. Under a broken config `isId` answers from
+  refuses a temporary key that would match it or that is an existing Ticket's id. Under a broken config `isId` answers from
   the default and a `migrate_effort` preview shows default-pattern ids. Rules: T52–T55 in
   `.scratch/ids-patterns/`.
 - **`.md` with YAML frontmatter.** Not `.mdc`.
@@ -149,7 +149,7 @@ Design decisions settled and binding until an ADR revises them:
   no counter file to drift. The exclusive create is taken on a separate guard file keyed on the `<N>`
   value rather than on the Ticket file or the rendered id, because two sessions minting one counter
   into different Efforts, or with different random parts, write different paths and would collide
-  over nothing. See [ADR 0005](./docs/adr/0005-ids-are-allocated-under-a-guard-and-a-rescan.md).
+  over nothing. See [ADR 0006](./docs/adr/0006-ids-are-minted-by-pattern-and-guarded-only-when-counted.md).
 - **Type what gets surgically mutated; leave the rest opaque.** The Map has typed sections because
   wayfinder edits them section by section. The Spec is an opaque body because nothing edits it.
 - **Derive, don't store, what tickets already know.** The Map's Decisions-so-far renders from resolved
@@ -253,7 +253,7 @@ Stack, settled:
   release. Keep that string byte-identical to the head of `CHANGELOG.md`.
 
 **A full workspace scan costs 9–13ms at this repo's size, and this paragraph is the only place those
-numbers are written down** — the watcher comments and ADR 0005 cite it rather than restating it.
+numbers are written down** — the watcher comments and ADRs 0005 and 0006 cite it rather than restating it.
 Harness: [`bench/scan-cost.ts`](./bench/scan-cost.ts), `pnpm run bench:scan`; throwaway by intent
 and not shipped. On Node v24.15.0, darwin arm64, Apple M4 Pro, 12 cores, 24GB, n=30 per group,
 against this repo's own `.scratch/` — 33 Tickets, 3 Efforts, 102KB — a cold scan is 8.91ms median /
@@ -323,7 +323,7 @@ Rendering rules that are load-bearing, not cosmetic:
   is the only route to a body — it walks fresh rather than reading the cached scan, which is why
   `get_tickets` can never serve prose another process has already rewritten.
 - **A write names the workspace it resolved; a read does not** ([T11](./.scratch/frontier-v1/issues/11-T11-should-a-mutating-call-report-the-workspace-it-r.md)).
-  Ticket ids are not repo-unique — every Effort numbers from T1 — so `T10 updated` is as plausible
+  Ticket ids are unique within a repository, not across repositories, so `T10 updated` is as plausible
   against the wrong repository as the right one, and it is the one result a caller cannot check from
   what it got back. A read needs no such line: the wrong repository returns visibly wrong content.
   What decides is *whether the call wrote*, not whether the tool can — `edit_map` with no section
@@ -336,11 +336,29 @@ Rendering rules that are load-bearing, not cosmetic:
   reference form, so the Board is the only thing that can make a foreign Edge followable.
 - **An unresolvable Edge renders `T9?`** and is counted in the warnings block. It never silently
   makes a Ticket look takeable.
+- **A duplicate id is one grouped warning**, on every Board, computed from the cached scan the Board
+  is built from. One id is one exact string. It names the files of at most 3 ids, 10 more ids bare,
+  then counts the rest; the total stays exact. Under a counted pattern it names that pattern as the
+  likely cause. Every claimant answers to the real id — only id-less Tickets get a `.2` handle
+  suffix — so no handle reaches one claimant. `get_tickets` returns every claimant once under a line
+  saying so. An Edge to a duplicated id is satisfied only when every claimant is resolved, and cycle
+  checks follow every claimant's Edges: a duplicate never enlarges the Frontier. A Ticket whose own
+  id is duplicated is never takeable, because every write to it is refused.
 - **An unrecognized status is counted in the warnings block and is never takeable.** The Board line
   may still show `/open`, but the Ticket is kept off the Frontier until a write normalizes it.
+- **A `<N>`-only id pattern warns on every `create_tickets` result, never on a read, never
+  suppressed** (T56, T68). The tool learns the pattern and its config file from
+  `StorageDriver.mergeCollidingIdPattern()`; the text names both, names `T<N>-<b36{4}>`, says
+  *regression*, and closes by saying no action is required on this call. It never mentions
+  duplicates — the cross-reference runs one way, from the duplicate warning to the pattern.
 - **Every Ticket is nameable.** A Legacy Ticket with no id gets an `<effort>#<order>` handle, which
   `get_tickets` accepts. It is an address, not an id — not repo-stable, and never usable as an Edge —
   but without it a whole Effort has no route to its own bodies.
+- **A foreign fence is shown, never written.** `get_tickets` appends a foreign-fenced Ticket's raw
+  fence (`Ticket.foreignFence`, body path only) under `## Foreign frontmatter (not imported; file
+  unchanged)` as a `yaml` block whose backtick delimiter outruns any run inside it. Conforming
+  Tickets gain nothing. Only a write that mints an id (`migrate_effort`) clears it; a comment or
+  claim leaves the fence foreign.
 - **A Spec-only Effort opens with its Spec's first paragraph**, labelled `spec:` rather than
   `destination:`. Destination is a Map section; calling a Spec's opening one would be a lie in the
   vocabulary. Multi-line header prose has its continuation lines indented so it can never be read as
@@ -365,6 +383,12 @@ Write rules, equally load-bearing:
   `destination`, `notes`, `add_fog` or `rule_out` — matched by the reader's own section-break regex,
   fenced code included — fails with `SectionBreakInValue` and writes nothing (T96). So does a
   GENERATED marker in any of the four, which the reader would take for a block the server owns.
+- **A write addressed to a duplicated id refuses** with `DuplicateId`, naming every file, before
+  any other rule judges one claimant. `update_ticket` asks `StorageDriver.assertAddressable()`
+  first, which never writes. A real `migrate_effort` refuses the same way when an inferred id is
+  already carried elsewhere; its preview is a read, so it reports the conflict on that Ticket's
+  line and still shows the plan. Nothing renumbers: a new id cannot reach the commit messages and
+  PR bodies already naming the old one, so a human renumbers all but one file by hand.
 - **A mismatch is never retried.** It is re-read only to produce a better message — usually
   "already claimed by X" — and then the original failure is raised. A mismatch may equally be
   somebody's hand edit, and overwriting that is what the check exists to prevent.
@@ -506,6 +530,9 @@ the schema does not recognize.
 Shapes the parser handles that these two Efforts happen **not** to contain — struck-through Edges,
 `Status: done` / `fixed` / `superseded`, bold field labels — are covered by synthetic files in
 `test/legacy-shapes.test.ts`. Put new shapes there; never add them to the fixtures.
+
+`docs/agents/issue-tracker.md` opens with `Tracker doc revision <n>`, pinned in form only by
+`test/ship.test.ts`; raise it by hand whenever the doc's contract changes.
 
 `test/read-path-cost.test.ts` asserts the spec's token measurements. They are the argument for the
 project existing, so they are checked rather than restated.

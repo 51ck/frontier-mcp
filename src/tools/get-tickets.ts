@@ -25,22 +25,34 @@ export const getTicketsDescription =
 export function renderTickets(requested: readonly string[], found: readonly Ticket[]): string {
   // Addressable by id when it has one, and by its handle either way — an
   // id-less Legacy Ticket has no other route to its own body.
-  const byName = new Map<string, Ticket>();
+  const byName = new Map<string, Ticket[]>();
+  const add = (name: string, ticket: Ticket) => {
+    const claimants = byName.get(name) ?? [];
+    if (!claimants.includes(ticket)) claimants.push(ticket);
+    byName.set(name, claimants);
+  };
   for (const ticket of found) {
-    byName.set(ticket.handle, ticket);
-    if (ticket.id !== undefined) byName.set(ticket.id, ticket);
+    add(ticket.handle, ticket);
+    if (ticket.id !== undefined) add(ticket.id, ticket);
   }
 
   const blocks: string[] = [];
   const missing: string[] = [];
 
   for (const name of requested) {
-    const ticket = byName.get(name);
-    if (ticket === undefined) {
+    const claimants = byName.get(name);
+    if (claimants === undefined) {
       missing.push(name);
       continue;
     }
-    blocks.push(renderOne(ticket));
+    // Every claimant of a duplicated id, never silently the first.
+    if (claimants.length > 1) {
+      blocks.push(
+        `${name} is carried by ${String(claimants.length)} Tickets — writes to it are refused ` +
+          'until all but one are renumbered by hand',
+      );
+    }
+    for (const ticket of claimants) blocks.push(renderOne(ticket));
   }
 
   if (missing.length > 0) blocks.push(`not found: ${missing.join(' ')}`);
@@ -63,5 +75,18 @@ function renderOne(ticket: Ticket): string {
     ticket.legacy ? 'legacy' : undefined,
   ].filter(field => field !== undefined);
 
-  return `# ${ticket.handle} — ${ticket.title}\n${fields.join('  ')}\n\n${ticket.body}`;
+  const head = `# ${ticket.handle} — ${ticket.title}\n${fields.join('  ')}\n\n${ticket.body}`;
+  return ticket.foreignFence === undefined
+    ? head
+    : `${head}\n\n${renderFence(ticket.foreignFence)}`;
+}
+
+/**
+ * The fence verbatim, never re-serialized. Its delimiter outruns any backtick
+ * run inside it, so YAML holding a code fence cannot close the block early.
+ */
+function renderFence(raw: string): string {
+  const longest = Math.max(0, ...(raw.match(/`+/g) ?? []).map(run => run.length));
+  const delimiter = '`'.repeat(Math.max(3, longest + 1));
+  return `## Foreign frontmatter (not imported; file unchanged)\n\n${delimiter}yaml\n${raw}\n${delimiter}`;
 }

@@ -247,7 +247,15 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       });
 
       return {
-        content: [{ type: 'text', text: withWorkspace(workspace, renderCreated(effort, created)) }],
+        content: [
+          {
+            type: 'text',
+            text: withWorkspace(
+              workspace,
+              renderCreated(effort, created, driver.mergeCollidingIdPattern()),
+            ),
+          },
+        ],
       };
     },
   );
@@ -308,6 +316,12 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       };
 
       const ticket = find(tickets);
+      // Two claimants: the driver refuses with the files named, which only it
+      // knows, so ask it before any rule judges the first claimant. Asking
+      // writes nothing, so a duplicate already fixed by hand is never rewritten.
+      if (tickets.filter(entry => entry.id === id).length > 1) {
+        await driver.assertAddressable(id);
+      }
 
       let written: TicketWriteResult;
       try {

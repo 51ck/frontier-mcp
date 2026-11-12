@@ -100,6 +100,23 @@ export interface StorageDriver {
   isId(name: string): boolean;
 
   /**
+   * The configured id pattern when ids minted independently on two branches
+   * can collide after a merge — a purely counted pattern, which a second branch
+   * counts to the same number — with where it is configured, for a reader to
+   * act on. Undefined when minted ids survive a merge.
+   */
+  mergeCollidingIdPattern():
+    | { readonly pattern: string; readonly configuredIn: string }
+    | undefined;
+
+  /**
+   * Refuses as a write addressed to `handle` would refuse before it reads the
+   * Ticket — {@link DuplicateId} when more than one Ticket answers to it — and
+   * never writes. Lets a caller put that refusal ahead of its own rules.
+   */
+  assertAddressable(handle: string): Promise<void>;
+
+  /**
    * The named Tickets with their bodies, addressed by id or by the
    * `<effort>#<order>` handle an id-less Legacy Ticket answers to. A name the
    * workspace does not hold is simply absent: which names were asked for is the
@@ -218,6 +235,23 @@ export class NoSuchTicket extends Error {
   constructor(handle: string) {
     super(`No Ticket '${handle}' in this workspace.`);
     this.name = 'NoSuchTicket';
+  }
+}
+
+/**
+ * Thrown when a write is addressed to an id more than one Ticket carries. Which
+ * of them the caller means cannot be told, and picking one is how a duplicate
+ * becomes two Tickets with diverged content. Nothing renumbers either one: a
+ * new id cannot reach the commit messages and PR bodies already naming the old.
+ */
+export class DuplicateId extends Error {
+  constructor(id: string, files: readonly string[]) {
+    super(
+      `Nothing was written: ${id} is carried by ${String(files.length)} Ticket files — ` +
+        `${files.join(', ')} — so which one is meant cannot be told. Give all but one a new ` +
+        'id by hand; FrontierMCP never renumbers.',
+    );
+    this.name = 'DuplicateId';
   }
 }
 

@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -92,5 +92,96 @@ describe('a non-conforming frontmatter fence on read', () => {
     await frontier.call('get_board', { effort: 'alpha' });
 
     expect(await readFile(join(root, FILE), 'utf8')).toBe(contents);
+  });
+});
+
+const HEADING = '## Foreign frontmatter (not imported; file unchanged)';
+
+describe('get_tickets on a foreign fence', () => {
+  it('appends the raw fence as a yaml block, byte-identical', async () => {
+    const raw = 'labels: [bug, "ui"]   # trailing comment\ntitle: GitHub export\nnumber: 0042';
+    const contents = `---\n${raw}\n---\n\nBody prose.\n`;
+    const root = await makeFixtureTree({
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      [FILE]: contents,
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const out = await frontier.call('get_tickets', { ids: ['alpha#1'] });
+
+    expect(out.endsWith(`Body prose.\n\n${HEADING}\n\n\`\`\`yaml\n${raw}\n\`\`\``)).toBe(true);
+  });
+
+  it('outruns a backtick fence inside the raw yaml', async () => {
+    const raw = 'title: GitHub export\nlabels: bug\nnote: |\n  ```\n  code\n  ````';
+    const root = await makeFixtureTree({
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      [FILE]: `---\n${raw}\n---\n\nBody prose.\n`,
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const out = await frontier.call('get_tickets', { ids: ['alpha#1'] });
+
+    expect(out).toContain(`${HEADING}\n\n\`\`\`\`\`yaml\n${raw}\n\`\`\`\`\``);
+  });
+
+  it('leaves the file bytes and mtime unchanged', async () => {
+    const contents = fenced({ labels: 'bug', title: 'GitHub export' });
+    const root = await makeFixtureTree({
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      [FILE]: contents,
+    });
+    const before = await stat(join(root, FILE));
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    await frontier.call('get_tickets', { ids: ['alpha#1'] });
+
+    expect(await readFile(join(root, FILE), 'utf8')).toBe(contents);
+    expect((await stat(join(root, FILE))).mtimeMs).toBe(before.mtimeMs);
+  });
+
+  it('adds nothing to a conforming Ticket', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      '.scratch/alpha/issues/01-T1-open.md': ticket('T1', 'Still takeable'),
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const out = await frontier.call('get_tickets', { ids: ['T1'] });
+
+    expect(out).not.toContain('Foreign frontmatter');
+    expect(out).not.toContain('```');
+  });
+
+  it('keeps the block after a comment, which leaves the fence foreign', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      [FILE]: fenced({ labels: 'bug', title: 'GitHub export' }),
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    await frontier.call('update_ticket', { id: 'alpha#1', comment: 'Migrating.' });
+
+    expect(await frontier.call('get_tickets', { ids: ['alpha#1'] })).toContain(HEADING);
+  });
+
+  it('drops the block once migrate_effort has normalized the file', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      [FILE]: fenced({ labels: 'bug', title: 'GitHub export' }),
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const report = await frontier.call('migrate_effort', { effort: 'alpha', preview: false });
+    // The minted id leads its report line, whatever shape the pattern gives it.
+    const id = report
+      .split('\n')
+      .find(line => line.includes('  GitHub export  '))
+      ?.split('  ')[0];
+
+    expect(id).toBeDefined();
+    const out = await frontier.call('get_tickets', { ids: [id ?? ''] });
+    expect(out).toContain('GitHub export');
+    expect(out).not.toContain(HEADING);
   });
 });

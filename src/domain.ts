@@ -77,6 +77,12 @@ export interface TicketSummary {
 /** A Ticket with its prose. */
 export interface Ticket extends TicketSummary {
   readonly body: string;
+  /**
+   * The raw, unparsed YAML of a frontmatter fence that is not this schema —
+   * no id and keys outside it. Carried on the body path only, so the agent can
+   * read what was never imported; undefined for every conforming Ticket.
+   */
+  readonly foreignFence?: string;
 }
 
 /**
@@ -238,6 +244,11 @@ export interface MigrationChange {
   readonly toName: string | undefined;
   /** Edges as they will be written after bare sort-order remapping. */
   readonly blockedBy: readonly string[];
+  /**
+   * Preview only: every Ticket file already carrying this preserved id, this
+   * one included. A real run refuses with DuplicateId instead.
+   */
+  readonly duplicateFiles: readonly string[] | undefined;
 }
 
 /** The result of migrating one Effort — enough for the tool to render a report. */

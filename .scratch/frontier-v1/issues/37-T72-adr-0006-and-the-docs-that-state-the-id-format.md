@@ -2,9 +2,10 @@
 id: T72
 title: ADR 0006 and the docs that state the id format
 kind: build
-status: open
+status: resolved
 triage: ready-for-agent
 blocked_by: [T65, T49]
+answer_gist: ADR 0006 supersedes ADR 0005 with the pattern-driven mechanism and the guard's condition, quoting only T49's measured figures; the shipped tracker doc branches its hand-mint steps on `id_pattern` with the legality rules, names Handle and Temporary key, and carries a doc revision number; README's stability notice is true
 ---
 
 **What to build:** the written half of the id work.
@@ -45,15 +46,29 @@ release it is settled but configurable, which is a different sentence.
 **Blocked by:** the mechanism has to exist before it is described, and T49 before it is priced.
 
 
-- [ ] ADR 0006 exists, states the guard's condition, and marks ADR 0005 superseded
-- [ ] Every figure in it is measured, or labelled as arithmetic
-- [ ] `docs/agents/issue-tracker.md:3-4` grows to name **Handle** and **Temporary key**, the two
+- [x] ADR 0006 exists, states the guard's condition, and marks ADR 0005 superseded
+- [x] Every figure in it is measured, or labelled as arithmetic
+- [x] `docs/agents/issue-tracker.md:3-4` grows to name **Handle** and **Temporary key**, the two
       consumer-facing terms [[T50]] found missing from the list a consumer's `CONTEXT.md` is
       expected to define
-- [ ] `AGENTS.md`'s two id bullets match the shipped behaviour
-- [ ] `docs/agents/issue-tracker.md` branches on `id_pattern`, drops the sentence describing no code
+- [x] `AGENTS.md`'s two id bullets match the shipped behaviour
+- [x] `docs/agents/issue-tracker.md` branches on `id_pattern`, drops the sentence describing no code
       path, fixes the guard filename, and carries a version marker
-- [ ] `README.md`'s stability notice is true after the release
+- [x] `README.md`'s stability notice is true after the release
+
+## Answer
+
+ADR 0006: every figure traces to `docs/research/2026-09-13-create-path-cost.md`, the two differences are labelled arithmetic, and scan cost cites AGENTS.md without restating it. ADR 0005 gained one superseded line and is otherwise intact.
+
+Tracker doc: the preamble argues precedence. Hand-minting reads `id_pattern`, checks legality and refuses to mint under a broken file (never the default), fixes random parts at exact length and lowercase and `<N>` at unpadded decimal, counts before drawing under a mixed pattern, and warns that a hand-writer cannot take the guard. The guard filename is fixed and the sentence describing no code path is gone. It also covers duplicate ids, the standing counted-pattern warning and foreign frontmatter.
+
+Version marker: a doc revision integer, starting at 2 because 0.5.0 shipped the doc with none. A marker tied to the package version was built first and replaced: release-it tests before it bumps, so such a marker must understate the release it ships in. The revision is raised by hand when the doc's contract changes.
+
+AGENTS.md: the second id bullet points at ADR 0006; the workspace-line rule now says ids are unique within a repository, not across repositories.
+
+README: done with T100. Per T50 it does not restate the default pattern.
+
+The `CONTEXT.md` criterion moved to T78 and was not touched.
 
 ## Comments
 

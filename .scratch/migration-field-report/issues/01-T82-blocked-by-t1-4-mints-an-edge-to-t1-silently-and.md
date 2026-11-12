@@ -3,7 +3,7 @@ id: T82
 title: "`Blocked by: T1.4` mints an Edge to `T1`, silently and to the wrong board"
 kind: build
 status: open
-triage: needs-triage
+triage: ready-for-agent
 blocked_by: []
 ---
 

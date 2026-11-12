@@ -41,6 +41,8 @@ for the research tickets; `/prototype` where a draft artifact raises the fidelit
 
 <!-- GENERATED: overwritten on every mutation through the server. Do not hand-edit. -->
 - [T41 — Where the people who already run this workflow gather](issues/01-T41-where-the-people-who-already-run-this-workflow-g.md) — Inventoried 19 launch venues with primary-source entry rules, activity evidence, promotion limits and dead ends; no channel chosen.
+- [T42 — What FrontierMCP claims, in words a stranger understands](issues/02-T42-what-frontiermcp-claims-in-words-a-stranger-unde.md) — Hero leads with where it lives ("An issue tracker that lives in your repo"); what the agent gets is the first supporting claim; the trade-off is a Trade-offs section directly under the hero; "frontier" stays out of the hero.
+- [T43 — What a stranger's first sixty seconds looks like with no tracker present](issues/03-T43-what-a-stranger-s-first-sixty-seconds-looks-like.md) — The launch needs only a self-explaining list_efforts result when the storage directory is missing: four lines (resolved root and why, no tracker here, the one call that starts one, pointer to the tracker doc). No guided init, no configuration format.
 <!-- /GENERATED -->
 
 ## Not yet specified

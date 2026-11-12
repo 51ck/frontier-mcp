@@ -3,7 +3,7 @@ id: T93
 title: A Claude Code repo can adopt frontier and get no tools, silently
 kind: build
 status: open
-triage: needs-triage
+triage: ready-for-agent
 blocked_by: []
 ---
 

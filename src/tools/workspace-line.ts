@@ -3,8 +3,8 @@
  * every write say it the same way and in the same place.
  *
  * A read has never needed it for safety — wrong repository, visibly wrong
- * content. A write is the opposite: Ticket ids are not repo-unique, since every
- * Effort numbers from T1, so `T10 updated` is exactly as plausible against the
+ * content. A write is the opposite: Ticket ids are unique within a repository,
+ * not across repositories, so `T10 updated` is exactly as plausible against the
  * wrong repository as the right one. It is the one result a caller cannot check
  * from what it got back, which is how the T10 worktree escape stayed invisible.
  */

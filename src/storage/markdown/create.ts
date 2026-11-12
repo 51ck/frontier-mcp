@@ -67,7 +67,8 @@ export interface CreateRequest {
  * turned up on disk. That is what makes the invariant hold: a file carrying id X
  * is only ever written while X's guard is held, and the guard is only kept when a
  * scan taken after acquiring it shows X unused — so two sessions can never both
- * write X. See ADR 0005.
+ * write X. ADR 0006 decides which patterns take the guard; ADR 0005 argues why it
+ * sits on its own file and is never reclaimed.
  */
 export async function createTicketFiles(request: CreateRequest): Promise<readonly string[]> {
   const { storage, minting, effort, dir, issues, drafts, rescan, validate, createEffort } = request;

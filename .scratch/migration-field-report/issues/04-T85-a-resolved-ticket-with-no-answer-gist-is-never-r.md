@@ -3,7 +3,7 @@ id: T85
 title: A resolved Ticket with no `answer_gist` is never reported
 kind: build
 status: open
-triage: needs-triage
+triage: ready-for-agent
 blocked_by: []
 ---
 

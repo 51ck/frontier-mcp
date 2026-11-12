@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { Kind, TicketDraft, TicketSummary, TriageRole } from '../domain.ts';
 import { TRIAGE_ROLES } from '../domain.ts';
 import { cycleThrough, renderCycle, resolveDraftEdges, type EdgesOf } from '../edges.ts';
-import { indexById } from '../frontier.ts';
+import { claimantsById, edgesOfClaimants } from '../frontier.ts';
 
 export const createTicketsInputSchema = z.object({
   effort: z.string().describe('Effort slug to create them in.'),
@@ -169,7 +169,7 @@ function checkEdges(
   existing: readonly TicketSummary[],
   isId: (name: string) => boolean,
 ): void {
-  const ids = indexById(existing);
+  const ids = claimantsById(existing);
 
   for (const draft of drafts) {
     for (const edge of draft.blockedBy) {
@@ -197,7 +197,7 @@ function checkCycles(
   existing: readonly TicketSummary[],
   resolve: (edge: string) => string = edge => edge,
 ): void {
-  const ids = indexById(existing);
+  const ids = claimantsById(existing);
   const nodes = new Map<string, TicketDraft>();
   const edges = new Map<string, readonly string[]>();
 
@@ -207,7 +207,7 @@ function checkCycles(
     edges.set(name, draft.blockedBy.map(resolve));
   });
 
-  const edgesOf: EdgesOf = id => edges.get(id) ?? ids.get(id)?.blockedBy ?? [];
+  const edgesOf: EdgesOf = id => edges.get(id) ?? edgesOfClaimants(ids, id);
 
   for (const [node, draft] of nodes) {
     const cycle = cycleThrough(node, edgesOf);
@@ -228,11 +228,32 @@ function placeholderFor(index: number, keys: ReadonlySet<string>): string {
 }
 
 /**
+ * Rides every create under a counted-only pattern and never a read: minting is
+ * where the collision is realised, and a once-per-process suppression would
+ * hide it from every agent connecting later. The closing clause keeps an agent
+ * from reporting a standing property as this call's failure. It never mentions
+ * duplicates; the Board's duplicate warning points back here instead (T56).
+ */
+export function countedPatternWarning(pattern: string, configuredIn: string): string {
+  return (
+    `id pattern \`${pattern}\` mints by counting the Tickets already in this working tree, so a ` +
+    'branch that counts the same tree mints the same ids and a merge leaves two Tickets on one ' +
+    'id — a regression from random ids. `T<N>-<b36{4}>` keeps the readable number and cannot ' +
+    `collide across branches. Set in ${configuredIn}. No action is required here — this ` +
+    'describes the pattern, not this call.'
+  );
+}
+
+/**
  * One line per Ticket: the id it was minted and the Edges as resolved — the two
  * things a caller cannot work out for itself. The filename is deliberately not
  * here: it is cosmetic, and the id is what everything addresses a Ticket by.
  */
-export function renderCreated(effort: string, created: readonly TicketSummary[]): string {
+export function renderCreated(
+  effort: string,
+  created: readonly TicketSummary[],
+  colliding?: { readonly pattern: string; readonly configuredIn: string },
+): string {
   const lines = [`${effort}: ${String(created.length)} created`];
 
   for (const ticket of created) {
@@ -247,5 +268,11 @@ export function renderCreated(effort: string, created: readonly TicketSummary[])
     );
   }
 
+  if (colliding !== undefined) {
+    lines.push(
+      'warnings:',
+      `- ${countedPatternWarning(colliding.pattern, colliding.configuredIn)}`,
+    );
+  }
   return lines.join('\n');
 }

@@ -3,7 +3,7 @@ id: T98
 title: A multi-line add_fog or rule_out value breaks the Map's bullet list
 kind: build
 status: open
-triage: needs-triage
+triage: ready-for-agent
 blocked_by: []
 ---
 

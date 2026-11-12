@@ -4,7 +4,7 @@ import type { Kind, TicketEdit, TicketSummary } from '../domain.ts';
 import { STATUSES, TRIAGE_ROLES } from '../domain.ts';
 import type { TriageRole } from '../domain.ts';
 import { cycleThrough, renderCycle, type EdgesOf } from '../edges.ts';
-import { indexById } from '../frontier.ts';
+import { claimantsById, edgesOfClaimants } from '../frontier.ts';
 
 export const updateTicketInputSchema = z.object({
   id: z.string().describe('Ticket id, or the <effort>#<order> handle of a Legacy Ticket.'),
@@ -234,8 +234,8 @@ function edgesFor(
   // Nothing can name an id-less Legacy Ticket, so no path leads back to it.
   if (ticket.id === undefined) return blockedBy;
 
-  const byId = indexById(all);
-  const edgesOf: EdgesOf = id => (id === ticket.id ? blockedBy : (byId.get(id)?.blockedBy ?? []));
+  const byId = claimantsById(all);
+  const edgesOf: EdgesOf = id => (id === ticket.id ? blockedBy : edgesOfClaimants(byId, id));
 
   const cycle = cycleThrough(ticket.id, edgesOf);
   if (cycle !== undefined) {

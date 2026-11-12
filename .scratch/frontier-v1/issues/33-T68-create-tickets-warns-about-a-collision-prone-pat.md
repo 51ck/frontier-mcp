@@ -2,9 +2,10 @@
 id: T68
 title: create_tickets warns about a collision-prone pattern
 kind: build
-status: open
+status: resolved
 triage: ready-for-agent
 blocked_by: [T64, T65]
+answer_gist: Under a pattern whose only variable token is `<N>`, every `create_tickets` result carries a warning naming the configured pattern and its file, the mixed form `T<N>-<b36{4}>`, the word regression, and T56's no-action clause; mixed, random and default patterns and every read carry nothing
 ---
 
 **What to build:** [[T56]]'s warning channel.
@@ -35,8 +36,16 @@ T53's wording is the reference text:
 result.
 
 
-- [ ] The warning rides every `create_tickets` result under a `<N>`-only pattern
-- [ ] It never appears on a read, and there is no suppression
-- [ ] A mixed pattern produces no warning
-- [ ] The text names `T<N>-<b36{4}>` and calls the exposure a regression
-- [ ] It cross-references T38's channel without merging into it
+- [x] The warning rides every `create_tickets` result under a `<N>`-only pattern
+- [x] It never appears on a read, and there is no suppression
+- [x] A mixed pattern produces no warning
+- [x] The text names `T<N>-<b36{4}>` and calls the exposure a regression
+- [x] It cross-references T38's channel without merging into it
+
+## Answer
+
+The seam gained `StorageDriver.mergeCollidingIdPattern()`, returning the pattern and where it is configured, or undefined. The tool layer renders the warning from that, so it follows a custom storage directory.
+
+Criterion 5 is met in T56's direction, not this Ticket's wording. T56 rules the cross-reference one way: this warning never mentions duplicates that have not happened, and the duplicate report (T67) names the counted pattern as the likely cause. The first build pointed it the other way; review caught it.
+
+Not built: T56's condition B (a random space below 10^6). This Ticket scopes the warning to `<N>`-only patterns. T56's sentence about mistyped Edges was left out to keep a per-call warning short.

@@ -6,16 +6,16 @@ changes, and pins never update themselves.
 
 ## Current release and verified server pin
 
-npm's current release is `frontier-mcp@0.4.1`. The installation recipes deliberately keep the
-server at `frontier-mcp@0.4.0`, the exact pin covered by the runtime measurements below. The 0.4.1
-artifact supplies the corrected setup bootstrap. A simple manual Cursor configuration is:
+npm's current release is `frontier-mcp@0.5.0`, and the installation recipes pin the server to it.
+The 0.5.0 artifact also supplies the setup bootstrap, which is unchanged from 0.4.1 (bootstrap
+revision 2). A simple manual Cursor configuration is:
 
 ```json
 {
   "mcpServers": {
     "frontier": {
       "command": "npx",
-      "args": ["-y", "frontier-mcp@0.4.0"]
+      "args": ["-y", "frontier-mcp@0.5.0"]
     }
   }
 }
@@ -30,13 +30,15 @@ executable or the setup bootstrap when that applies.
 
 ## Runtime requirements
 
-The published 0.4.0 package supports Node 20.20.2+ on 20.x, 22.17.1+ on 22.x, and 24.15.0+ on
+The published 0.5.0 package supports Node 20.20.2+ on 20.x, 22.17.1+ on 22.x, and 24.15.0+ on
 24.x. Node 24 LTS is the recommendation for a new installation. Node 20 is compatible but
 end-of-life.
 
-The package-runtime matrix passed the three stated floors on macOS, Linux, and Windows in
-[runtime CI run 35074448965](https://github.com/51ck/frontier-mcp/actions/runs/35074448965). The same
-run passed the real-fnm setup job on all three operating systems.
+For the 0.5.0 code, the package-runtime matrix passed the three stated floors on macOS, Linux, and
+Windows in [runtime CI run 43211864369](https://github.com/51ck/frontier-mcp/actions/runs/43211864369),
+on commit `7bc26d9`. Its tree is identical to `9c28ac4`, and the `v0.5.0` commit adds only the
+version bump and changelog. The same run's real-fnm setup job passed on all three operating systems,
+but it installs the published 0.4.0 server, so it is setup evidence for 0.4.0 rather than 0.5.0.
 
 The bootstrap's minimum is Node 16.20.2. Older Node 16 releases are not supported. The bootstrap
 selects a separate supported Node for the server and stores that Node's absolute path. It does not
@@ -50,15 +52,15 @@ engine range instead.
 ## Automatic setup
 
 Automated setup is the recommended installation path. Download the dependency-free bootstrap from
-the published 0.4.1 tarball, then use it to install the exact 0.4.0 server:
+the published 0.5.0 tarball, then use it to install the exact 0.5.0 server:
 
 ```sh
 SETUP_DIR="$(mktemp -d)"
-curl -fsSL https://registry.npmjs.org/frontier-mcp/-/frontier-mcp-0.4.1.tgz \
-  -o "$SETUP_DIR/frontier-mcp-0.4.1.tgz"
-tar -xzf "$SETUP_DIR/frontier-mcp-0.4.1.tgz" -C "$SETUP_DIR" \
+curl -fsSL https://registry.npmjs.org/frontier-mcp/-/frontier-mcp-0.5.0.tgz \
+  -o "$SETUP_DIR/frontier-mcp-0.5.0.tgz"
+tar -xzf "$SETUP_DIR/frontier-mcp-0.5.0.tgz" -C "$SETUP_DIR" \
   package/scripts/frontier-setup.cjs
-node "$SETUP_DIR/package/scripts/frontier-setup.cjs" --version 0.4.0 --apply
+node "$SETUP_DIR/package/scripts/frontier-setup.cjs" --version 0.5.0 --apply
 ```
 
 PowerShell uses the same published artifact:
@@ -66,10 +68,10 @@ PowerShell uses the same published artifact:
 ```powershell
 $SetupDir = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid())
 New-Item -ItemType Directory -Path $SetupDir | Out-Null
-$Archive = Join-Path $SetupDir "frontier-mcp-0.4.1.tgz"
-Invoke-WebRequest https://registry.npmjs.org/frontier-mcp/-/frontier-mcp-0.4.1.tgz -OutFile $Archive
+$Archive = Join-Path $SetupDir "frontier-mcp-0.5.0.tgz"
+Invoke-WebRequest https://registry.npmjs.org/frontier-mcp/-/frontier-mcp-0.5.0.tgz -OutFile $Archive
 tar -xzf $Archive -C $SetupDir package/scripts/frontier-setup.cjs
-node (Join-Path $SetupDir "package/scripts/frontier-setup.cjs") --version 0.4.0 --apply
+node (Join-Path $SetupDir "package/scripts/frontier-setup.cjs") --version 0.5.0 --apply
 ```
 
 Setup may run from a consumer project pinned to Node 16; its checks do not change that project's
@@ -87,13 +89,16 @@ entry. `--apply` writes Cursor user scope. For another client, use `--client man
 printed `frontier` entry into that client's user configuration. Use `--replace` only after reviewing
 a different existing `frontier` entry; setup creates a backup first.
 
-The literal POSIX quick-start above passed on macOS arm64 with the published 0.4.1 tarball and Node
-16.20.2 running the bootstrap. Preview and apply both verified the server; apply printed `Applied
-Cursor user configuration` without a stale preview message. The PowerShell form uses the same
-archive path, extraction target, script and version pin, but the literal 0.4.1 command has not been
-run locally on Windows. Windows script behavior remains covered by the setup fixtures and runtime CI.
-The [dated verification record](research/2026-09-17-0.4.1-bootstrap-verification.md) includes the
-tarball digest and exact evidence boundary.
+The POSIX quick-start above, without `--apply`, passed on macOS arm64 with the published 0.5.0
+tarball, under both Node 24.15.0 and Node 16.20.2 running the bootstrap. Each preview installed and
+verified the 0.5.0 server and wrote no Cursor configuration. `--apply` was not re-run for 0.5.0. It
+last passed on macOS arm64 with the 0.4.1 tarball and the 0.4.0 server; the bootstrap script is
+byte-identical between those two tarballs. The PowerShell form uses the same archive path,
+extraction target, script and version pin, but it has not been run literally on Windows for any
+release. Windows script behavior remains covered by the setup fixtures and runtime CI. The
+[0.5.0 verification record](research/2026-11-12-0.5.0-install-verification.md) has the tarball
+digest and exact evidence boundary; the
+[0.4.1 record](research/2026-09-17-0.4.1-bootstrap-verification.md) covers the earlier apply run.
 
 The generated launcher stores absolute paths, including paths with spaces, and needs no arguments in
 the client configuration:
@@ -125,9 +130,9 @@ outside the consumer project. This POSIX recipe gives the exact pin a stable dir
 the absolute `ENTRY` used below:
 
 ```sh
-INSTALL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/frontier-mcp/0.4.0"
+INSTALL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/frontier-mcp/0.5.0"
 mkdir -p "$INSTALL_DIR"
-pnpm --dir "$INSTALL_DIR" add --save-exact frontier-mcp@0.4.0
+pnpm --dir "$INSTALL_DIR" add --save-exact frontier-mcp@0.5.0
 ENTRY="$INSTALL_DIR/node_modules/frontier-mcp/dist/bin.js"
 test -f "$ENTRY" && printf '%s\n' "$ENTRY"
 ```
@@ -135,17 +140,17 @@ test -f "$ENTRY" && printf '%s\n' "$ENTRY"
 The PowerShell equivalent is:
 
 ```powershell
-$InstallDir = Join-Path $env:LOCALAPPDATA "frontier-mcp\0.4.0"
+$InstallDir = Join-Path $env:LOCALAPPDATA "frontier-mcp\0.5.0"
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-pnpm --dir "$InstallDir" add --save-exact frontier-mcp@0.4.0
+pnpm --dir "$InstallDir" add --save-exact frontier-mcp@0.5.0
 $Entry = Join-Path $InstallDir "node_modules\frontier-mcp\dist\bin.js"
 if (-not (Test-Path -LiteralPath $Entry)) { throw "FrontierMCP entry was not installed" }
 $Entry
 ```
 
 Both commands require pnpm in that compatible Node shell and may access the npm registry. They do
-not add files to the consumer project. The examples below use 24.15.0, the supported 24.x floor in
-the verified 0.4.0 server pin. Commands in the last column run the absolute `ENTRY`; quotes protect
+not add files to the consumer project. The examples below use 24.15.0, the supported 24.x floor for
+the 0.5.0 server pin. Commands in the last column run the absolute `ENTRY`; quotes protect
 paths with spaces.
 
 | Manager | Discover and install | Resolve or run 24.15.0 |
@@ -177,11 +182,12 @@ Node path and the absolute JavaScript entry rather than a manager command or shi
 
 The bootstrap has direct fixture coverage for discovery, layout fallback, absolute-path selection,
 and repair instructions for all six managers. Real fnm setup has passed on macOS, Linux, and Windows
-in [runtime CI run 35074448965](https://github.com/51ck/frontier-mcp/actions/runs/35074448965).
+in [runtime CI run 43211864369](https://github.com/51ck/frontier-mcp/actions/runs/43211864369), with
+the 0.4.0 server.
 The other manager integrations use representative fixtures; treat them as recipes with automated
 contract coverage rather than measurements of every manager and operating-system release. The
-literal published-artifact check used explicit Node 24.15.0 and Bun 1.3.14 executables on macOS
-arm64; it did not repeat every manager recipe.
+literal published-artifact checks used explicit Node 24.15.0 and Bun 1.3.14 executables on macOS
+arm64; they did not repeat every manager recipe.
 
 ## Bun and Deno projects
 
@@ -203,9 +209,15 @@ On macOS arm64, Bun 1.3.14 is measured with exact `frontier-mcp@0.3.1` and `0.4.
 remains enabled only for 0.3.1. When tested about 3.5 hours after publication, the unchanged 0.4.0
 Deno command was blocked by Deno's default minimum dependency age; a one-time override proved the
 server itself passes, but the saved launcher deliberately does not weaken that registry policy.
-The published 0.4.1 bootstrap therefore selects Bun for a 0.4.0 server and visibly falls back to
-Node for Deno. Every other unmeasured package version, runtime version, platform, or architecture
-also falls back to Node.
+The bootstrap, published unchanged in 0.4.1 and 0.5.0, therefore selects Bun for a 0.4.0 server and
+visibly falls back to Node for Deno.
+
+Neither Bun nor Deno is enabled for a 0.5.0 server. A saved 0.5.0 launcher started from a
+Bun-marked project prints `Bun is not verified for frontier-mcp@0.5.0` and runs Node. Bun 1.3.14 has
+passed the runtime check against the installed 0.5.0 entry on macOS arm64, but `bun x --bun
+frontier-mcp@0.5.0` itself was not measured, so the allowlist stays as published. Every other
+unmeasured package version, runtime version, platform, or architecture also falls back to Node. To
+run Bun or Deno today, use the older pins below and accept their older server behavior.
 
 The Bun command is measured for both pins; this Deno command remains the verified 0.3.1 recipe:
 
@@ -277,7 +289,7 @@ To update, choose an exact published version after reading `CHANGELOG.md`, then 
 pin. Setup installs versions in separate directories and prints a new launcher entry; it does not
 move an existing pin. Restart the MCP client after applying the new entry.
 
-For the direct `npx` configuration, replace `frontier-mcp@0.4.0` with the exact released pin and
+For the direct `npx` configuration, replace the `frontier-mcp@` version with the exact released pin and
 restart. For an absolute Node/`ENTRY` configuration, repeat the manual install recipe with the new
 pin in a new versioned directory. Change the `frontier` entry's first `args` value to that new
 absolute `dist/bin.js` path. If the new package requires a different Node executable, change
@@ -296,6 +308,11 @@ after the entry is removed. You may delete them later from the user-data locatio
 If a manager later removes the saved Node executable, the launcher exits with a manager-specific
 repair command. Install that runtime again and rerun setup so the saved command is verified before
 the client uses it.
+
+One known server defect is open: on Linux with Node 24.22.2, the server can exit when a directory
+under `.scratch/` is replaced by a file of the same name while it is watching (Ticket T99). It was
+seen in CI, not on the tested floors. If it affects you, run the server on one of the floors in
+[Runtime requirements](#runtime-requirements) until it is fixed.
 
 ## Open a repository
 

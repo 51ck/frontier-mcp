@@ -148,7 +148,13 @@ describe('the shipped surface', () => {
     // scanned for the highest T<n> itself, the naive `max + 1` ADR 0005 measured.
     expect(text).toMatch(/ids\s+come\s+from\s+`create_tickets`/i);
     expect(text).toMatch(/never[\s\S]{0,40}\bscan/i);
-    expect(text).toMatch(/ADR 0005/);
+    expect(text).toMatch(/ADR 0006/);
+  });
+
+  // A revision, not a package version: release-it bumps package.json after this
+  // suite runs, so a doc cannot name the release it ships in. Raised by hand.
+  it('carries a doc revision line a vendored copy can be compared by', () => {
+    expect(shippedTrackerDoc()).toMatch(/^Tracker doc revision [1-9]\d*\. /m);
   });
 });
 

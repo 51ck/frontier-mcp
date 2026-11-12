@@ -88,6 +88,12 @@ export function ticketBody(contents: string): string {
   return (fields === undefined ? contents : body).trim();
 }
 
+/** The raw fence of a foreign-fenced file, byte for byte; undefined otherwise. */
+export function foreignFence(contents: string): string | undefined {
+  const { fields, raw } = splitFrontmatter(contents);
+  return fields !== undefined && isForeignFence(fields) ? raw : undefined;
+}
+
 function parseLegacy(
   effort: string,
   order: number,
