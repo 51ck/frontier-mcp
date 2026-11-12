@@ -190,7 +190,14 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
         );
       }
 
-      return { content: [{ type: 'text', text: renderBoard(boardFor(effort, tickets)) }] };
+      return {
+        content: [
+          {
+            type: 'text',
+            text: renderBoard(boardFor(effort, tickets, driver.workspaceWarnings())),
+          },
+        ],
+      };
     },
   );
 

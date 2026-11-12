@@ -19,6 +19,8 @@ export interface Board {
   readonly frontier: ReadonlySet<TicketSummary>;
   /** Every Ticket in the workspace, because Edges resolve repo-wide. */
   readonly byId: ReadonlyMap<string, TicketSummary>;
+  /** Problems with the workspace's own configuration, which no Ticket carries. */
+  readonly workspaceWarnings: readonly string[];
 }
 
 /**
@@ -27,12 +29,17 @@ export interface Board {
  * the identity relationship they depend on in one place: `frontier.has(ticket)`
  * only works because every view derives from the same objects.
  */
-export function boardFor(effort: Effort, all: readonly TicketSummary[]): Board {
+export function boardFor(
+  effort: Effort,
+  all: readonly TicketSummary[],
+  workspaceWarnings: readonly string[] = [],
+): Board {
   return {
     effort,
     tickets: all.filter(ticket => ticket.effort === effort.slug),
     frontier: frontierOf(all),
     byId: indexById(all),
+    workspaceWarnings,
   };
 }
 
@@ -53,6 +60,7 @@ export function renderBoard(board: Board): string {
 
   if (tickets.length === 0) {
     lines.push('', '(no tickets)');
+    appendWarnings(lines, collectWarnings(board));
     return lines.join('\n');
   }
 
@@ -69,10 +77,13 @@ export function renderBoard(board: Board): string {
     lines.push(frontier.has(ticket) ? `> ${line}` : line);
   }
 
-  const warnings = collectWarnings(board);
-  if (warnings.length > 0) lines.push('', 'warnings:', ...warnings.map(entry => `  ${entry}`));
+  appendWarnings(lines, collectWarnings(board));
 
   return lines.join('\n');
+}
+
+function appendWarnings(lines: string[], warnings: readonly string[]): void {
+  if (warnings.length > 0) lines.push('', 'warnings:', ...warnings.map(entry => `  ${entry}`));
 }
 
 /**
@@ -148,7 +159,7 @@ function renderEdge(id: string, from: TicketSummary, board: Board): string {
  * exists to deliver.
  */
 function collectWarnings(board: Board): string[] {
-  const warnings: string[] = [];
+  const warnings: string[] = [...board.workspaceWarnings];
   const dangling = new Set<string>();
   const orphaned = new Set<string>();
   const unrecognized = new Set<string>();

@@ -2,9 +2,10 @@
 id: T64
 title: Ticket id patterns are read from frontier.yml and compiled
 kind: build
-status: open
+status: resolved
 triage: ready-for-agent
 blocked_by: []
+answer_gist: frontier.yml id_pattern is read once at driver construction and compiled below the seam with T53's two axes; absent means T<b36{6}> silently, broken warns on one Board line and refuses every write (reads and previews still work) until a server restart; minting unchanged
 ---
 
 **What to build:** the consumer-configurable id format decided in [[T52]] and [[T54]].
@@ -33,10 +34,21 @@ properties of the token list, so both are answered statically at compile time an
 runtime branch.
 
 
-- [ ] `<storageDir>/frontier.yml` is read at driver construction; `id_pattern` is its only
+- [x] `<storageDir>/frontier.yml` is read at driver construction; `id_pattern` is its only
       recognized key
-- [ ] `<N>`, `<b36{n}>`, `<b16{n}>` and literals parse; `<effort>` is refused with T52's reason
-- [ ] A pattern not beginning with a literal is illegal, and the reason cites T55
-- [ ] Absent file and absent key both yield the default with no warning
-- [ ] An unparseable file or an illegal pattern warns on read and refuses on write
-- [ ] The compiled pattern exposes both of T53's axes: needs-coordination, and survives-a-merge
+- [x] `<N>`, `<b36{n}>`, `<b16{n}>` and literals parse; `<effort>` is refused with T52's reason
+- [x] A pattern not beginning with a literal is illegal, and the reason cites T55
+- [x] Absent file and absent key both yield the default with no warning
+- [x] An unparseable file or an illegal pattern warns on read and refuses on write
+- [x] The compiled pattern exposes both of T53's axes: needs-coordination, and survives-a-merge
+
+## Answer
+
+Built in `src/storage/markdown/id-pattern.ts`, held by the markdown driver; surfaced above the seam only through `StorageDriver.workspaceWarnings()` (Board) and the `InvalidWorkspaceConfig` write refusal.
+
+- Read once at construction, not watched (T54). The refusal and warning both say a fix takes effect after a FrontierMCP server restart.
+- Every write refuses under a broken config, per T54's table; read paths of write-capable tools (migrate preview, edit_map with no sections, spec with no content) still work.
+- Builder choices beyond the decision text: literals limited to `[A-Za-z0-9._-]`, random token length 1–64, minted id at most 64 chars, null/non-string `id_pattern` illegal, empty or comment-only file treated as absent, non-mapping top level treated as broken.
+- Accepted edge: a non-preview migrate that would change nothing is still refused under a broken config; nothing is written either way.
+- Criterion 6 (needs-coordination / survives-a-merge) is implemented but not observable through any tool yet, so it has no test; T65 proves it through minting. No test seam added.
+- T52's `0x<b16{8}>` example violates its own rule 3 and is refused; comment left on T52.

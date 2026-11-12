@@ -87,6 +87,13 @@ export interface StorageDriver {
   listTickets(): Promise<readonly TicketSummary[]>;
 
   /**
+   * Problems with the workspace's own configuration, which no Ticket carries —
+   * a Board shows them with its other warnings. Reads keep working under any of
+   * them; every write refuses with {@link InvalidWorkspaceConfig}.
+   */
+  workspaceWarnings(): readonly string[];
+
+  /**
    * The named Tickets with their bodies, addressed by id or by the
    * `<effort>#<order>` handle an id-less Legacy Ticket answers to. A name the
    * workspace does not hold is simply absent: which names were asked for is the
@@ -237,5 +244,16 @@ export class NoSuchFogPatch extends Error {
   constructor(patch: string) {
     super(`No fog patch matching '${patch}' under Not yet specified.`);
     this.name = 'NoSuchFogPatch';
+  }
+}
+
+/** Thrown by every write while the workspace's configuration is broken. */
+export class InvalidWorkspaceConfig extends Error {
+  constructor(problem: string) {
+    super(
+      `Nothing was written: ${problem} The configuration is read once, so a fix takes effect ` +
+        'after the FrontierMCP server is restarted.',
+    );
+    this.name = 'InvalidWorkspaceConfig';
   }
 }
