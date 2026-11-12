@@ -1,4 +1,5 @@
-import type { Kind, Status, TicketSummary } from '../../domain.ts';
+import { isMap, isScalar, parseDocument } from 'yaml';
+import type { Kind, Status, TicketSummary, UnimportedFrontmatter } from '../../domain.ts';
 import { STATUSES } from '../../domain.ts';
 import { parseProseBody } from './legacy.ts';
 import { splitFrontmatter } from './frontmatter.ts';
@@ -88,10 +89,35 @@ export function ticketBody(contents: string): string {
   return (fields === undefined ? contents : body).trim();
 }
 
-/** The raw fence of a foreign-fenced file, byte for byte; undefined otherwise. */
-export function foreignFence(contents: string): string | undefined {
+/**
+ * The frontmatter keys this schema does not import, and the file's own text for
+ * them. A foreign fence is shown whole, byte for byte; a fence with an id shows
+ * only its unimported entries, each sliced from the source rather than
+ * re-serialized. Undefined for a conforming Ticket and for a fenceless file.
+ */
+export function unimportedFrontmatter(contents: string): UnimportedFrontmatter | undefined {
   const { fields, raw } = splitFrontmatter(contents);
-  return fields !== undefined && isForeignFence(fields) ? raw : undefined;
+  if (fields === undefined || raw === undefined) return undefined;
+  const keys = Object.keys(fields).filter(key => !SCHEMA_KEYS.has(key));
+  if (keys.length === 0) return undefined;
+  if (isForeignFence(fields)) return { keys, yaml: raw, whole: true };
+  return { keys, yaml: unimportedEntries(raw), whole: false };
+}
+
+function unimportedEntries(raw: string): string {
+  const doc = parseDocument(raw);
+  if (!isMap(doc.contents)) return raw;
+  const slices: string[] = [];
+  for (const pair of doc.contents.items) {
+    const key = isScalar(pair.key) ? pair.key : undefined;
+    if (key === undefined || SCHEMA_KEYS.has(String(key.value))) continue;
+    const start = key.range?.[0];
+    const value = pair.value as { range?: [number, number, number] } | null;
+    const end = value?.range?.[2] ?? key.range?.[2];
+    if (start === undefined || end === undefined) continue;
+    slices.push(raw.slice(start, end).replace(/\s+$/, ''));
+  }
+  return slices.join('\n');
 }
 
 function parseUnfenced(

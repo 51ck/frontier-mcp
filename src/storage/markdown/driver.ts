@@ -57,7 +57,7 @@ import {
   scaffoldMap,
   SECTION_HEADINGS,
 } from './header-doc.ts';
-import { foreignFence, parseTicketSummary, ticketBody } from './ticket.ts';
+import { parseTicketSummary, ticketBody, unimportedFrontmatter } from './ticket.ts';
 import { watchStorage, type StorageWatcher } from './watcher.ts';
 
 /**
@@ -830,8 +830,8 @@ async function readBodies(
 
 function withBody(ticket: TicketSummary, contents: string): Ticket {
   const body = ticketBody(contents);
-  const fence = foreignFence(contents);
-  return fence === undefined ? { ...ticket, body } : { ...ticket, body, foreignFence: fence };
+  const unimported = unimportedFrontmatter(contents);
+  return unimported === undefined ? { ...ticket, body } : { ...ticket, body, unimported };
 }
 
 /**

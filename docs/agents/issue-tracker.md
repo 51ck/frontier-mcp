@@ -1,6 +1,6 @@
 # Issue tracker — FrontierMCP and file fallback
 
-Tracker doc revision 4. To check a vendored copy, compare this number with the one in the
+Tracker doc revision 5. To check a vendored copy, compare this number with the one in the
 `frontier://tracker-doc` resource of the server you run; a lower number, or no revision line, is
 stale.
 
@@ -86,9 +86,10 @@ Two Ticket files carrying one id are listed in each Board's warnings, with claim
 first few, and every write addressed to that id is refused. Fix it by hand, giving all but one a new id; the server never
 renumbers. Under a pattern whose only variable token is `<N>`, every `create_tickets` result carries
 a standing warning that the pattern collides across branches — it describes the configuration, not
-that call; the remedy is a mixed pattern such as `T<N>-<b36{4}>`. When a Ticket's frontmatter fence
-is not in the schema, `get_tickets` appends it, unimported, as a fenced `yaml` block under a Foreign
-frontmatter heading; the read leaves the file unchanged.
+that call; the remedy is a mixed pattern such as `T<N>-<b36{4}>`. When a Ticket's frontmatter carries
+keys outside the schema, `get_tickets` appends them as a fenced `yaml` block under `## Unimported
+frontmatter` — the whole fence for a Ticket with no `id`, only the unimported entries otherwise. The
+read leaves the file unchanged, and no ordinary write removes them.
 
 Claims are compare-and-set — a parallel session that already holds the Ticket wins. Writes carry the
 `revision` from the last read; a mismatch is refused, never retried over the caller's edit.

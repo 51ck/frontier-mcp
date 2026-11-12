@@ -92,11 +92,23 @@ export interface TicketSummary {
 export interface Ticket extends TicketSummary {
   readonly body: string;
   /**
-   * The raw, unparsed YAML of a frontmatter fence that is not this schema —
-   * no id and keys outside it. Carried on the body path only, so the agent can
-   * read what was never imported; undefined for every conforming Ticket.
+   * Unimported keys: frontmatter outside the schema, which the server reads
+   * past and never writes. Carried on the body path only; undefined for every
+   * conforming Ticket.
    */
-  readonly foreignFence?: string;
+  readonly unimported?: UnimportedFrontmatter;
+}
+
+export interface UnimportedFrontmatter {
+  /** The top-level keys outside the schema, in file order. */
+  readonly keys: readonly string[];
+  /**
+   * The file's own YAML for them, never re-serialized: a Foreign Ticket's
+   * whole fence, otherwise only the unimported entries.
+   */
+  readonly yaml: string;
+  /** Whether {@link yaml} is the whole fence, as it is for a Foreign Ticket. */
+  readonly whole: boolean;
 }
 
 /**

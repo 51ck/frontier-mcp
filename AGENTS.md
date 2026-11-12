@@ -358,11 +358,13 @@ Rendering rules that are load-bearing, not cosmetic:
 - **Every Ticket is nameable.** A Ticket with no id gets an `<effort>#<order>` handle, which
   `get_tickets` accepts. It is an address, not an id — not repo-stable, and never usable as an Edge —
   but without it a whole Effort has no route to its own bodies.
-- **A foreign fence is shown, never written.** `get_tickets` appends a foreign-fenced Ticket's raw
-  fence (`Ticket.foreignFence`, body path only) under `## Foreign frontmatter (not imported; file
-  unchanged)` as a `yaml` block whose backtick delimiter outruns any run inside it. Conforming
-  Tickets gain nothing. Only a write that mints an id (`migrate_effort`) clears it; a comment or
-  claim leaves the fence foreign.
+- **Unimported keys are shown, never written.** `get_tickets` appends a Ticket's frontmatter keys
+  outside the schema (`Ticket.unimported`, body path only) under `## Unimported frontmatter` as a
+  `yaml` block whose backtick delimiter outruns any run inside it. A foreign fence (no `id`) shows
+  whole, byte for byte; a Ticket with an `id` shows only its unimported entries, each sliced from the
+  file's own text. Conforming Tickets gain nothing. No ordinary write removes them: a comment or
+  claim leaves a fence foreign, and `migrate_effort` mints the id but keeps the stray keys, which
+  then show as entries.
 - **A missing storage directory explains itself; an empty one does not** (T105). Only when
   `.scratch/` does not exist, `list_efforts` returns four lines: the root line suffixed
   `(resolved by <source>)`, `no tracker here`, a `start one` line naming real `create_tickets` /
