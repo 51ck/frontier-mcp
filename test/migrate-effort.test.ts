@@ -201,56 +201,21 @@ blocked_by: []
     await access(join(root, '.scratch/alpha/issues/01-grammy-group-boot.md'));
   });
 
-  it('renames to NN-T<n>-<slug>.md only when rename is set', async () => {
-    const root = await makeFixtureTree({
-      '.scratch/alpha/map.md': map('Somewhere.'),
-      '.scratch/alpha/issues/01-grammy-group-boot.md': FOREIGN_WITH_ID,
-    });
+  it('has no rename argument', async () => {
+    const root = await makeFixtureTree({ '.scratch/alpha/map.md': map('Somewhere.') });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    await frontier.call('migrate_effort', { effort: 'alpha', rename: true });
-
-    const names = await readdir(join(root, '.scratch/alpha/issues'));
-    expect(names).toEqual(['01-T30-grammy-group-boot.md']);
-
-    const onDisk = await readFile(
-      join(root, '.scratch/alpha/issues/01-T30-grammy-group-boot.md'),
-      'utf8',
-    );
-    expect(onDisk).toContain('id: T30');
+    const tools = await frontier.client.listTools();
+    const migrate = tools.tools.find(tool => tool.name === 'migrate_effort');
+    expect(Object.keys(migrate?.inputSchema.properties ?? {}).toSorted()).toEqual([
+      'effort',
+      'preview',
+      'root',
+    ]);
   });
 
-  it('preview with rename reports the planned filename moves and writes nothing', async () => {
+  it('preview names unminted Tickets by unpadded handle, linked reference-style', async () => {
     const root = await makeFixtureTree({
-      '.scratch/alpha/map.md': map('Somewhere.'),
-      '.scratch/alpha/issues/01-grammy-group-boot.md': FOREIGN_WITH_ID,
-    });
-    const frontier = await connectFrontier({ cwd: root, env: {} });
-
-    const before = await readFile(
-      join(root, '.scratch/alpha/issues/01-grammy-group-boot.md'),
-      'utf8',
-    );
-    const report = await frontier.call('migrate_effort', {
-      effort: 'alpha',
-      preview: true,
-      rename: true,
-    });
-
-    expect(report.toLowerCase()).toContain('preview');
-    expect(report).toContain('01-grammy-group-boot.md -> 01-T30-grammy-group-boot.md');
-    expect(report).toContain('blocked_by=T31');
-    expect(
-      await readFile(join(root, '.scratch/alpha/issues/01-grammy-group-boot.md'), 'utf8'),
-    ).toBe(before);
-    expect(await readdir(join(root, '.scratch/alpha/issues'))).toEqual(['01-grammy-group-boot.md']);
-  });
-
-  it('preview reports every change and writes nothing', async () => {
-    // No dangling Depends-on:T31 here — colour mints as T31 (max+1 after T30),
-    // and a prose Edge naming T31 would make the report ambiguous.
-    const root = await makeFixtureTree({
-      ...COUNTED,
       '.scratch/alpha/map.md': map('Somewhere.'),
       '.scratch/alpha/issues/01-grammy-group-boot.md': `# T30 — Grammy group boot
 
@@ -259,38 +224,75 @@ Status: open
 **Problem:** Without a running group bot entry, no Telegram MVP path is real.
 `,
       '.scratch/alpha/issues/02-colour.md': FOREIGN_NO_ID,
+      '.scratch/alpha/issues/03-texture.md': `# 03 — Port the texture leak fix
+
+Status: open
+Blocked by: 02, 01
+`,
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    const beforeBoot = await readFile(
-      join(root, '.scratch/alpha/issues/01-grammy-group-boot.md'),
-      'utf8',
+    const before = await readFile(join(root, '.scratch/alpha/issues/02-colour.md'), 'utf8');
+    const report = await frontier.call('migrate_effort', { effort: 'alpha', preview: true });
+
+    expect(report).toBe(
+      [
+        'alpha: preview — would migrate 3',
+        '[T30]  Grammy group boot  normalize',
+        '[alpha#2]  Is the colour-space fix a latent bug?  normalize+mint',
+        '[alpha#3]  Port the texture leak fix  normalize+mint  blocked_by=[alpha#2],[T30]',
+        '',
+        '[T30]: <.scratch/alpha/issues/01-grammy-group-boot.md>',
+        '[alpha#2]: <.scratch/alpha/issues/02-colour.md>',
+        '[alpha#3]: <.scratch/alpha/issues/03-texture.md>',
+      ].join('\n'),
     );
-    const beforeColour = await readFile(join(root, '.scratch/alpha/issues/02-colour.md'), 'utf8');
-    const report = await frontier.call('migrate_effort', {
-      effort: 'alpha',
-      preview: true,
+    expect(report).not.toContain('#02');
+    expect(await readFile(join(root, '.scratch/alpha/issues/02-colour.md'), 'utf8')).toBe(before);
+    expect(await readdir(join(root, '.scratch/alpha/issues'))).toHaveLength(3);
+  });
+
+  it.each([
+    ['random', {}],
+    ['counted', COUNTED],
+  ])('preview run twice against unchanged files is identical (%s pattern)', async (_, config) => {
+    const root = await makeFixtureTree({
+      ...config,
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      '.scratch/alpha/issues/01-colour.md': FOREIGN_NO_ID,
+      '.scratch/alpha/issues/02-texture.md': FOREIGN_NO_ID_TWO,
     });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    expect(report.toLowerCase()).toContain('preview');
-    // Both Tickets appear: preserved id and the id that would be minted.
-    expect(report).toContain('T30');
-    expect(report).toContain('Grammy group boot');
-    expect(report).toContain('Is the colour-space fix a latent bug?');
-    expect(report).toMatch(/\bmint(?:ed|s)?\b/i);
-    // Workspace already holds T30 — the counter continues at max+1.
-    expect(report).toContain('T31');
-    expect(report).toContain('was alpha#2');
+    const first = await frontier.call('migrate_effort', { effort: 'alpha', preview: true });
+    const second = await frontier.call('migrate_effort', { effort: 'alpha', preview: true });
 
-    expect(
-      await readFile(join(root, '.scratch/alpha/issues/01-grammy-group-boot.md'), 'utf8'),
-    ).toBe(beforeBoot);
-    expect(await readFile(join(root, '.scratch/alpha/issues/02-colour.md'), 'utf8')).toBe(
-      beforeColour,
+    expect(second).toBe(first);
+    expect(first).toContain(
+      '[alpha#2]  Port the texture leak fix  normalize+mint  blocked_by=[alpha#1]',
     );
+    expect(first).not.toMatch(/\bT[0-9a-z]+\b/);
+  });
 
-    const board = await frontier.call('get_board', { effort: 'alpha' });
-    expect(board).toContain('are Foreign');
+  it('a real run labels each line by its id and links the unchanged file', async () => {
+    const root = await makeFixtureTree({
+      ...COUNTED,
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      '.scratch/alpha/issues/01-colour.md': FOREIGN_NO_ID,
+      '.scratch/alpha/issues/02-texture.md': FOREIGN_NO_ID_TWO,
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const report = await frontier.call('migrate_effort', { effort: 'alpha' });
+
+    expect(report).toContain(
+      '[T1]  Is the colour-space fix a latent bug?  normalize+mint  was alpha#1',
+    );
+    expect(report).toContain(
+      '[T2]  Port the texture leak fix  normalize+mint  was alpha#2  blocked_by=[T1]',
+    );
+    expect(report).toContain('[T1]: <.scratch/alpha/issues/01-colour.md>');
+    expect(report).toContain('[T2]: <.scratch/alpha/issues/02-texture.md>');
   });
 
   it('ignores unrecognized files in the Effort directory', async () => {
@@ -381,6 +383,12 @@ describe('migrate_effort against real Foreign fixtures', () => {
 
     const board = await frontier.call('get_board', { effort: 'telegram' });
     expect(board).not.toContain('are Foreign');
+    // `Depends on: … core T18.4` and three like it — each parent lives in an Effort the fixture lacks, so it is
+    // written as declared and dangles, rather than coarsened onto a `T18` this repo never had.
+    expect(board).toMatch(/blocked_by=T32,T33,T18\.4\?/);
+    expect(report).toContain(
+      'sub-slice Edges kept as declared, parent not in this Effort (4): T11.1 T18.4 T21.4 T21.5',
+    );
     // Every sobrina Ticket carries a T3x id in its heading — none are minted.
     for (const id of [
       'T30',
@@ -466,5 +474,200 @@ describe('migrate_effort against real Foreign fixtures', () => {
       'utf8',
     );
     expect(after).toBe(before);
+  });
+});
+
+/** Migration mints an id where the handle stood; everything else on the line must match. */
+function ticketLines(board: string): string[] {
+  return board
+    .split('\n')
+    .filter(entry => entry.includes('Port') || entry.startsWith('frontier:'))
+    .map(entry => entry.replace(/^(> )?\S+/, '$1'));
+}
+
+describe('migrate_effort preview is a faithful plan', () => {
+  it('never coarsens a sub-slice onto the id the same call mints', async () => {
+    const root = await makeFixtureTree({
+      ...COUNTED,
+      '.scratch/rewrite/map.md': map('Somewhere.'),
+      '.scratch/rewrite/issues/01-port.md': '# Port\n\nStatus: open\nBlocked by: T1.4\n',
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const preview = await frontier.call('migrate_effort', { effort: 'rewrite', preview: true });
+    expect(preview).toContain('blocked_by=T1.4');
+
+    const report = await frontier.call('migrate_effort', { effort: 'rewrite' });
+    expect(report).toContain('[T1]  Port  normalize+mint  was rewrite#1  blocked_by=T1.4');
+    expect(await readFile(join(root, '.scratch/rewrite/issues/01-port.md'), 'utf8')).toContain(
+      'blocked_by: [T1.4]',
+    );
+  });
+
+  it('labels two files carrying one id by filename, and brackets a spaced path', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      '.scratch/alpha/issues/01 x y.md': '# T31 — One\n\nStatus: open\n',
+      '.scratch/alpha/issues/02-z.md': '# T31 — Two\n\nStatus: open\n',
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const preview = await frontier.call('migrate_effort', { effort: 'alpha', preview: true });
+
+    expect(preview).toContain('[01 x y.md]: <.scratch/alpha/issues/01 x y.md>');
+    expect(preview).toContain('[02-z.md]: <.scratch/alpha/issues/02-z.md>');
+    expect(preview).not.toContain('[T31]');
+  });
+});
+
+describe('a prose sub-slice is coarsened only within its own Effort (T82)', () => {
+  const OTHER_T1 = '---\nid: T1\ntitle: Unrelated\nstatus: resolved\nblocked_by: []\n---\n';
+
+  async function crossEffort(blockedBy: string) {
+    const root = await makeFixtureTree({
+      '.scratch/consume/map.md': map('Elsewhere.'),
+      '.scratch/consume/issues/01-T1-unrelated.md': OTHER_T1,
+      '.scratch/rewrite/map.md': map('Somewhere.'),
+      '.scratch/rewrite/issues/01-port.md': `# 01 — Port\n\nStatus: open\nBlocked by: ${blockedBy}\n`,
+    });
+    return { root, frontier: await connectFrontier({ cwd: root, env: {} }) };
+  }
+
+  const PORT = '.scratch/rewrite/issues/01-port.md';
+
+  it('never coarsens a milestone label onto another Effort’s Ticket', async () => {
+    const { root, frontier } = await crossEffort('T1.4');
+
+    const preview = await frontier.call('migrate_effort', { effort: 'rewrite', preview: true });
+    expect(preview).toContain('blocked_by=T1.4');
+    expect(preview).toContain(
+      'sub-slice Edges kept as declared, parent not in this Effort (1): T1.4 — they dangle; ' +
+        'fix each with update_ticket blocked_by',
+    );
+    expect(preview).not.toContain('Edges to another Effort');
+
+    await frontier.call('migrate_effort', { effort: 'rewrite' });
+    const written = await readFile(join(root, PORT), 'utf8');
+    expect(written).toMatch(/blocked_by: \[["']?T1\.4["']?\]/);
+  });
+
+  it('shows the same Board and Frontier before and after migration', async () => {
+    const { frontier } = await crossEffort('T1.4');
+
+    const before = await frontier.call('get_board', { effort: 'rewrite' });
+    expect(before).toContain('blocked_by=T1.4?');
+    expect(before).toContain('frontier: none takeable in this Effort');
+    expect(before).not.toContain('coarsened');
+
+    await frontier.call('migrate_effort', { effort: 'rewrite' });
+    const after = await frontier.call('get_board', { effort: 'rewrite' });
+    expect(ticketLines(after)).toEqual(ticketLines(before));
+    expect(after).toContain('blocked_by=T1.4?');
+    expect(after).toContain('frontier: none takeable in this Effort');
+  });
+
+  for (const [name, edit] of [
+    ['comment', { comment: 'hi' }],
+    ['claim', { claim: { by: 'agent' } }],
+  ] as const) {
+    it(`keeps the sub-slice as declared when a ${name} normalizes the file`, async () => {
+      const { root, frontier } = await crossEffort('T1.4');
+
+      await frontier.call('update_ticket', { id: 'rewrite#1', ...edit });
+      const written = await readFile(join(root, PORT), 'utf8');
+      expect(written).toMatch(/blocked_by: \[["']?T1\.4["']?\]/);
+
+      // A later migration has nothing left to coarsen.
+      await frontier.call('migrate_effort', { effort: 'rewrite' });
+      expect(await readFile(join(root, PORT), 'utf8')).toMatch(/blocked_by: \[["']?T1\.4["']?\]/);
+    });
+  }
+
+  it('keeps an explicit plain Edge beside a sub-slice of the same id', async () => {
+    const { root, frontier } = await crossEffort('T1, T1.4');
+
+    const board = await frontier.call('get_board', { effort: 'rewrite' });
+    expect(board).toContain('blocked_by=T1@consume,T1.4?');
+
+    const report = await frontier.call('migrate_effort', { effort: 'rewrite' });
+    expect(report).toContain('blocked_by=T1,T1.4');
+    expect(report).toContain('Edges to another Effort (1) — check each is meant: T1@consume');
+    const written = await readFile(join(root, PORT), 'utf8');
+    expect(written).toMatch(/blocked_by: \[T1, ["']?T1\.4["']?\]/);
+  });
+
+  it('coarsens a same-Effort sub-slice on the Board, on a lazy write and on migration', async () => {
+    const files = {
+      '.scratch/rewrite/map.md': map('Somewhere.'),
+      '.scratch/rewrite/issues/01-base.md': '# T7 — Base\n\nStatus: open\n',
+      '.scratch/rewrite/issues/02-next.md': '# T8 — Next\n\nStatus: open\nBlocked by: T7.2, T7\n',
+    };
+    const lazyRoot = await makeFixtureTree(files);
+    const lazy = await connectFrontier({ cwd: lazyRoot, env: {} });
+    const board = await lazy.call('get_board', { effort: 'rewrite' });
+    expect(board).toContain('T8  Next  build/open  blocked_by=T7');
+    expect(board).not.toContain('T7,T7');
+    expect(board).toContain('sub-slice Edges coarsened to their parent Ticket (1): T7.2');
+
+    await lazy.call('update_ticket', { id: 'T8', comment: 'hi' });
+    const next = join(lazyRoot, '.scratch/rewrite/issues/02-next.md');
+    expect(await readFile(next, 'utf8')).toMatch(/blocked_by: \[T7\]/);
+
+    const migrateRoot = await makeFixtureTree(files);
+    const migrating = await connectFrontier({ cwd: migrateRoot, env: {} });
+    const report = await migrating.call('migrate_effort', { effort: 'rewrite' });
+    expect(report).toContain('blocked_by=[T7]');
+    expect(report).not.toContain('kept as declared');
+    expect(report).not.toContain('another Effort');
+  });
+
+  it('never calls a fenced T7.2 a kept sub-slice', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/rewrite/map.md': map('Somewhere.'),
+      '.scratch/rewrite/issues/01-fenced.md':
+        '---\ntitle: Fenced\nblocked_by: [T7.2]\nowner: someone\n---\n',
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const report = await frontier.call('migrate_effort', { effort: 'rewrite', preview: true });
+    expect(report).toContain('blocked_by=T7.2');
+    expect(report).not.toContain('kept as declared');
+  });
+
+  it('caps both report lines, naming ten and counting the rest', async () => {
+    const files: Record<string, string> = {
+      '.scratch/rewrite/map.md': map('Somewhere.'),
+      '.scratch/consume/map.md': map('Elsewhere.'),
+    };
+    for (let n = 1; n <= 12; n++) {
+      const pad = String(n).padStart(2, '0');
+      files[`.scratch/consume/issues/${pad}-T${String(100 + n)}.md`] =
+        `---\nid: T${String(100 + n)}\ntitle: Other\nstatus: open\nblocked_by: []\n---\n`;
+      files[`.scratch/rewrite/issues/${pad}-port.md`] =
+        `# ${pad} — Port\n\nBlocked by: T${String(100 + n)}, T${String(200 + n)}.1\n`;
+    }
+    const frontier = await connectFrontier({ cwd: await makeFixtureTree(files), env: {} });
+
+    const report = await frontier.call('migrate_effort', { effort: 'rewrite', preview: true });
+    const cross = report.split('\n').find(entry => entry.startsWith('> Edges to another'));
+    expect(cross).toMatch(/\(12\) — check each is meant: (T1\d\d@consume ){10}and 2 more$/);
+    const kept = report.split('\n').find(entry => entry.includes('kept as declared'));
+    expect(kept).toMatch(/\(12\): (T2\d\d\.1 ){10}and 2 more — they dangle/);
+  });
+
+  it('names Edges written across Efforts', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/consume/map.md': map('Elsewhere.'),
+      '.scratch/consume/issues/01-T1-unrelated.md': OTHER_T1,
+      '.scratch/rewrite/map.md': map('Somewhere.'),
+      '.scratch/rewrite/issues/01-base.md': '# T7 — Base\n\nStatus: open\n',
+      '.scratch/rewrite/issues/02-next.md': '# T8 — Next\n\nStatus: open\nBlocked by: T7.2, T1\n',
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const report = await frontier.call('migrate_effort', { effort: 'rewrite' });
+    expect(report).toContain('blocked_by=[T7],T1');
+    expect(report).toContain('Edges to another Effort (1) — check each is meant: T1@consume');
+    expect(report).not.toContain('kept as declared');
   });
 });

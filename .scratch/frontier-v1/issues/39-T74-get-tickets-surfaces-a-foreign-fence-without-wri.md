@@ -20,10 +20,14 @@ Only a Ticket that [[T73]] marked Foreign gets the block. A conforming Ticket's 
 - [x] A Foreign fence appears in `get_tickets` output as a fenced `yaml` block, byte-identical to `Split.raw`
 - [x] The file on disk is not modified by the read
 - [x] A conforming Ticket's output gains nothing
-- [ ] The block is absent once the agent's write has normalized the file
+- [x] Once `migrate_effort` mints the id, the block shows only the keys outside the schema, under `## Unimported frontmatter`, rather than the whole fence
 
 ## Answer
 
 `Ticket.foreignFence` is set only by `readTickets`, never on `TicketSummary`, so the Board scan stays prose-free. The fence delimiter is one backtick longer than the longest run inside the YAML. CRLF bytes are preserved. The read leaves bytes and mtime unchanged, and a conforming Ticket's output gains nothing.
 
 Criterion 4 is not met as written and is left unticked. An ordinary write (comment, claim) leaves a foreign fence foreign, because `applyEdit` edits the existing fence in place per ADR 0003 and T73's predicate turns on the absence of an id, which only `migrate_effort` mints. So the block goes after `migrate_effort` and stays after every other write. That is a disagreement between T57 and T73, not a defect in this build; it is filed as [[T101]] for a decision, together with the consequence that unimported keys stop being surfaced once migration mints the id.
+
+## Comments
+
+2026-11-12, from [[T102]]: the fourth criterion was reworded to what [[T101]] decided and is now met. The gist and Answer above predate that: the block no longer clears after `migrate_effort` — keys outside the schema stay shown, entries only, under `## Unimported frontmatter` — and `Ticket.foreignFence` is now `Ticket.unimported`.

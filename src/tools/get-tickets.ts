@@ -86,17 +86,17 @@ function renderOne(ticket: Ticket): string {
   ].filter(field => field !== undefined);
 
   const head = `# ${ticket.handle} — ${ticket.title}\n${fields.join('  ')}\n\n${ticket.body}`;
-  return ticket.foreignFence === undefined
+  return ticket.unimported === undefined
     ? head
-    : `${head}\n\n${renderFence(ticket.foreignFence)}`;
+    : `${head}\n\n${renderFence(ticket.unimported.yaml)}`;
 }
 
 /**
- * The fence verbatim, never re-serialized. Its delimiter outruns any backtick
+ * The file's own YAML, never re-serialized. Its delimiter outruns any backtick
  * run inside it, so YAML holding a code fence cannot close the block early.
  */
 function renderFence(raw: string): string {
   const longest = Math.max(0, ...(raw.match(/`+/g) ?? []).map(run => run.length));
   const delimiter = '`'.repeat(Math.max(3, longest + 1));
-  return `## Foreign frontmatter (not imported; file unchanged)\n\n${delimiter}yaml\n${raw}\n${delimiter}`;
+  return `## Unimported frontmatter\n\n${delimiter}yaml\n${raw}\n${delimiter}`;
 }

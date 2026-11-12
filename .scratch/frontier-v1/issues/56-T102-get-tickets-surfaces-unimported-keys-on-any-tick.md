@@ -2,9 +2,10 @@
 id: T102
 title: get_tickets surfaces Unimported keys on any Ticket, not only a Foreign one
 kind: build
-status: open
+status: resolved
 triage: ready-for-agent
 blocked_by: []
+answer_gist: "`get_tickets` shows keys outside the schema under `## Unimported frontmatter` on any Ticket — the whole fence byte for byte when it has no id, only the unimported entries cut from the file's own text otherwise, falling back to the whole fence when an entry cannot be cut cleanly; `Ticket.unimported { keys, yaml, whole }` replaces `foreignFence`"
 ---
 
 Decided in [[T101]], 2026-11-12. Today `get_tickets` shows a foreign fence only while the Ticket has no `id`, so the keys a source tracker wrote (`labels`, `milestone`, ...) go invisible the moment `migrate_effort` mints the id, while staying in the file.
@@ -28,9 +29,13 @@ Decided in [[T101]], 2026-11-12. Today `get_tickets` shows a foreign fence only 
 
 ## Acceptance criteria
 
-- [ ] A migrated Ticket that still carries keys outside the schema shows them under `## Unimported frontmatter`, entries only
-- [ ] A foreign-fenced Ticket shows its whole fence under the same heading, byte for byte
-- [ ] A conforming Ticket's result is byte-identical to today
-- [ ] The block's delimiter outruns any backtick run inside it, as today
-- [ ] No read writes a file
-- [ ] `AGENTS.md` and the T74 criterion say what the code does
+- [x] A migrated Ticket that still carries keys outside the schema shows them under `## Unimported frontmatter`, entries only
+- [x] A foreign-fenced Ticket shows its whole fence under the same heading, byte for byte
+- [x] A conforming Ticket's result is byte-identical to today
+- [x] The block's delimiter outruns any backtick run inside it, as today
+- [x] No read writes a file
+- [x] `AGENTS.md` and the T74 criterion say what the code does
+
+## Comments
+
+Left for [[T103]], from the T102 review on 2026-11-12: the schema key list is written twice (`SCHEMA_KEYS` in `ticket.ts`, `FIELD_ORDER` in `serialize.ts`); `drop_keys` refusing a schema key would be a third reader, so single-source it first. A comment line above a stray entry is not shown in the entries-only view, and a `|+` scalar's trailing blank lines are trimmed; both are display only.

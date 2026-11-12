@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import type { Effort, TicketSummary } from '../domain.ts';
+import type { Effort, Status, TicketSummary } from '../domain.ts';
 import { frontierOf, indexById } from '../frontier.ts';
 
 export const getBoardInputSchema = z.object({
@@ -149,6 +149,19 @@ function renderEdge(id: string, from: TicketSummary, board: Board): string {
   return blocker.effort === from.effort ? id : `${id}@${blocker.effort}`;
 }
 
+/** The field each lifecycle Status requires, as the tracker doc states it. */
+const LIFECYCLE_FIELDS: readonly (readonly [
+  Status,
+  string,
+  (ticket: TicketSummary) => string | undefined,
+])[] = [
+  ['resolved', 'answer_gist', ticket => ticket.answerGist],
+  ['dropped', 'dropped_reason', ticket => ticket.droppedReason],
+  ['claimed', 'claimed_by', ticket => ticket.claimedBy],
+  // Without it a claim can never be flagged stale.
+  ['claimed', 'claimed_at', ticket => ticket.claimedAt],
+];
+
 /**
  * Broken Edges surface here rather than through a separate validation tool,
  * because a validation tool nobody calls is a validator that does not exist.
@@ -223,12 +236,36 @@ function collectWarnings(board: Board): string[] {
     );
   }
 
-  const foreign = board.tickets.filter(ticket => ticket.foreign);
+  const foreign = board.tickets.filter(ticket => ticket.foreign && !ticket.foreignFenced);
   if (foreign.length > 0) {
     warnings.push(
       `${String(foreign.length)}/${String(board.tickets.length)} Tickets are Foreign — title, ` +
         'status and Edges are inferred, not read from schema frontmatter. Run migrate_effort to normalize.',
     );
+  }
+  // Counted apart from the prose-inferred ones: these fields were read from a
+  // fence, so pointing a reader at prose would send them after a `Status:` line
+  // that is not there.
+  const fenced = board.tickets.filter(ticket => ticket.foreignFenced);
+  if (fenced.length > 0) {
+    warnings.push(
+      `${String(fenced.length)}/${String(board.tickets.length)} Tickets have a foreign fence — ` +
+        'title, status and Edges came from frontmatter that was not imported; get_tickets shows ' +
+        'the rest of it. Run migrate_effort to normalize.',
+    );
+  }
+
+  // A file with no fence records its answer as prose, so it never carries these
+  // fields; counting it would repeat the Foreign warning above as a false alarm.
+  const fielded = board.tickets.filter(ticket => !ticket.foreign || ticket.foreignFenced);
+  for (const [status, field, value] of LIFECYCLE_FIELDS) {
+    const holding = fielded.filter(ticket => ticket.status === status);
+    const missing = holding.filter(ticket => value(ticket) === undefined).length;
+    if (missing > 0) {
+      warnings.push(
+        `${String(missing)}/${String(holding.length)} ${status} Tickets carry no ${field}`,
+      );
+    }
   }
 
   // Tracked separately from Foreign, because normalizing a Foreign file gives it

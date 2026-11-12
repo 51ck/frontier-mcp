@@ -133,7 +133,7 @@ Design decisions settled and binding until an ADR revises them:
   minting plan. Id matching consumes it too: `StorageDriver.isId()` answers from the pattern (any
   length per random token, so existing `T<n>` ids still match the default), and `create_tickets`
   refuses a temporary key that would match it or that is an existing Ticket's id. Under a broken config `isId` answers from
-  the default and a `migrate_effort` preview shows default-pattern ids. Rules: T52–T55 in
+  the default. Rules: T52–T55 in
   `.scratch/ids-patterns/`.
 - **`.md` with YAML frontmatter.** Not `.mdc`.
 - **Formal metadata in frontmatter, prose in the body.** Identity, status, edges, and kind are fields.
@@ -141,8 +141,8 @@ Design decisions settled and binding until an ADR revises them:
 - **Stable `id`, cosmetic filename.** Ticket ids are minted from the id pattern — random
   `T<b36{6}>` by default — unique across every Effort, never reused or changed, though a counted
   one may be skipped. Existing `T<n>` ids stay valid. `<NN>-<id>-<slug>.md` carries
-  sort order in `NN` only. Frontmatter is the authority — on disagreement the file is renamed, never
-  the field. Edges are plain ids resolved repo-wide; there is no compound cross-Effort reference form.
+  sort order in `NN` only. Frontmatter is the authority — on disagreement the field wins, and the
+  filename is never rewritten: another Effort's prose may link it by path. Edges are plain ids resolved repo-wide; there is no compound cross-Effort reference form.
 - **A random pattern draws; a `<N>` pattern counts under a guard.** Random ids are drawn and checked
   against the batch's scan, redrawn on a hit up to a bounded limit, with no guard files. Any pattern
   containing `<N>`, mixed ones included, takes `max + 1` over the ids in its namespace, so there is
@@ -348,6 +348,14 @@ Rendering rules that are load-bearing, not cosmetic:
   saying so. An Edge to a duplicated id is satisfied only when every claimant is resolved, and cycle
   checks follow every claimant's Edges: a duplicate never enlarges the Frontier. A Ticket whose own
   id is duplicated is never takeable, because every write to it is refused.
+- **A Foreign Ticket is counted by where its fields came from** (T104). One with no parseable
+  fence keeps `are Foreign — … inferred`; a foreign-fenced one is counted apart, as fields that
+  `came from frontmatter that was not imported`. The distinction crosses the seam as
+  `TicketSummary.foreignFenced`.
+- **A lifecycle Status missing its field is counted, per Status** (T85): `N/M resolved Tickets
+  carry no answer_gist`, likewise `dropped` / `dropped_reason` and `claimed` / `claimed_by` and `claimed_at`. M is
+  that Status's count; no handles are listed. A Ticket with no parseable fence is left out of all of them,
+  since its answer is prose. Computed from the cached scan. `list_efforts` stays silent on it.
 - **An unrecognized status is counted in the warnings block and is never takeable.** The Board line
   may still show `/open`, but the Ticket is kept off the Frontier until a write normalizes it.
 - **A `<N>`-only id pattern warns on every `create_tickets` result, never on a read, never
@@ -358,11 +366,13 @@ Rendering rules that are load-bearing, not cosmetic:
 - **Every Ticket is nameable.** A Ticket with no id gets an `<effort>#<order>` handle, which
   `get_tickets` accepts. It is an address, not an id — not repo-stable, and never usable as an Edge —
   but without it a whole Effort has no route to its own bodies.
-- **A foreign fence is shown, never written.** `get_tickets` appends a foreign-fenced Ticket's raw
-  fence (`Ticket.foreignFence`, body path only) under `## Foreign frontmatter (not imported; file
-  unchanged)` as a `yaml` block whose backtick delimiter outruns any run inside it. Conforming
-  Tickets gain nothing. Only a write that mints an id (`migrate_effort`) clears it; a comment or
-  claim leaves the fence foreign.
+- **Unimported keys are shown, never written.** `get_tickets` appends a Ticket's frontmatter keys
+  outside the schema (`Ticket.unimported`, body path only) under `## Unimported frontmatter` as a
+  `yaml` block whose backtick delimiter outruns any run inside it. A foreign fence (no `id`) shows
+  whole, byte for byte; a Ticket with an `id` shows only its unimported entries, each sliced from the
+  file's own text. Conforming Tickets gain nothing. No ordinary write removes them: a comment or
+  claim leaves a fence foreign, and `migrate_effort` mints the id but keeps the stray keys, which
+  then show as entries.
 - **A missing storage directory explains itself; an empty one does not** (T105). Only when
   `.scratch/` does not exist, `list_efforts` returns four lines: the root line suffixed
   `(resolved by <source>)`, `no tracker here`, a `start one` line naming real `create_tickets` /
@@ -370,6 +380,12 @@ Rendering rules that are load-bearing, not cosmetic:
   `src/workspace.ts`; existence crosses the seam as `StorageDriver.absentStorage()`, which never
   creates the directory. An empty `.scratch/` keeps `(no efforts)`, and no other result carries the
   `resolved by` suffix — a populated tracker is its own proof of the root.
+- **A `migrate_effort` preview predicts no id** (T69). It takes no guard, so a counted prediction
+  could be stolen and a random one is discarded; an unminted Ticket is named by its unpadded
+  handle everywhere, `blocked_by=` included, so two previews of unchanged files are identical.
+  Every report line is labelled reference-style and resolved once in a closing block of
+  workspace-root-relative paths. Migration never renames a file: another Effort's prose may link it
+  by path, and the server cannot see that link.
 - **A Spec-only Effort opens with its Spec's first paragraph**, labelled `spec:` rather than
   `destination:`. Destination is a Map section; calling a Spec's opening one would be a lie in the
   vocabulary. Multi-line header prose has its continuation lines indented so it can never be read as
@@ -411,6 +427,16 @@ Write rules, equally load-bearing:
   Decisions-so-far / dropped Out-of-scope must not make a completed lifecycle change look like a
   failure. The tool returns success with a warning that those blocks may be stale; a later
   successful refresh or Map mutation catches them up.
+- **A prose sub-slice coarsens only within its own Effort, decided once at scan** (T82). The prose
+  parser keeps what was declared — `T38.1` and a plain `T38` separately — and the markdown driver
+  resolves each Effort after every file in it is parsed, so ids from prose headings count. `T38.1`
+  becomes `T38` only when `T38` is a Ticket of that Effort (`collapsedRefs`, the Board's coarsened
+  warning); otherwise it stays `T38.1` (`keptSubSlices`), dangles as `T38.1?` and keeps the Ticket
+  off the Frontier. A plain `T38` is always its own Edge. The Board, the Frontier, a lazy
+  normalization on any write and `migrate_effort` all write or show these resolved Edges, so
+  migrating never changes a Frontier. The migration report, preview and real, ends with grouped
+  lines for sub-slices kept as declared (with the `update_ticket blocked_by` fix) and for written
+  Edges that land on another Effort (`T9@beta`), each naming ten and counting the rest.
 - **A write normalizes the Foreign file it touches when that file has no parseable fence**, and keeps
   the prose it inferred from verbatim. A foreign-fenced file keeps its fence, per the rendering rule.
 - **Claims are flagged when stale, never auto-released.** 24h; use `release` to drop a claim explicitly.

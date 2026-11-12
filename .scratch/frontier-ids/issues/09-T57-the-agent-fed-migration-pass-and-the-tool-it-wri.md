@@ -73,3 +73,7 @@ The word keeps its imprecision knowingly: *foreign* connotes came-from-elsewhere
 **Board as a synonym for Effort.** Requested and refused: `CONTEXT.md`'s **Board** entry already ends `_Avoid_: using "board" for the directory itself`, and the Effort is the directory. There is no `Board` interface in `domain.ts` — Board is a rendering in `get-board.ts`, while `Effort` is the entity carrying `slug`, `headerDocs`, `ticketCount` and `destination`. Under the synonym, `get_board({ effort })` reads as *get the effort of the effort*. The instinct comes from Jira and Trello, where a board holds issues — but Jira boards are configurable views over a project's issues, which is this repo's usage exactly.
 
 **A familiar synonym for Effort at all.** *Epic* implies decomposable work, and this Effort is eleven decision Tickets and no builds. *Project* implies scope and duration, *Milestone* a date. An unfamiliar term makes a reader look it up; a familiar wrong one makes them assume.
+
+## Comments
+
+2026-11-12, from [[T102]] and [[T101]]: "a write to a Foreign Ticket normalizes it lazily" in the gist above holds for a file with no parseable fence only. A foreign-fenced file keeps its fence through an ordinary write; its keys outside the schema stay shown by `get_tickets` under `## Unimported frontmatter` until removed.

@@ -1,10 +1,9 @@
-import { rename as renameFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { MigrationChange, MigrationReport, TicketSummary } from '../../domain.ts';
-import { ticketFilename, withIdReservations, type MintingPlan, type Rescan } from './create.ts';
+import { withIdReservations, type MintingPlan, type Rescan } from './create.ts';
 import { normalizeTicket, type Defaults } from './serialize.ts';
-import { stage, unstage, writeAtomically } from './write.ts';
+import { writeAtomically } from './write.ts';
 
 export interface TicketFileEntry {
   readonly filename: string;
@@ -16,10 +15,12 @@ export interface MigrateFilesRequest {
   readonly minting: MintingPlan;
   readonly effort: string;
   readonly issues: string;
+  /** `issues` relative to the workspace root, for the report. */
+  readonly directory: string;
   readonly entries: readonly TicketFileEntry[];
+  /** Every Ticket in the workspace as scanned, to tell which Effort a written Edge lands on. */
   readonly allTickets: readonly TicketSummary[];
   readonly preview: boolean;
-  readonly rename: boolean;
   /** Preview only: preserved ids already carried elsewhere, with every claimant file. */
   readonly conflicts: ReadonlyMap<string, readonly string[]>;
   readonly rescan: Rescan;
@@ -27,40 +28,45 @@ export interface MigrateFilesRequest {
 }
 
 interface PlannedFile {
-  readonly from: string;
-  readonly to: string;
+  readonly filename: string;
   readonly defaults: Defaults;
   readonly change: MigrationChange;
+  readonly keptSubSlices: readonly string[];
 }
 
 /**
- * Normalize Foreign Tickets in one Effort, mint ids for those without, and
- * optionally rename. Preview plans mint ids from the scan and writes nothing.
+ * Normalize Foreign Tickets in one Effort and mint ids for those without.
+ * Filenames never change: another Effort's prose may link them by path.
+ *
+ * A real run mints through `withIdReservations`, so the pattern decides the
+ * strategy — a `<N>` pattern holds its guards until every file is on disk, a
+ * random one draws against a fresh scan (T62). A preview takes no guards and
+ * predicts no ids: an unminted Ticket is named by its handle, everywhere it
+ * appears, so two previews of unchanged files are identical.
  *
  * Bare sort-order Edges (`Blocked by: 01`) are rewritten to the id the target
  * Ticket carries after this call — preserved or newly minted — so migration
  * does not leave a Board full of unresolvable `01` references.
  */
 export async function migrateEffortFiles(request: MigrateFilesRequest): Promise<MigrationReport> {
-  const { effort, entries, preview, rename } = request;
+  const { effort, entries, preview, directory } = request;
   const candidates = entries.filter(entry => entry.ticket.foreign || entry.ticket.id === undefined);
 
   if (candidates.length === 0) {
-    return { effort, preview, renamed: rename, changes: [] };
+    return { effort, preview, directory, changes: [], crossEffortEdges: [], keptSubSlices: [] };
   }
 
   const needMint = candidates.filter(entry => entry.ticket.id === undefined).length;
-  const used = idsOf(request.allTickets);
 
   if (preview) {
-    const plan = planChanges(
-      candidates,
-      request.minting.peek(used, needMint),
-      entries,
-      rename,
-      request.conflicts,
-    );
-    return { effort, preview: true, renamed: rename, changes: plan.map(file => file.change) };
+    const plan = planChanges(candidates, undefined, entries, request.conflicts);
+    return {
+      effort,
+      preview: true,
+      directory,
+      changes: plan.map(file => file.change),
+      ...edgeNotes(plan, request),
+    };
   }
 
   return withIdReservations(
@@ -69,59 +75,61 @@ export async function migrateEffortFiles(request: MigrateFilesRequest): Promise<
     needMint,
     request.rescan,
     async minted => {
-      const plan = planChanges(candidates, minted, entries, rename);
+      const plan = planChanges(candidates, minted, entries);
       await applyPlan(request, plan);
       return {
         effort,
         preview: false,
-        renamed: rename,
+        directory,
         changes: plan.map(file => file.change),
+        ...edgeNotes(plan, request),
       };
     },
   );
 }
 
+/** `minted` undefined is a preview: unminted Tickets are named by handle. */
 function planChanges(
   candidates: readonly TicketFileEntry[],
-  minted: readonly string[],
+  minted: readonly string[] | undefined,
   entries: readonly TicketFileEntry[],
-  rename: boolean,
   conflicts: ReadonlyMap<string, readonly string[]> = new Map(),
 ): readonly PlannedFile[] {
   let mintAt = 0;
-  const idByOrder = new Map<number, string>();
+  const nameByOrder = new Map<number, string>();
 
   // Every Ticket in the Effort contributes to Edge remapping — a blocker that
   // already had an id must still be findable by its sort order.
   for (const entry of entries) {
-    if (entry.ticket.id !== undefined) idByOrder.set(entry.ticket.order, entry.ticket.id);
+    if (entry.ticket.id !== undefined) nameByOrder.set(entry.ticket.order, entry.ticket.id);
   }
 
-  const assigned = new Map<string, string>();
+  const assigned = new Map<string, string | undefined>();
   for (const entry of candidates) {
     if (entry.ticket.id !== undefined) {
       assigned.set(entry.ticket.handle, entry.ticket.id);
-      idByOrder.set(entry.ticket.order, entry.ticket.id);
+      continue;
+    }
+    if (minted === undefined) {
+      assigned.set(entry.ticket.handle, undefined);
+      nameByOrder.set(entry.ticket.order, entry.ticket.handle);
       continue;
     }
     const id = minted[mintAt++];
     if (id === undefined) throw new Error('Reserved fewer ids than Tickets needing one.');
     assigned.set(entry.ticket.handle, id);
-    idByOrder.set(entry.ticket.order, id);
+    nameByOrder.set(entry.ticket.order, id);
   }
 
   return candidates.map(entry => {
     const id = assigned.get(entry.ticket.handle);
-    if (id === undefined) throw new Error(`No id planned for ${entry.ticket.handle}.`);
-
-    const to = rename ? ticketFilename(entry.ticket.order, id, entry.ticket.title) : entry.filename;
-    const blockedBy = remapEdges(entry.ticket.blockedBy, idByOrder);
+    const blockedBy = remapEdges(entry.ticket.blockedBy, nameByOrder);
 
     return {
-      from: entry.filename,
-      to,
+      filename: entry.filename,
+      keptSubSlices: entry.ticket.keptSubSlices,
       defaults: {
-        id,
+        id: id ?? entry.ticket.handle,
         title: entry.ticket.title,
         kind: entry.ticket.kind,
         type: entry.ticket.type,
@@ -135,10 +143,9 @@ function planChanges(
         title: entry.ticket.title,
         minted: entry.ticket.id === undefined,
         normalized: entry.ticket.foreign,
-        fromName: to === entry.filename ? undefined : entry.filename,
-        toName: to === entry.filename ? undefined : to,
+        filename: entry.filename,
         blockedBy,
-        duplicateFiles: entry.ticket.id === undefined ? undefined : conflicts.get(id),
+        duplicateFiles: entry.ticket.id === undefined ? undefined : conflicts.get(entry.ticket.id),
       },
     };
   });
@@ -148,77 +155,20 @@ async function applyPlan(
   request: MigrateFilesRequest,
   plan: readonly PlannedFile[],
 ): Promise<void> {
-  const targets = new Set(plan.map(file => file.to));
-  const sources = new Set(plan.map(file => file.from));
-  for (const file of plan) {
-    if (file.to !== file.from && !sources.has(file.to)) {
-      // A name that already exists and is not being vacated would destroy a Ticket.
-      const clash = request.entries.some(entry => entry.filename === file.to);
-      if (clash) {
-        throw new Error(
-          `Cannot rename to ${file.to}: that name is already taken in ${request.effort}.`,
-        );
-      }
-    }
-  }
-
-  // Detect two Tickets collapsing onto one target name.
-  if (targets.size !== plan.length) {
-    throw new Error(`Rename would collide on a filename inside Effort '${request.effort}'.`);
-  }
-
   const prepared = await Promise.all(
     plan.map(async file => ({
-      ...file,
-      contents: normalizeTicket(await request.readContents(file.from), file.defaults),
+      filename: file.filename,
+      contents: normalizeTicket(await request.readContents(file.filename), file.defaults),
     })),
   );
 
-  // Same-name updates are per-file atomic. Renames stage every new file first,
-  // land them, then remove the vacated names — so a failure mid-batch never
-  // deletes a source whose replacement did not land.
-  const inPlace = prepared.filter(file => file.from === file.to);
-  const moved = prepared.filter(file => file.from !== file.to);
-
-  await Promise.all(
-    inPlace.map(file => writeAtomically(join(request.issues, file.to), file.contents)),
+  // Settled, not raced: the caller releases its `<N>` guards when this returns
+  // or throws, and they must stay held until every write has finished (T62).
+  const written = await Promise.allSettled(
+    prepared.map(file => writeAtomically(join(request.issues, file.filename), file.contents)),
   );
-
-  if (moved.length === 0) return;
-
-  const staged = await Promise.allSettled(
-    moved.map(async file => ({
-      temporary: await stage(join(request.issues, file.to), file.contents),
-      target: join(request.issues, file.to),
-      from: join(request.issues, file.from),
-    })),
-  );
-
-  const ready = staged.filter(entry => entry.status === 'fulfilled').map(entry => entry.value);
-  const failed = staged.find(entry => entry.status === 'rejected');
-  if (failed !== undefined) {
-    await Promise.allSettled(ready.map(entry => unstage(entry.temporary)));
-    throw failed.reason as Error;
-  }
-
-  const landed = await Promise.allSettled(
-    ready.map(async entry => {
-      await renameFile(entry.temporary, entry.target);
-      return entry;
-    }),
-  );
-
-  const written = landed.filter(entry => entry.status === 'fulfilled').map(entry => entry.value);
-  const lost = landed.find(entry => entry.status === 'rejected');
-  if (lost !== undefined) {
-    await Promise.allSettled([
-      ...written.map(entry => unlink(entry.target).catch(() => {})),
-      ...ready.map(entry => unstage(entry.temporary)),
-    ]);
-    throw lost.reason as Error;
-  }
-
-  await Promise.all(written.map(entry => unlink(entry.from)));
+  const failed = written.find(result => result.status === 'rejected');
+  if (failed !== undefined) throw failed.reason;
 }
 
 /**
@@ -232,6 +182,27 @@ function remapEdges(edges: readonly string[], idByOrder: ReadonlyMap<number, str
   });
 }
 
-function idsOf(tickets: readonly TicketSummary[]): ReadonlySet<string> {
-  return new Set(tickets.map(entry => entry.id).filter(id => id !== undefined));
+/** Grouped, never per Ticket: what a reader must check by hand after this call. */
+function edgeNotes(
+  plan: readonly PlannedFile[],
+  request: MigrateFilesRequest,
+): Pick<MigrationReport, 'crossEffortEdges' | 'keptSubSlices'> {
+  const effortOf = new Map<string, string>();
+  for (const ticket of request.allTickets) {
+    if (ticket.id !== undefined && ticket.effort !== request.effort) {
+      effortOf.set(ticket.id, ticket.effort);
+    }
+  }
+  const local = new Set(plan.map(file => file.change.id));
+  const cross = new Set<string>();
+  for (const file of plan) {
+    for (const edge of file.change.blockedBy) {
+      const foreign = effortOf.get(edge);
+      if (foreign !== undefined && !local.has(edge)) cross.add(`${edge}@${foreign}`);
+    }
+  }
+  // What the scan kept, not a pattern over what is written: a `T7.2` copied
+  // from a fence was never a prose sub-slice.
+  const kept = new Set(plan.flatMap(file => file.keptSubSlices));
+  return { crossEffortEdges: [...cross].toSorted(), keptSubSlices: [...kept].toSorted() };
 }

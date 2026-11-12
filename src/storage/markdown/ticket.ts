@@ -1,4 +1,5 @@
-import type { Kind, Status, TicketSummary } from '../../domain.ts';
+import { isMap, isScalar, parseDocument } from 'yaml';
+import type { Kind, Status, TicketSummary, UnimportedFrontmatter } from '../../domain.ts';
 import { STATUSES } from '../../domain.ts';
 import { parseProseBody } from './legacy.ts';
 import { splitFrontmatter } from './frontmatter.ts';
@@ -44,7 +45,7 @@ export function parseTicketSummary(
   file: TicketFile,
   fallbackOrder: number,
   revision: string,
-): TicketSummary {
+): ParsedTicket {
   const { fields } = splitFrontmatter(file.contents);
   const order = readOrder(file.filename) ?? fallbackOrder;
 
@@ -56,7 +57,7 @@ export function parseTicketSummary(
   const unrecognizedStatus =
     rawStatus !== undefined && mappedStatus === undefined ? rawStatus : undefined;
 
-  return {
+  const ticket: TicketSummary = {
     id,
     handle: handleFor(id, effort, order),
     title: text(fields['title']) ?? '(untitled)',
@@ -72,10 +73,58 @@ export function parseTicketSummary(
     effort,
     order,
     foreign: isForeignFence(fields),
+    foreignFenced: isForeignFence(fields),
     unrecognizedStatus,
     collapsedRefs: [],
+    keptSubSlices: [],
     revision,
   };
+  return { ticket, subSlices: [] };
+}
+
+/**
+ * A Ticket as one file reads, before its Effort is known: prose sub-slice
+ * references are still as declared, because only the siblings can say whether
+ * `T38.1` names a slice of a Ticket here.
+ */
+export interface ParsedTicket {
+  readonly ticket: TicketSummary;
+  readonly subSlices: readonly string[];
+}
+
+/**
+ * Decided once, over one Effort, so the Board, the Frontier, a lazy write and
+ * migration all see the same Edges (T82). A prose `T38.1` coarsens to `T38`
+ * only when `T38` is a Ticket of this Effort — ids read from prose headings
+ * included, which is why this runs after every file is parsed. Otherwise it
+ * stays as declared and dangles: a milestone label coarsened onto another
+ * Effort's resolved `T1` grants an Edge the file never declared.
+ */
+export function resolveSubSlices(parsed: readonly ParsedTicket[]): TicketSummary[] {
+  const local = new Set(parsed.map(entry => entry.ticket.id).filter(id => id !== undefined));
+  return parsed.map(({ ticket, subSlices }) => {
+    if (subSlices.length === 0) return ticket;
+    const slices = new Set(subSlices);
+    const collapsed: string[] = [];
+    const kept: string[] = [];
+    const edges = ticket.blockedBy.map(edge => {
+      if (!slices.has(edge)) return edge;
+      const parent = edge.slice(0, edge.indexOf('.'));
+      // Its own id is no parent: `T5` blocked by `T5.2` would become a self-Edge.
+      if (!local.has(parent) || parent === ticket.id) {
+        kept.push(edge);
+        return edge;
+      }
+      collapsed.push(edge);
+      return parent;
+    });
+    return {
+      ...ticket,
+      blockedBy: [...new Set(edges)],
+      collapsedRefs: collapsed,
+      keptSubSlices: kept,
+    };
+  });
 }
 
 /**
@@ -88,10 +137,44 @@ export function ticketBody(contents: string): string {
   return (fields === undefined ? contents : body).trim();
 }
 
-/** The raw fence of a foreign-fenced file, byte for byte; undefined otherwise. */
-export function foreignFence(contents: string): string | undefined {
+/**
+ * The frontmatter keys this schema does not import, and the file's own text for
+ * them. A foreign fence is shown whole, byte for byte; a fence with an id shows
+ * only its unimported entries, each sliced from the source rather than
+ * re-serialized. Undefined for a conforming Ticket and for a fenceless file.
+ */
+export function unimportedFrontmatter(contents: string): UnimportedFrontmatter | undefined {
   const { fields, raw } = splitFrontmatter(contents);
-  return fields !== undefined && isForeignFence(fields) ? raw : undefined;
+  if (fields === undefined || raw === undefined) return undefined;
+  const keys = Object.keys(fields).filter(key => !SCHEMA_KEYS.has(key));
+  if (keys.length === 0) return undefined;
+  if (isForeignFence(fields)) return { keys, yaml: raw, whole: true };
+  const entries = unimportedEntries(raw);
+  return entries === undefined
+    ? { keys, yaml: raw, whole: true }
+    : { keys, yaml: entries, whole: false };
+}
+
+/**
+ * The unimported pairs cut from the fence's own text, or undefined when one of
+ * them cannot be cut cleanly — a non-scalar or explicit (`? key`) key — in which
+ * case the caller shows the whole fence rather than a block that disagrees with
+ * the keys it names.
+ */
+function unimportedEntries(raw: string): string | undefined {
+  const doc = parseDocument(raw);
+  if (!isMap(doc.contents)) return undefined;
+  const slices: string[] = [];
+  for (const pair of doc.contents.items) {
+    if (isScalar(pair.key) && SCHEMA_KEYS.has(String(pair.key.value))) continue;
+    const start = isScalar(pair.key) ? pair.key.range?.[0] : undefined;
+    const value = pair.value as { range?: [number, number, number] } | null;
+    const end = value?.range?.[2] ?? (isScalar(pair.key) ? pair.key.range?.[2] : undefined);
+    if (start === undefined || end === undefined) return undefined;
+    if (raw.slice(raw.lastIndexOf('\n', start - 1) + 1, start).trim() !== '') return undefined;
+    slices.push(raw.slice(start, end).replace(/\s+$/, ''));
+  }
+  return slices.join(raw.includes('\r\n') ? '\r\n' : '\n');
 }
 
 function parseUnfenced(
@@ -99,10 +182,10 @@ function parseUnfenced(
   order: number,
   contents: string,
   revision: string,
-): TicketSummary {
+): ParsedTicket {
   const inferred = parseProseBody(contents);
 
-  return {
+  const ticket: TicketSummary = {
     id: inferred.id,
     handle: handleFor(inferred.id, effort, order),
     title: inferred.title,
@@ -119,10 +202,13 @@ function parseUnfenced(
     effort,
     order,
     foreign: true,
+    foreignFenced: false,
     unrecognizedStatus: inferred.unrecognizedStatus,
-    collapsedRefs: inferred.collapsedRefs,
+    collapsedRefs: [],
+    keptSubSlices: [],
     revision,
   };
+  return { ticket, subSlices: inferred.subSlices };
 }
 
 /**

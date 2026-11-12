@@ -462,12 +462,11 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
         openWorldHint: false,
       },
     },
-    async ({ effort, preview, rename, root }) => {
+    async ({ effort, preview, root }) => {
       const workspace = resolveWorkspace(root, context);
       const driver = registry.forWorkspace(workspace);
       const report = await driver.migrateEffort(effort, {
         preview: preview === true,
-        rename: rename === true,
       });
 
       // A preview writes nothing, and neither does a run that finds nothing to

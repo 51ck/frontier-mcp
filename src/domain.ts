@@ -75,10 +75,18 @@ export interface TicketSummary {
    * holds; a status that will not map is flagged by `unrecognizedStatus` instead.
    */
   readonly foreign: boolean;
+  /**
+   * Foreign by its fence — one that parses, with no `id` and a key outside the
+   * schema — rather than by having none. Its fields were read from that fence,
+   * not inferred from prose. Never true unless {@link foreign} is.
+   */
+  readonly foreignFenced: boolean;
   /** The raw status text of a Ticket whose value did not map, fenced or prose. */
   readonly unrecognizedStatus: string | undefined;
-  /** Sub-slice references (`T38.1`) coarsened to the Ticket that exists. */
+  /** Prose sub-slice references (`T38.1`) coarsened to a Ticket of the same Effort. */
   readonly collapsedRefs: readonly string[];
+  /** Prose sub-slice references kept as declared, their parent not a Ticket of this Effort. */
+  readonly keptSubSlices: readonly string[];
   /**
    * An opaque token for what was read. A write passes back the one it read and
    * is refused if the stored Ticket has moved on. The markdown driver builds it
@@ -92,11 +100,23 @@ export interface TicketSummary {
 export interface Ticket extends TicketSummary {
   readonly body: string;
   /**
-   * The raw, unparsed YAML of a frontmatter fence that is not this schema —
-   * no id and keys outside it. Carried on the body path only, so the agent can
-   * read what was never imported; undefined for every conforming Ticket.
+   * Unimported keys: frontmatter outside the schema, which the server reads
+   * past and never writes. Carried on the body path only; undefined for every
+   * conforming Ticket.
    */
-  readonly foreignFence?: string;
+  readonly unimported?: UnimportedFrontmatter;
+}
+
+export interface UnimportedFrontmatter {
+  /** The top-level keys outside the schema, in file order. */
+  readonly keys: readonly string[];
+  /**
+   * The file's own YAML for them, never re-serialized: a Foreign Ticket's
+   * whole fence, otherwise only the unimported entries.
+   */
+  readonly yaml: string;
+  /** Whether {@link yaml} is the whole fence, as it is for a Foreign Ticket. */
+  readonly whole: boolean;
 }
 
 /**
@@ -224,39 +244,35 @@ export interface SpecDocument {
   readonly revision: string;
 }
 
-/** How a migration call may rewrite filenames. */
+/** How a migration call runs. Filenames never change (T69). */
 export interface MigrateOptions {
   /**
-   * Report every change and write nothing. Planned mint ids come from the
-   * current scan (`max + 1`) without taking allocation guards.
+   * Report every change and write nothing. Takes no allocation guards and
+   * predicts no ids: a Ticket that would be minted is named by its handle.
    */
   readonly preview: boolean;
-  /**
-   * Rename Ticket files to `<NN>-T<n>-<slug>.md`. Off by default so relative
-   * links in Maps and Tickets keep resolving.
-   */
-  readonly rename: boolean;
 }
 
 /** One Ticket a migration would touch, or did. */
 export interface MigrationChange {
   /** Handle before the call — the id when it had one, else `<effort>#<order>`. */
   readonly beforeHandle: string;
-  /** Id after migration — preserved or newly minted. */
-  readonly id: string;
+  /**
+   * Id after migration — preserved or newly minted. Undefined in a preview of
+   * a Ticket that would be minted: which id is not knowable until the real run.
+   */
+  readonly id: string | undefined;
   readonly title: string;
   /** True when this call (or preview) assigns a fresh id. */
   readonly minted: boolean;
   /** True when the file was Foreign: a fenceless one gains schema frontmatter, a fenced one an id. */
   readonly normalized: boolean;
+  /** The Ticket's basename, unchanged by migration. */
+  readonly filename: string;
   /**
-   * Cosmetic Ticket filenames (basenames only) when rename would move the file.
-   * Absent when filenames stay put. Not filesystem paths — those stay below the
-   * storage seam.
+   * Edges as they will be written after bare sort-order remapping. In a preview
+   * a sibling that would be minted appears as its handle.
    */
-  readonly fromName: string | undefined;
-  readonly toName: string | undefined;
-  /** Edges as they will be written after bare sort-order remapping. */
   readonly blockedBy: readonly string[];
   /**
    * Preview only: every Ticket file already carrying this preserved id, this
@@ -269,6 +285,11 @@ export interface MigrationChange {
 export interface MigrationReport {
   readonly effort: string;
   readonly preview: boolean;
-  readonly renamed: boolean;
+  /** The Effort's Ticket directory relative to the workspace root, `/`-separated. */
+  readonly directory: string;
   readonly changes: readonly MigrationChange[];
+  /** Written Edges landing on another Effort's Ticket, as `T9@beta` — likelier a misparse than intent. */
+  readonly crossEffortEdges: readonly string[];
+  /** Sub-slice references (`T1.4`) written as declared because their parent is not in this Effort. */
+  readonly keptSubSlices: readonly string[];
 }

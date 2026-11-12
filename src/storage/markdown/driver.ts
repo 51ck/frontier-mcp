@@ -57,7 +57,12 @@ import {
   scaffoldMap,
   SECTION_HEADINGS,
 } from './header-doc.ts';
-import { foreignFence, parseTicketSummary, ticketBody } from './ticket.ts';
+import {
+  parseTicketSummary,
+  resolveSubSlices,
+  ticketBody,
+  unimportedFrontmatter,
+} from './ticket.ts';
 import { watchStorage, type StorageWatcher } from './watcher.ts';
 
 /**
@@ -292,7 +297,7 @@ export function createMarkdownDriver(
 
     migrateEffort(effort, options) {
       return moved(
-        () => serialized(() => migrate(storage, minting, effort, options, walk)),
+        () => serialized(() => migrate(storage, storageDir, minting, effort, options, walk)),
         options.preview !== true,
       );
     },
@@ -324,6 +329,7 @@ function unreachable(): never {
 
 async function migrate(
   storage: string,
+  storageDir: string,
   minting: MintingPlan,
   effort: string,
   options: MigrateOptions,
@@ -334,7 +340,6 @@ async function migrate(
 
   const entries = await readTicketFiles(dir, effort);
   const scanned = await walk();
-  const allTickets = scanned.flatMap(summariesOf);
 
   // An id inferred from Foreign prose is preserved, so one another file already
   // carries would be written into frontmatter as a duplicate — the same refusal
@@ -356,10 +361,10 @@ async function migrate(
     minting,
     effort,
     issues,
+    directory: [...storageDir.split(/[\\/]/), effort, ISSUES_DIR].filter(Boolean).join('/'),
     entries,
-    allTickets,
+    allTickets: scanned.flatMap(summariesOf),
     preview: options.preview,
-    rename: options.rename,
     conflicts,
     // Allocation must not share a walk started before the guards — same reason
     // createTickets builds its own rescan.
@@ -830,8 +835,8 @@ async function readBodies(
 
 function withBody(ticket: TicketSummary, contents: string): Ticket {
   const body = ticketBody(contents);
-  const fence = foreignFence(contents);
-  return fence === undefined ? { ...ticket, body } : { ...ticket, body, foreignFence: fence };
+  const unimported = unimportedFrontmatter(contents);
+  return unimported === undefined ? { ...ticket, body } : { ...ticket, body, unimported };
 }
 
 /**
@@ -857,14 +862,16 @@ async function readTicketFiles(dir: string, effort: string): Promise<TicketFileE
       ]);
       // A file with no `NN-` prefix still needs a position; its place in the
       // sorted listing is the only order it has.
-      return {
-        filename,
-        ticket: parseTicketSummary(effort, { filename, contents }, position + 1, revision ?? ''),
-      };
+      return parseTicketSummary(effort, { filename, contents }, position + 1, revision ?? '');
     }),
   );
 
-  return withUniqueHandles(parsed.toSorted((a, b) => a.ticket.order - b.ticket.order));
+  const tickets = resolveSubSlices(parsed);
+  const files = filenames.map((filename, position) => ({
+    filename,
+    ticket: tickets[position] as TicketSummary,
+  }));
+  return withUniqueHandles(files.toSorted((a, b) => a.ticket.order - b.ticket.order));
 }
 
 /**
