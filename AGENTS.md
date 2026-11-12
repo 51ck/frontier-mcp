@@ -129,19 +129,27 @@ Design decisions settled and binding until an ADR revises them:
   makes every write refuse with `InvalidWorkspaceConfig` — never a fallback to the default. Read
   paths still work, including `migrate_effort` preview and `edit_map`/`spec` calls that change
   nothing; a fix takes effect after a server restart. The
-  compiled pattern carries `needsCoordination` and `survivesMerge`. Minting and id matching do not
-  consume it yet (T65, T66). Rules: T52–T55 in `.scratch/ids-patterns/`.
+  compiled pattern carries `needsCoordination` and `survivesMerge`, and compiles once into the
+  minting plan. Id matching consumes it too: `StorageDriver.isId()` answers from the pattern (any
+  length per random token, so existing `T<n>` ids still match the default), and `create_tickets`
+  refuses a temporary key exactly when it would match. Under a broken config `isId` answers from
+  the default and a `migrate_effort` preview shows default-pattern ids. Rules: T52–T55 in
+  `.scratch/ids-patterns/`.
 - **`.md` with YAML frontmatter.** Not `.mdc`.
 - **Formal metadata in frontmatter, prose in the body.** Identity, status, edges, and kind are fields.
   Everything an agent reads as prose stays prose.
-- **Stable `id`, cosmetic filename.** Ticket ids are `T<n>` from a repo-global counter, unique across
-  every Effort, never reused or changed — though they may be skipped. `<NN>-T<n>-<slug>.md` carries
+- **Stable `id`, cosmetic filename.** Ticket ids are minted from the id pattern — random
+  `T<b36{6}>` by default — unique across every Effort, never reused or changed, though a counted
+  one may be skipped. Existing `T<n>` ids stay valid. `<NN>-<id>-<slug>.md` carries
   sort order in `NN` only. Frontmatter is the authority — on disagreement the file is renamed, never
   the field. Edges are plain ids resolved repo-wide; there is no compound cross-Effort reference form.
-- **The counter is derived, and allocated under a guard.** `max + 1` from a scan, so there is no
-  counter file to drift. The exclusive create is taken on a separate guard file rather than on the
-  Ticket file, because two sessions minting one id into different Efforts write different paths and
-  would collide over nothing. See [ADR 0005](./docs/adr/0005-ids-are-allocated-under-a-guard-and-a-rescan.md).
+- **A random pattern draws; a `<N>` pattern counts under a guard.** Random ids are drawn and checked
+  against the batch's scan, redrawn on a hit up to a bounded limit, with no guard files. Any pattern
+  containing `<N>`, mixed ones included, takes `max + 1` over the ids in its namespace, so there is
+  no counter file to drift. The exclusive create is taken on a separate guard file keyed on the `<N>`
+  value rather than on the Ticket file or the rendered id, because two sessions minting one counter
+  into different Efforts, or with different random parts, write different paths and would collide
+  over nothing. See [ADR 0005](./docs/adr/0005-ids-are-allocated-under-a-guard-and-a-rescan.md).
 - **Type what gets surgically mutated; leave the rest opaque.** The Map has typed sections because
   wayfinder edits them section by section. The Spec is an opaque body because nothing edits it.
 - **Derive, don't store, what tickets already know.** The Map's Decisions-so-far renders from resolved
@@ -283,7 +291,7 @@ Source layout:
 
 | Path | Holds |
 | --- | --- |
-| `src/domain.ts` | The CONTEXT.md vocabulary as types. Naming here is bound by the glossary, including its `_Avoid_` lines. |
+| `src/domain.ts` | The CONTEXT.md vocabulary as types. Naming here is bound by the glossary, including its `_Avoid_` lines. Ids are opaque here; their shape is the driver's (`isId`). |
 | `src/frontier.ts` | The Frontier computation. Takes every Ticket in the workspace, because Edges resolve repo-wide. |
 | `src/edges.ts` | Cycle detection over the Edge graph. Above the seam, because a cycle is a rule about the domain rather than about storage — the same reason the Status model is checked in the tool layer. |
 | `src/storage/driver.ts` | The ADR 0001 seam, its edit vocabulary, and its typed failures. A driver is the workspace cached and live, so `close()` sits here beside the reads and writes. |

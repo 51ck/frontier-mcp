@@ -69,3 +69,5 @@ Read [[T40]] with its amended gist: its minting half stands, its migration-shape
 [[T58]] resolved: the handle separator stays `#`, so nothing in this Ticket's preview changes shape.
 
 One correction it hands over. [[T40]]'s worked example prints handles zero-padded — `ship-0-5-0#01` — and `handleFor` emits no padding (`src/storage/markdown/ticket.ts:106-108`); the filename pads (`pad`, `src/storage/markdown/create.ts:379-380`), the handle does not. A builder following T40's example verbatim renders a handle nothing resolves. The existing criterion "Handles render unpadded, matching `handleFor`" is the one that catches this — take the form from `handleFor`, not from T40's example.
+
+From the T65 review (2026-11-12): under a random pattern `randomPlan.peek` is `draw`, so a `migrate_effort` preview prints ids the real run will not reuse. T53's "What the build inherits" says the preview should say so rather than show candidates it will not honour. T65 left this here because preview-by-handle is this Ticket's criterion. Also: under a broken `frontier.yml` the preview shows default-pattern ids.

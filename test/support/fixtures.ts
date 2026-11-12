@@ -58,6 +58,9 @@ header: spec
 `;
 }
 
+/** Pins the derived pattern, for tests about counting rather than about the default. */
+export const COUNTED: FixtureTree = { '.scratch/frontier.yml': 'id_pattern: T<N>\n' };
+
 /**
  * A workspace holding three Efforts that differ in which Header docs they carry
  * — a Spec, a Map, and both — plus a directory of loose scratch output that is

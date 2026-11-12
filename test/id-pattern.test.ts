@@ -1,3 +1,5 @@
+import { readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { map, spec, ticket } from './support/fixtures.ts';
@@ -134,11 +136,130 @@ describe('frontier.yml id_pattern', () => {
     await frontier.callExpectingError('create_tickets', create);
   });
 
+  it('mints the default T<b36{6}> and keeps existing T<n> ids', async () => {
+    const frontier = await workspace(undefined);
+
+    const text = await frontier.call('create_tickets', {
+      effort: 'alpha',
+      tickets: [{ title: 'New' }, { title: 'Newer', blocked_by: ['T1'] }],
+    });
+
+    const ids = text.match(/\bT[0-9a-z]{6}\b/g) ?? [];
+    expect(new Set(ids).size).toBe(2);
+    const board = await frontier.call('get_board', { effort: 'alpha' });
+    expect(board).toContain('T1  One');
+    expect(board).not.toContain('T1?');
+  });
+
+  it('redraws a random id already in use rather than failing', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/frontier.yml': 'id_pattern: x<b16{1}>\n',
+      ...Object.fromEntries(
+        [...'0123456789abcde'].map((digit, index) => [
+          `.scratch/alpha/issues/${String(index + 1).padStart(2, '0')}-x${digit}-t.md`,
+          ticket(`x${digit}`, 'Taken'),
+        ]),
+      ),
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    // Fifteen of sixteen are taken, so a first draw almost always hits.
+    expect(await frontier.call('create_tickets', create)).toContain('xf');
+  });
+
+  it('refuses with its own message once the random space is full', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/frontier.yml': 'id_pattern: x<b16{1}>\n',
+      '.scratch/alpha/map.md': map('Somewhere.'),
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    await frontier.call('create_tickets', {
+      effort: 'alpha',
+      tickets: Array.from({ length: 16 }, (_, index) => ({ title: `T ${String(index)}` })),
+    });
+    const error = await frontier.callExpectingError('create_tickets', create);
+
+    expect(error).toContain('random space is full or nearly full');
+    expect(error).not.toContain('No free Ticket id within');
+    expect(error).not.toContain('.guard');
+    expect(await readdir(join(root, '.scratch'))).not.toContain(expect.stringMatching(/\.guard$/));
+  });
+
+  it('counts under T<N> from the highest id in its namespace', async () => {
+    const frontier = await workspace('id_pattern: T<N>\n');
+
+    expect(await frontier.call('create_tickets', create)).toMatch(/\bT2\b/);
+  });
+
+  it('counts under a mixed pattern and draws its random part', async () => {
+    const frontier = await workspace('id_pattern: T<N>-<b36{4}>\n');
+
+    await frontier.call('create_tickets', create);
+    const text = await frontier.call('create_tickets', create);
+
+    // T1 is outside the mixed namespace, so the counter starts at 1, then 2.
+    expect(text).toMatch(/\bT2-[0-9a-z]{4}\b/);
+  });
+
   it('writes nothing while refusing', async () => {
     const frontier = await workspace('id_pattern: <N>\n');
 
     await frontier.callExpectingError('create_tickets', create);
 
     expect(await frontier.call('list_efforts')).toContain('tickets=1');
+  });
+});
+
+describe('id-ness is the configured pattern', () => {
+  it('refuses a key the configured pattern accepts and allows one it does not', async () => {
+    const frontier = await workspace('id_pattern: AUTH-<N>\n');
+
+    const refused = await frontier.callExpectingError('create_tickets', {
+      effort: 'alpha',
+      tickets: [{ key: 'AUTH-7', title: 'Ambiguous' }],
+    });
+    expect(refused).toContain('looks like a Ticket id');
+
+    await frontier.call('create_tickets', {
+      effort: 'alpha',
+      tickets: [
+        { key: 'T8', title: 'Keyed' },
+        { title: 'Child', blocked_by: ['T8'] },
+      ],
+    });
+  });
+
+  it.each(['id_pattern: AUTH-<N>\n', 'id_pattern: T<N>-<b36{4}>\n'])(
+    'refuses a key naming an existing Ticket the pattern no longer accepts (%s)',
+    async config => {
+      const frontier = await workspace(config);
+
+      const refused = await frontier.callExpectingError('create_tickets', {
+        effort: 'alpha',
+        tickets: [
+          { key: 'T1', title: 'Shadow' },
+          { title: 'Child', blocked_by: ['T1'] },
+        ],
+      });
+
+      expect(refused).toContain('is the id of an existing Ticket');
+      expect(await frontier.call('list_efforts')).toContain('tickets=1');
+    },
+  );
+
+  it('keeps recognizing T<n> ids under the default pattern', async () => {
+    const frontier = await workspace(undefined);
+
+    const refused = await frontier.callExpectingError('create_tickets', {
+      effort: 'alpha',
+      tickets: [{ key: 'T34', title: 'Ambiguous' }],
+    });
+    expect(refused).toContain('looks like a Ticket id');
+    // A dangling Edge on an existing-style id is a forward reference, not a typo.
+    await frontier.call('create_tickets', {
+      effort: 'alpha',
+      tickets: [{ title: 'Child', blocked_by: ['T34'] }],
+    });
   });
 });

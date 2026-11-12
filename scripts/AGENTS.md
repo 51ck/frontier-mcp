@@ -16,6 +16,9 @@ These scripts provide runtime probes and setup helpers for T88–T91.
 - Its check covers the public MCP surface, filesystem invalidation, and cross-process claim and id
   allocation. Prime the watcher cache after its attach settle schedule finishes so a scheduled
   invalidation cannot hide a missing filesystem event. Keep checks at the MCP/process boundary.
+  It never assumes an id: the public-surface step reads the id `create_tickets` minted under the
+  default pattern, and the allocation step pins `id_pattern: T<N>` first, because only a counted
+  pattern allocates under guards.
 - `runtime-check.mjs` accepts `--runtime` and `--entry` so another setup or launcher can supply the
   command it wants verified.
 - `package-runtime-check.mjs` creates an npm tarball and installs it with production dependencies in

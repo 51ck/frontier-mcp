@@ -238,7 +238,9 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       // an unknown key, a cycle — leaves the workspace exactly as it was. The
       // one rule that needs real ids runs under the driver's reservations,
       // still before any file lands.
-      const { drafts, validate } = planBatch(tickets, await driver.listTickets());
+      const { drafts, validate } = planBatch(tickets, await driver.listTickets(), name =>
+        driver.isId(name),
+      );
       const created = await driver.createTickets(effort, drafts, {
         createEffort: create === true,
         validate,

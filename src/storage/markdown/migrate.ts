@@ -2,7 +2,7 @@ import { rename as renameFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { MigrationChange, MigrationReport, TicketSummary } from '../../domain.ts';
-import { peekMintedIds, ticketFilename, withIdReservations, type Rescan } from './create.ts';
+import { ticketFilename, withIdReservations, type MintingPlan, type Rescan } from './create.ts';
 import { normalizeTicket, type Defaults } from './serialize.ts';
 import { stage, unstage, writeAtomically } from './write.ts';
 
@@ -13,6 +13,7 @@ export interface TicketFileEntry {
 
 export interface MigrateFilesRequest {
   readonly storage: string;
+  readonly minting: MintingPlan;
   readonly effort: string;
   readonly issues: string;
   readonly entries: readonly TicketFileEntry[];
@@ -50,20 +51,26 @@ export async function migrateEffortFiles(request: MigrateFilesRequest): Promise<
   const used = idsOf(request.allTickets);
 
   if (preview) {
-    const plan = planChanges(candidates, peekMintedIds(used, needMint), entries, rename);
+    const plan = planChanges(candidates, request.minting.peek(used, needMint), entries, rename);
     return { effort, preview: true, renamed: rename, changes: plan.map(file => file.change) };
   }
 
-  return withIdReservations(request.storage, needMint, request.rescan, async minted => {
-    const plan = planChanges(candidates, minted, entries, rename);
-    await applyPlan(request, plan);
-    return {
-      effort,
-      preview: false,
-      renamed: rename,
-      changes: plan.map(file => file.change),
-    };
-  });
+  return withIdReservations(
+    request.minting,
+    request.storage,
+    needMint,
+    request.rescan,
+    async minted => {
+      const plan = planChanges(candidates, minted, entries, rename);
+      await applyPlan(request, plan);
+      return {
+        effort,
+        preview: false,
+        renamed: rename,
+        changes: plan.map(file => file.change),
+      };
+    },
+  );
 }
 
 function planChanges(

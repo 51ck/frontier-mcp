@@ -748,6 +748,7 @@ async function measureCreates(fixture: Fixture, batchSize: number) {
       body: prose(TARGET_TICKET_BYTES, index),
     })),
     [],
+    () => false,
   );
   const effort = fixture.name.startsWith('real') ? 'frontier-v1' : 'bench-1';
 

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import type { Kind, TicketDraft, TicketSummary, TriageRole } from '../domain.ts';
-import { MINTED_ID, TRIAGE_ROLES } from '../domain.ts';
+import { TRIAGE_ROLES } from '../domain.ts';
 import { cycleThrough, renderCycle, resolveDraftEdges, type EdgesOf } from '../edges.ts';
 import { indexById } from '../frontier.ts';
 
@@ -22,7 +22,7 @@ export const createTicketsInputSchema = z.object({
           .optional()
           .describe(
             'Your own temporary name for this Ticket, so siblings can declare Edges on it ' +
-              'before it has an id. Never stored. May not look like T<n>.',
+              'before it has an id. Never stored. May not be something this workspace would accept as a Ticket id.',
           ),
         title: z.string().min(1),
         kind: z.enum(['build', 'decision']).optional().describe('Defaults to build.'),
@@ -85,12 +85,13 @@ export interface PlannedBatch {
 export function planBatch(
   requests: readonly DraftRequest[],
   existing: readonly TicketSummary[],
+  isId: (name: string) => boolean,
 ): PlannedBatch {
   const drafts = requests.map(request => toDraft(request));
-  const keys = declaredKeys(drafts);
+  const keys = declaredKeys(drafts, isId, existing);
   const provisional = drafts.map((draft, index) => draft.key ?? placeholderFor(index, keys));
 
-  checkEdges(drafts, keys, existing);
+  checkEdges(drafts, keys, existing, isId);
   // Named by their keys, so a loop between two drafts reads in the caller's own
   // vocabulary rather than in ids they have not seen yet.
   checkCycles(drafts, provisional, existing);
@@ -122,16 +123,28 @@ function toDraft(request: DraftRequest): TicketDraft {
   };
 }
 
-function declaredKeys(drafts: readonly TicketDraft[]): ReadonlySet<string> {
+function declaredKeys(
+  drafts: readonly TicketDraft[],
+  isId: (name: string) => boolean,
+  existing: readonly TicketSummary[],
+): ReadonlySet<string> {
   const keys = new Set<string>();
+  const taken = new Set(existing.map(ticket => ticket.id));
 
   for (const draft of drafts) {
     if (draft.key === undefined) continue;
 
     // A key shaped like an id is ambiguous: an Edge naming `T8` could mean the
     // sibling draft or the Ticket already answering to it, and the server would
-    // have to guess which.
-    if (MINTED_ID.test(draft.key)) {
+    // have to guess which. Shape alone does not cover it: a Ticket minted under
+    // an earlier pattern keeps an id the current one no longer accepts.
+    if (taken.has(draft.key)) {
+      throw new Error(
+        `Temporary key "${draft.key}" is the id of an existing Ticket. Pick another name, ` +
+          'so an Edge naming it is never ambiguous.',
+      );
+    }
+    if (isId(draft.key)) {
       throw new Error(
         `Temporary key "${draft.key}" looks like a Ticket id. Pick a name that does not, ` +
           'so an Edge naming it is never ambiguous.',
@@ -154,12 +167,13 @@ function checkEdges(
   drafts: readonly TicketDraft[],
   keys: ReadonlySet<string>,
   existing: readonly TicketSummary[],
+  isId: (name: string) => boolean,
 ): void {
   const ids = indexById(existing);
 
   for (const draft of drafts) {
     for (const edge of draft.blockedBy) {
-      if (keys.has(edge) || ids.has(edge) || MINTED_ID.test(edge)) continue;
+      if (keys.has(edge) || ids.has(edge) || isId(edge)) continue;
 
       throw new Error(
         `"${draft.title}" is blocked by "${edge}", which is neither a Ticket id nor a key ` +

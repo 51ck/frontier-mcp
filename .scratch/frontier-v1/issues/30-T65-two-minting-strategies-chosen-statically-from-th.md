@@ -2,9 +2,10 @@
 id: T65
 title: Two minting strategies, chosen statically from the compiled pattern
 kind: build
-status: open
+status: resolved
 triage: ready-for-agent
 blocked_by: [T64]
+answer_gist: "The driver compiles one minting plan from the pattern at construction: a random pattern draws against the batch scan with a per-id redraw budget and no guards, a pattern with `<N>` keeps ADR 0005's guards keyed on the counter value (`.frontier-id-N-<n>.guard`); the default is `T<b36{6}>` and no existing id changes"
 ---
 
 **What to build:** [[T35]]'s uncoordinated minting and [[T53]]'s conditional guards, as one
@@ -40,11 +41,15 @@ through the existing signature without taking a guard. The conditional is smalle
 **Blocked by:** the strategy is a property of the compiled pattern, which does not exist yet.
 
 
-- [ ] The minting plan compiles once from the token list; there is no per-call strategy branch
-- [ ] Random: draw, verify against the batch scan, bounded retry, its own limit and its own message
-- [ ] Derived: `guardFor` keys on the `<N>` value, and two sessions minting `T35-ab12` and
+- [x] The minting plan compiles once from the token list; there is no per-call strategy branch
+- [x] Random: draw, verify against the batch scan, bounded retry, its own limit and its own message
+- [x] Derived: `guardFor` keys on the `<N>` value, and two sessions minting `T35-ab12` and
       `T35-cd34` contend on one guard path
-- [ ] The default pattern is `T<b36{6}>` and no existing id changes
-- [ ] `CANDIDATE_HEADROOM` and its error message are unreachable under a random pattern
-- [ ] ADR 0005's two-phase all-or-none write, the Effort directory created after validation, and the
+- [x] The default pattern is `T<b36{6}>` and no existing id changes
+- [x] `CANDIDATE_HEADROOM` and its error message are unreachable under a random pattern
+- [x] ADR 0005's two-phase all-or-none write, the Effort directory created after validation, and the
       `validate` hook all survive — none of them are about counters
+
+## Answer
+
+`mintingPlan()` picks `randomPlan` or `derivedPlan` once, from `needsCoordination`; no call branches on strategy. Random: 1000 redraws per id, its own message, `CANDIDATE_HEADROOM` reachable only from the derived plan's `claim()`. Derived: the cross-process test runs under `T<N>` and `T<N>-<b36{4}>` and was checked to fail with the guard keyed on the rendered id. Two matchers exist on purpose: the counter matcher needs exact random-token length to parse adjacent tokens, the id predicate accepts any length so `T34` stays an id under the default. Known and accepted: under a random pattern two processes drawing the same id are not coordinated (T53), and old-name guard files are ignored. Left to T69: a `migrate_effort` preview under a random pattern shows ids the run will not reuse.

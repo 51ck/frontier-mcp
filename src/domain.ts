@@ -15,16 +15,6 @@ export type HeaderDoc = 'map' | 'spec';
 /** Which of the two shapes a Ticket is. */
 export type Kind = 'build' | 'decision';
 
-/**
- * The shape of a minted id: `T<n>`, visibly an id so it is never mistaken for a
- * sort position. Ids preserved verbatim through migration need not match — those
- * occupy their name without being part of the counter.
- *
- * Both sides of the storage seam test against this, so it lives with the rest of
- * the vocabulary rather than in either of them.
- */
-export const MINTED_ID = /^T(\d+)$/;
-
 /** A Ticket's position in the graph's lifecycle. Owned by the server. */
 export type Status = 'open' | 'claimed' | 'resolved' | 'dropped';
 
@@ -35,7 +25,10 @@ export const STATUSES: readonly Status[] = ['open', 'claimed', 'resolved', 'drop
  * separately, so a Board never pays for prose it does not show.
  */
 export interface TicketSummary {
-  /** `T<n>`, unique repo-wide. Absent on a Legacy Ticket that carries no id. */
+  /**
+   * Opaque, unique repo-wide, never reused or changed. Its shape is the storage
+   * driver's to define. Absent on a Legacy Ticket that carries no id.
+   */
   readonly id: string | undefined;
   /**
    * How to name this Ticket in a call. The id when it has one; otherwise
@@ -146,8 +139,8 @@ export interface TicketEdit {
  */
 export interface TicketDraft {
   /**
-   * The caller's temporary name. Never `T<n>` — a key shaped like an id could
-   * not be told apart from the real one an Edge might mean.
+   * The caller's temporary name. Never something the driver would accept as an
+   * id — such a key could not be told apart from the real one an Edge might mean.
    */
   readonly key: string | undefined;
   readonly title: string;
