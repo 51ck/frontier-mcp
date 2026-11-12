@@ -41,6 +41,7 @@ import {
 } from './write.ts';
 import {
   applyMapEdit,
+  assertNoSectionBreaks,
   type DerivedPointer,
   readMapDocument,
   readSection,
@@ -426,6 +427,7 @@ async function saveMap(
   const path = join(dir, MAP_FILE);
   const current = await currentRevision(path);
   const handle = `map:${effort}`;
+  assertNoSectionBreaks(edit);
 
   if (current === undefined) {
     // createEffort only guards starting a new Effort. An Effort that already

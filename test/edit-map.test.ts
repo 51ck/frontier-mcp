@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -804,5 +804,106 @@ header: spec
 
     const efforts = await frontier.call('list_efforts');
     expect(efforts).toMatch(/beta\s+tickets=0\s+docs=map,spec/);
+  });
+});
+
+describe('edit_map refuses values the Map reader would split (T96)', () => {
+  async function freshMap() {
+    const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+    const text = await frontier.call('edit_map', {
+      effort: 'fresh',
+      create: true,
+      destination: 'Ship it.',
+    });
+    const path = join(root, '.scratch/fresh/map.md');
+    return { frontier, path, rev: revisionOf(text, 'map') };
+  }
+
+  it('refuses ## in notes, writes nothing, and round-trips ### with one copy', async () => {
+    const { frontier, path, rev } = await freshMap();
+    const before = await readFile(path, 'utf8');
+
+    const error = await frontier.callExpectingError('edit_map', {
+      effort: 'fresh',
+      notes: '## Sub A\n\n- one\n\n## Sub B\n\n- two',
+      expected_revision: rev,
+    });
+    expect(error).toContain("Notes cannot contain a level-2 heading ('## Sub A')");
+    expect(error).toContain('###');
+    expect(await readFile(path, 'utf8')).toBe(before);
+
+    let text = await frontier.call('edit_map', {
+      effort: 'fresh',
+      notes: '### Sub A\n\n- one',
+      expected_revision: rev,
+    });
+    text = await frontier.call('edit_map', {
+      effort: 'fresh',
+      notes: '### Sub A\n\n- one (second write)',
+      expected_revision: revisionOf(text, 'map'),
+    });
+    expect(text).toContain('### Sub A');
+    expect(text).toContain('- one (second write)');
+
+    const onDisk = await readFile(path, 'utf8');
+    expect(onDisk.match(/### Sub A/g)).toHaveLength(1);
+    expect(onDisk).not.toContain('- one\n');
+  });
+
+  it('refuses ## inside a fenced code block too, as the reader splits there', async () => {
+    const { frontier, path, rev } = await freshMap();
+    const before = await readFile(path, 'utf8');
+    const error = await frontier.callExpectingError('edit_map', {
+      effort: 'fresh',
+      notes: '```md\n## Inside\n```',
+      expected_revision: rev,
+    });
+    expect(error).toContain("('## Inside')");
+    expect(await readFile(path, 'utf8')).toBe(before);
+  });
+
+  it.each([
+    ['destination', 'Destination'],
+    ['add_fog', 'Not yet specified'],
+    ['rule_out', 'Out of scope'],
+  ])('refuses ## in %s', async (field, section) => {
+    const { frontier, path, rev } = await freshMap();
+    const before = await readFile(path, 'utf8');
+    const error = await frontier.callExpectingError('edit_map', {
+      effort: 'fresh',
+      [field]: 'first line\n## Orphan',
+      expected_revision: rev,
+    });
+    expect(error).toContain(`${section} cannot contain a level-2 heading ('## Orphan')`);
+    expect(await readFile(path, 'utf8')).toBe(before);
+  });
+
+  it('refuses on create without making the Effort', async () => {
+    const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+    await frontier.callExpectingError('edit_map', {
+      effort: 'fresh',
+      create: true,
+      notes: '## Sub',
+    });
+    await expect(stat(join(root, '.scratch/fresh'))).rejects.toThrow();
+    expect(await frontier.call('list_efforts')).not.toContain('fresh');
+  });
+
+  it.each([
+    ['notes', 'A <!-- GENERATED -->hidden<!-- /GENERATED -->'],
+    ['rule_out', 'foo <!-- GENERATED --> bar'],
+    ['destination', 'Ship it. <!-- /GENERATED -->'],
+  ])('refuses a GENERATED marker in %s', async (field, value) => {
+    const { frontier, path, rev } = await freshMap();
+    const before = await readFile(path, 'utf8');
+    const error = await frontier.callExpectingError('edit_map', {
+      effort: 'fresh',
+      [field]: value,
+      expected_revision: rev,
+    });
+    expect(error).toContain('cannot contain a GENERATED marker');
+    expect(await readFile(path, 'utf8')).toBe(before);
   });
 });

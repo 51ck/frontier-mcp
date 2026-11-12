@@ -358,6 +358,10 @@ Write rules, equally load-bearing:
   scan, because the scan may be stale.
 - **A write never reorders frontmatter.** New fields are appended; only a block this driver creates is in schema order. `flowCollectionPadding: false` matters — without it an untouched `[a, b]` comes back `[ a, b ]`.
 - **A write never touches a body section it does not own.** The answer replaces up to the next `##`, so the comment log survives.
+- **A Map value that would split its section is refused, never demoted.** A `##` line in
+  `destination`, `notes`, `add_fog` or `rule_out` — matched by the reader's own section-break regex,
+  fenced code included — fails with `SectionBreakInValue` and writes nothing (T96). So does a
+  GENERATED marker in any of the four, which the reader would take for a block the server owns.
 - **A mismatch is never retried.** It is re-read only to produce a better message — usually
   "already claimed by X" — and then the original failure is raised. A mismatch may equally be
   somebody's hand edit, and overwriting that is what the check exists to prevent.
