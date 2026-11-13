@@ -2,6 +2,49 @@
 
 Package release notes for `frontier-mcp` (npm). Not part of the `.scratch/` issue tracker.
 
+## [1.0.0](https://github.com/51ck/frontier-mcp/compare/v0.6.0...v1.0.0) (2026-11-13)
+
+### ⚠ BREAKING CHANGES
+
+* migrate_effort no longer accepts `rename`; filenames
+  never change. MigrationChange drops fromName/toName for `filename`, and
+  MigrationReport drops `renamed` for `directory`.
+* the Board warning reads "are Foreign" and get_tickets flags
+  "foreign" instead of "legacy".
+
+### Features
+
+* get_tickets surfaces Unimported keys on any Ticket (T102) ([db45862](https://github.com/51ck/frontier-mcp/commit/db4586213225168ef82cefa93cb4b8e3cfca455e))
+* list_efforts explains a repository with no tracker (T105) ([2e48fc8](https://github.com/51ck/frontier-mcp/commit/2e48fc810077c8e446a62b6c3e13e116381b1a10))
+* migrate_effort previews by handle, drops rename (T69) ([ed302c1](https://github.com/51ck/frontier-mcp/commit/ed302c16a163b84300e4519ad59ba8a8e26ea8b7))
+* **setup:** Claude Code client target and a config doctor (T93) ([63c10b0](https://github.com/51ck/frontier-mcp/commit/63c10b00b1b4f19bf4062ccf6bbc22e220af7a14))
+* the Board counts resolved, dropped and claimed Tickets missing their field (T85) ([baedcce](https://github.com/51ck/frontier-mcp/commit/baedcce249ed29f327fa852a0a0376b0041981c9))
+* update_ticket drop_keys removes named Unimported keys (T103) ([2929008](https://github.com/51ck/frontier-mcp/commit/29290085f46b0a1fa6039fba155141f9c8a93460))
+
+### Bug Fixes
+
+* a file where .scratch/ belongs is not an absent tracker (T105) ([3f2e5fe](https://github.com/51ck/frontier-mcp/commit/3f2e5feda26a91258318b7a00699d18b43974ec5))
+* a prose Edge never lands on another Effort by prefix (T82) ([7fededc](https://github.com/51ck/frontier-mcp/commit/7fededc4f9fe6657137100744427128cfbfb618b))
+* a sub-slice never coarsens onto its own Ticket; a nested one stays whole (T82) ([c7a2a05](https://github.com/51ck/frontier-mcp/commit/c7a2a052e9cc20b4229bf50f4d6a2f5f39d2317b))
+* a sub-slice reference is coarsened only within its own Effort, decided at scan (T82) ([0d89e16](https://github.com/51ck/frontier-mcp/commit/0d89e16a5115143039d42abeeea0c5d0739de31f))
+* count a claim with no claimed_at; pin the lifecycle counts that matter (T85) ([5af40a1](https://github.com/51ck/frontier-mcp/commit/5af40a13d403329c0f6d1913497bc15c2646ba6b))
+* drop_keys compares surviving values, not just key names (T103) ([0c1ba35](https://github.com/51ck/frontier-mcp/commit/0c1ba35bddae41df502db166bde02e64318e7f59))
+* drop_keys reads its cut back and refuses one that damages the fence (T103) ([6fc33cf](https://github.com/51ck/frontier-mcp/commit/6fc33cfab12082350e75623719283cc4078505a1))
+* migration holds its guards until every write settles; unambiguous report labels (T69) ([6b1e0e2](https://github.com/51ck/frontier-mcp/commit/6b1e0e21a586099d364364298240998dfc3a50db))
+* refuse a multi-line add_fog or rule_out (T98) ([836bb4b](https://github.com/51ck/frontier-mcp/commit/836bb4b082eb96ffd89583e014ed61c74a68b25f))
+* refuse U+2028/U+2029 in add_fog and rule_out (T98) ([50a32aa](https://github.com/51ck/frontier-mcp/commit/50a32aa8ebacb741a3f066db8a92defe25d35c92))
+* **setup:** label the Windows command as PowerShell, double curly quotes (T93) ([149ee80](https://github.com/51ck/frontier-mcp/commit/149ee809b53cb1a45cd0638c5686697d3b8fa106))
+* **setup:** per-client doctor failures and quoting (T93) ([0e5dc83](https://github.com/51ck/frontier-mcp/commit/0e5dc838a00ab402170bc88a469ce56999b83c2a))
+* **setup:** restore on failed replace, refuse Windows shim, honest doctor (T93) ([598705f](https://github.com/51ck/frontier-mcp/commit/598705fb4e768fb7c5248f800e0b81b7165ec086))
+* show the whole fence when an unimported entry cannot be cut cleanly (T102) ([fd07bf2](https://github.com/51ck/frontier-mcp/commit/fd07bf2754acb36bf10501b645bce4c1f940050a))
+* state the Foreign predicate as implemented; get_tickets names the bare id (T77) ([b1ade0f](https://github.com/51ck/frontier-mcp/commit/b1ade0f68063f166fac84d44927c93b5bf185bb0))
+* the Board says where a foreign-fenced Ticket's fields came from (T104) ([b919c4b](https://github.com/51ck/frontier-mcp/commit/b919c4bfd62c672260ca04dde8fdeac43abc6f21))
+* **watcher:** survive a directory replaced by a file on Linux (T99) ([fe2cb0d](https://github.com/51ck/frontier-mcp/commit/fe2cb0d98db48e1045bb77d33b0fbc55cb8bc793)), references [nodejs/node#66791](https://github.com/nodejs/node/issues/66791)
+
+### Code Refactoring
+
+* Legacy becomes Foreign (T77) ([3451b97](https://github.com/51ck/frontier-mcp/commit/3451b975bf9560a6ffe000491f2e642c81047354))
+
 ## [0.6.0](https://github.com/51ck/frontier-mcp/compare/v0.5.0...v0.6.0) (2026-11-12)
 
 ### Features
