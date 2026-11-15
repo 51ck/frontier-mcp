@@ -79,17 +79,20 @@ describe('the shipped surface', () => {
     }
   });
 
-  it("names no concrete id shape in create_tickets' key description", async () => {
-    // Id shape is the driver's, set by frontier.yml; a schema naming one is wrong
-    // under every other pattern (T55).
+  it('requires a name on every create_tickets entry and offers no key', async () => {
     const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
     const { client } = await connectFrontier({ cwd: root, env: {} });
 
     const { tools } = await client.listTools();
     const create = tools.find(tool => tool.name === 'create_tickets');
-    const schema = JSON.stringify(create?.inputSchema);
-    expect(schema).toContain('temporary name');
-    expect(schema).not.toContain('T<n>');
+    expect(create?.inputSchema.properties?.['tickets']).toMatchObject({
+      items: {
+        required: ['name', 'title'],
+        // Present only so a call still passing it is refused by name rather than stripped.
+        properties: { key: { not: {} } },
+      },
+    });
+    expect(JSON.stringify(create)).not.toMatch(/temporary|mint/i);
   });
 
   it('lists the tracker configuration document as an MCP resource, not a tool', async () => {

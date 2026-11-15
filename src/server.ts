@@ -242,30 +242,22 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       const workspace = resolveWorkspace(root, context);
       const driver = registry.forWorkspace(workspace);
 
-      // Every reference resolves before anything is written, so a refusal —
-      // an unknown key, a cycle — leaves the workspace exactly as it was. The
-      // one rule that needs real ids runs under the driver's reservations,
-      // still before any file lands.
-      const { drafts, validate } = planBatch(
-        tickets,
-        await driver.listTickets(),
-        name => driver.isId(name),
-        effort,
-      );
+      // Every name and reference is settled before anything is written, so a
+      // refusal — a taken name, a cycle — leaves the workspace exactly as it
+      // was. The driver runs the same rules again on a fresh read.
+      const { drafts, validate } = planBatch(tickets, await driver.listTickets(), effort);
       const created = await driver.createTickets(effort, drafts, {
         createEffort: create === true,
         validate,
       });
 
+      // The files have landed: a scan that fails now must not turn a completed
+      // creation into a reported failure, so the result goes out without Edges.
+      const names = await driver.listTickets().then(indexNames, () => undefined);
+
       return {
         content: [
-          {
-            type: 'text',
-            text: withWorkspace(
-              workspace,
-              renderCreated(effort, created, driver.mergeCollidingIdPattern()),
-            ),
-          },
+          { type: 'text', text: withWorkspace(workspace, renderCreated(effort, created, names)) },
         ],
       };
     },

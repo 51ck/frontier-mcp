@@ -745,11 +745,11 @@ async function measureCreates(fixture: Fixture, batchSize: number) {
   const effort = fixture.name.startsWith('real') ? 'frontier-v1' : 'bench-1';
   const batch = planBatch(
     Array.from({ length: batchSize }, (_, index) => ({
+      name: `bench-create-${String(index)}`,
       title: `Benchmark creation ${String(index)}`,
       body: prose(TARGET_TICKET_BYTES, index),
     })),
     [],
-    () => false,
     effort,
   );
 

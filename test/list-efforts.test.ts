@@ -182,7 +182,7 @@ describe('list_efforts in a repository with no tracker', () => {
     await frontier.call('create_tickets', {
       effort: 'first',
       create: true,
-      tickets: [{ title: 'Begin' }],
+      tickets: [{ name: 'begin', title: 'Begin' }],
     });
 
     expect(await frontier.call('list_efforts')).toBe(

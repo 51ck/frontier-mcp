@@ -126,25 +126,26 @@ Design decisions settled and binding until an ADR revises them:
   literals in `[A-Za-z0-9._-]`; `<effort>` is refused, and every pattern must begin with a literal
   letter or underscore (T55). Absent file or key is the default `T<b36{6}>`, silently. An unparseable
   file or illegal pattern shows in the Board's warnings (`StorageDriver.workspaceWarnings()`) and
-  makes every write refuse with `InvalidWorkspaceConfig` — never a fallback to the default. Read
+  makes every write but `create_tickets`, which mints nothing, refuse with
+  `InvalidWorkspaceConfig` — never a fallback to the default. Read
   paths still work, including `migrate_effort` preview and `edit_map`/`spec` calls that change
   nothing; a fix takes effect after a server restart. The
   compiled pattern carries `needsCoordination` and `survivesMerge`, and compiles once into the
   minting plan. Id matching consumes it too: `StorageDriver.isId()` answers from the pattern (any
-  length per random token, so existing `T<n>` ids still match the default), and `create_tickets`
-  refuses a temporary key that would match it or that names an existing Ticket. Under a broken config `isId` answers from
+  length per random token, so existing `T<n>` ids still match the default); nothing above the seam
+  asks it now that `create_tickets` takes names. Under a broken config `isId` answers from
   the default. Rules: T52–T55 in
   `.scratch/ids-patterns/`.
 - **`.md` with YAML frontmatter.** Not `.mdc`.
 - **Formal metadata in frontmatter, prose in the body.** Identity, status, edges, and kind are fields.
   Everything an agent reads as prose stays prose.
-- **Stable `id`, cosmetic filename.** Ticket ids are minted from the id pattern — random
+- **Stable `id`, cosmetic filename.** Only `migrate_effort` still mints, from the id pattern — random
   `T<b36{6}>` by default — unique across every Effort, never reused or changed, though a counted
-  one may be skipped. Existing `T<n>` ids stay valid. `<NN>-<id>-<slug>.md` carries
+  one may be skipped. Existing `T<n>` ids stay valid. On a file carrying an id, `<NN>-<id>-<slug>.md` carries
   sort order in `NN` only. Frontmatter is the authority — on disagreement the field wins, and the
   filename is never rewritten: another Effort's prose may link it by path.
 - **A Ticket with no `id` is named by its file** ([ADR 0008](./docs/adr/0008-a-ticket-is-named-by-its-path.md),
-  read path only so far): the stem less a leading `<digits>-`, any stem accepted. An id is global; a
+  read path and `create_tickets`; `migrate_effort` still mints): the stem less a leading `<digits>-`, any stem accepted. An id is global; a
   stem name is local to its Effort and `<effort>.<name>` in full. A stored Edge resolves nearest
   first — `<effort>.<name>` on the longest known slug, then a name in the Ticket's own Effort, then
   an id anywhere — and a full name whose Effort holds no such Ticket falls through to the next step.
@@ -317,7 +318,7 @@ Source layout:
 | `src/names.ts` | How a string names a Ticket: Edge and tool-input resolution, duplicate claimants, and the graph nodes cycle checks walk. The Frontier, the Board, the tool lookups and the markdown driver's file lookup all resolve through it. |
 | `src/edges.ts` | Cycle detection over the Edge graph. Above the seam, because a cycle is a rule about the domain rather than about storage — the same reason the Status model is checked in the tool layer. |
 | `src/storage/driver.ts` | The ADR 0001 seam, its edit vocabulary, and its typed failures. A driver is the workspace cached and live, so `close()` sits here beside the reads and writes. |
-| `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout, which it takes as a construction parameter — `frontmatter.ts` splits the fence, `ticket.ts` parses a Ticket, `legacy.ts` infers one from prose when there is no parseable fence (named for that one shape, not for Foreign), `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` allocates ids and writes a new batch, `migrate.ts` normalizes an Effort at once, `schema.ts` is the one list of schema frontmatter keys, `id-pattern.ts` reads `<storageDir>/frontier.yml` once at construction and compiles `id_pattern`, `write.ts` renames it into place, `watcher.ts` tells the driver another process moved the workspace under it. |
+| `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout, which it takes as a construction parameter — `frontmatter.ts` splits the fence, `ticket.ts` parses a Ticket, `legacy.ts` infers one from prose when there is no parseable fence (named for that one shape, not for Foreign), `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` writes a new batch at the paths its names imply and holds the minter `migrate.ts` still reserves ids from, `migrate.ts` normalizes an Effort at once, `schema.ts` is the one list of schema frontmatter keys, `id-pattern.ts` reads `<storageDir>/frontier.yml` once at construction and compiles `id_pattern`, `write.ts` renames it into place, `watcher.ts` tells the driver another process moved the workspace under it. |
 | `src/workspace.ts` | Workspace resolution — the only module above the driver that reads a *served* repository, and only to locate its root. `.scratch` is a marker only as a directory; `.git` counts as a file too, so a worktree or submodule resolves to itself rather than to the repository enclosing it. |
 | `src/driver-registry.ts` | One driver per resolved workspace, and the `closeAll()` that shuts them. A lookup, not a layer: it hands back the driver itself, so no read or write passes through it. |
 | `src/tools/` | One module per tool: its input schema, its description, and how its result renders. `workspace-line.ts` is the exception — the single rendering of which repository a call served, shared by `list_efforts` and every write. |
@@ -378,11 +379,10 @@ Rendering rules that are load-bearing, not cosmetic:
   since its answer is prose. Computed from the cached scan. `list_efforts` stays silent on it.
 - **An unrecognized status is counted in the warnings block and is never takeable.** The Board line
   may still show `/open`, but the Ticket is kept off the Frontier until a write normalizes it.
-- **A `<N>`-only id pattern warns on every `create_tickets` result, never on a read, never
-  suppressed** (T56, T68). The tool learns the pattern and its config file from
-  `StorageDriver.mergeCollidingIdPattern()`; the text names both, names `T<N>-<b36{4}>`, says
-  *regression*, and closes by saying no action is required on this call. It never mentions
-  duplicates — the cross-reference runs one way, from the duplicate warning to the pattern.
+- **A `create_tickets` result lists each Ticket by full name**, `<effort>.<name>`, with its Edges as
+  the Board renders them, so a dangling one shows as `name?` at once. Nothing is minted, so it
+  carries no id-pattern warning under any pattern. `StorageDriver.mergeCollidingIdPattern()` now
+  feeds only the duplicate-id warning.
 - **Every Ticket is nameable.** A Board line opens with the Ticket's bare name — its id, or its
   file's name. `get_tickets` and a write result head it with the id or the full `<effort>.<name>`.
   The `<effort>#<order>` handle is neither produced nor accepted.
@@ -474,15 +474,47 @@ Write rules, equally load-bearing:
 - **A write normalizes the Foreign file it touches when that file has no parseable fence**, and keeps
   the prose it inferred from verbatim. A foreign-fenced file keeps its fence, per the rendering rule.
 - **Claims are flagged when stale, never auto-released.** 24h; use `release` to drop a claim explicitly.
-- **A batch creation is all or none.** Every reference resolves before anything is written, so an
-  undeclared temporary key or a cycle leaves the workspace untouched. Temporary keys exist for the
-  length of the call and never reach a file.
+- **A batch creation is all or none.** Every name and Edge is checked before anything is written,
+  above the seam and again by the driver on a fresh read, so one refused name or a cycle leaves the
+  workspace untouched. Siblings name each other by `name`; a call still passing `key` is refused.
+- **A created Ticket is `issues/<name>.md` with no `id` and no `NN-` prefix.** `newNameProblem` in
+  `src/names.ts` holds the grammar — one to three hyphen-joined words of lowercase ASCII letters
+  and digits, a letter first, at most 24 characters — and the reserved words: `lock`, the YAML
+  words, the Windows device names. A name already a Ticket of the Effort by the read path's
+  derivation (`cache` against `05-cache.md`), equal to an id anywhere, or repeated in the call is
+  refused, case ignored; each refusal names the entry and the rule.
+- **The exclusive create sits on the Ticket file.** Each file is staged, then hard-linked into
+  place: a link refuses an existing target where a rename would replace it, and publishes the file
+  whole. Two processes creating one name leave one file and one `TicketAlreadyExists`, and no guard
+  file exists to be left behind. Before staging, the driver checks every target filename against a
+  fresh listing of `issues/`, case ignored, and refuses the whole batch there — a path can be held
+  while its name is free (`cache.md` carrying an id), and finding that at the link would show a
+  reader the files linked before it. Links are taken one at a time in name order and stop at the
+  first one lost, so two batches sharing several names cannot each win one and both give up.
+- **A batch that loses a link takes back only files that are still its own.** Before unlinking, it
+  compares the target's device and inode with the staged file it still holds. Any write to a Ticket
+  renames a new file over the path, so a mismatch is another session's write — a claim taken the
+  moment the Ticket appeared — and that file stays. The failure is then `BatchNotUndone`: it names
+  each Ticket of the batch that remains on disk and says the batch was not fully undone. A named
+  leftover is the accepted cost; destroying another session's write is not. A scan reads a Ticket
+  file that vanished after it was listed as absent, not as a failure, because a batch being taken
+  back is visible to other processes meanwhile.
+- **Creation needs hard links, and says so.** A link failing for any reason but an existing target
+  is `TicketStorageUnusable`, naming the directory and the errno; there is no fallback write path.
+  `issues` existing as a file is the same failure, saying so.
+- **A creation that landed reports success.** The driver falls back to the text it wrote if the
+  read-back fails, and `create_tickets` lists the full names with a note, without Edges, if the
+  scan it renders them from fails.
+- **An Effort slug from a caller is one directory name.** `effortDir` in the markdown driver is the
+  only place a caller's slug becomes a path, for `create_tickets`, `edit_map`, `spec` and
+  `migrate_effort`, reads included. Empty, starting with a dot (so `.` and `..`), or containing `/`,
+  `\`, a NUL or a control character is `InvalidEffortSlug`, naming the slug; nothing else is
+  restricted. `get_board` builds no path from a slug — it looks it up among the Efforts scanned.
 - **A cycle is refused on both write paths**, creation and Edge update, and only when it runs through
   the node being written. A cycle already in the workspace is somebody's hand edit; refusing it here
   would make an unrelated Effort unwritable, and the Board already reports the damage it does.
 - **A dangling Edge is never refused.** It is a Board warning, and pointing at a Ticket not yet
-  written is how a breakdown gets built up. An Edge naming an undeclared *temporary key* is refused,
-  because that is a typo rather than a forward reference.
+  written is how a breakdown gets built up.
 
 Annotation rules — a comment, a ticked criterion, and a Triage role are records of work, not moves
 in the graph:
@@ -584,7 +616,7 @@ spec's testing decisions. Nothing below the tool layer gets a test entry point o
 that would need one is a design signal, not a reason to add a seam.
 
 **Three deliberate exceptions** spawn real OS processes. `test/cross-process-claim.test.ts` for the
-compare-and-set claim and `test/cross-process-create.test.ts` for id allocation share one shape:
+compare-and-set claim and `test/cross-process-create.test.ts` for creating one name twice share one shape:
 concurrency needs real concurrency — one process shares a scan, a write queue and module state, all
 of which hand an in-process test a pass it has not earned, which is how the claim guarantee came to
 hold only in-process. Both were checked against a deliberately broken implementation to confirm they

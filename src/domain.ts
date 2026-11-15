@@ -174,24 +174,19 @@ export interface TicketEdit {
 }
 
 /**
- * A Ticket asked for but not yet minted an id.
+ * A Ticket asked for and not yet written.
  *
- * `key` is the caller's own temporary name for this draft, and exists only for
- * the length of the call: sibling drafts declare Edges on it before any id
- * exists, which is what removes the create-then-wire second pass. It is never
- * stored, and never appears in a file.
+ * `name` is the caller's choice and becomes the Ticket's identity within its
+ * Effort: sibling drafts declare Edges on it in the same call, and it is where
+ * the driver stores the Ticket (ADR 0008).
  */
 export interface TicketDraft {
-  /**
-   * The caller's temporary name. Never something the driver would accept as an
-   * id — such a key could not be told apart from the real one an Edge might mean.
-   */
-  readonly key: string | undefined;
+  readonly name: string;
   readonly title: string;
   readonly kind: Kind;
   readonly type: string | undefined;
   readonly triage: TriageRole | undefined;
-  /** Edges, each either a real Ticket id or a sibling draft's {@link key}. */
+  /** Edges, as {@link TicketSummary.blockedBy} stores them. A sibling draft is named by its {@link name}. */
   readonly blockedBy: readonly string[];
   /** The prose, written verbatim. A draft with none produces a Ticket with none. */
   readonly body: string | undefined;

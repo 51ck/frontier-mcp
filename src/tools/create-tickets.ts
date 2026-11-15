@@ -2,8 +2,9 @@ import { z } from 'zod';
 
 import type { Kind, TicketDraft, TicketSummary, TriageRole } from '../domain.ts';
 import { TRIAGE_ROLES } from '../domain.ts';
-import { cycleThrough, renderCycle, resolveDraftEdges, type EdgesOf } from '../edges.ts';
-import { indexNames } from '../names.ts';
+import { cycleThrough, renderCycle } from '../edges.ts';
+import { fullNameOf, indexNames, newNameProblem, type Names } from '../names.ts';
+import { renderEdge } from './get-board.ts';
 
 export const createTicketsInputSchema = z.object({
   effort: z.string().describe('Effort slug to create them in.'),
@@ -16,14 +17,14 @@ export const createTicketsInputSchema = z.object({
   tickets: z
     .array(
       z.object({
-        key: z
+        name: z
           .string()
           .min(1)
-          .optional()
           .describe(
-            'Your own temporary name for this Ticket, so siblings can declare Edges on it ' +
-              'before it has an id. Never stored. May not be something this workspace would accept as a Ticket id.',
+            'One to three lowercase words joined by hyphens, e.g. token-cache. Becomes the ' +
+              'filename, and how Edges name this Ticket.',
           ),
+        key: z.never({ error: '`key` was replaced by `name`.' }).optional(),
         title: z.string().min(1),
         kind: z.enum(['build', 'decision']).optional().describe('Defaults to build.'),
         type: z
@@ -36,23 +37,22 @@ export const createTicketsInputSchema = z.object({
           .array(z.string().min(1))
           .optional()
           .describe(
-            'Edges: a real Ticket id from anywhere in the repo, or a key declared in this call.',
+            'Edges: a name from this call or this Effort, <effort>.<name>, or an existing id.',
           ),
         body: z.string().optional().describe('The prose, written verbatim.'),
       }),
     )
-    .min(1)
-    .describe('The whole set, in the order they should be numbered.'),
+    .min(1),
   root: z.string().optional().describe('Workspace directory. Defaults to the session workspace.'),
 });
 
 export const createTicketsDescription =
-  'Publish a whole breakdown in one call. Edges may name a sibling by a temporary key you choose; ' +
-  'the server mints repo-unique ids, numbers the files, and resolves the keys atomically — a ' +
-  'partial failure creates nothing. Cycles are refused. An unknown Effort needs create.';
+  'Publish a whole breakdown in one call. You name each Ticket; Edges may name a sibling from the ' +
+  'same call. All are written or none — a partial failure creates nothing. Cycles are refused. ' +
+  'An unknown Effort needs create.';
 
 export interface DraftRequest {
-  readonly key?: string | undefined;
+  readonly name: string;
   readonly title: string;
   readonly kind?: Kind | undefined;
   readonly type?: string | undefined;
@@ -64,45 +64,32 @@ export interface DraftRequest {
 export interface PlannedBatch {
   readonly drafts: readonly TicketDraft[];
   /**
-   * The cycle check, re-run against the ids the batch is actually given and the
-   * workspace as it looks under the driver's reservations. A Ticket already on
-   * disk can declare an Edge on an id nobody has minted yet, and minting exactly
-   * that id is the moment that dangling Edge becomes a loop — which is invisible
-   * until the ids are real.
-   *
-   * It takes the Tickets rather than closing over the ones read here, because
-   * the read that produced those came before the reservations and may have
-   * missed the very Ticket whose dangling Edge is about to close.
+   * Every rule again, against the workspace as the driver reads it immediately
+   * before writing. The read behind the first pass may be a cached scan, taken
+   * before another session added the Ticket a name now collides with or the
+   * Edge a name now closes a loop through.
    */
-  readonly validate: (ids: readonly string[], tickets: readonly TicketSummary[]) => void;
+  readonly validate: (tickets: readonly TicketSummary[]) => void;
 }
 
 /**
- * Turn the request into drafts, refusing anything the schema or the graph does
- * not allow. Everything resolvable without an id is settled here, so by the time
- * the driver mints one the only rule left to check is the one that needed it.
+ * Turn the request into drafts, refusing anything the schema, the naming rules
+ * or the graph do not allow. An Edge that resolves to nothing is not refused:
+ * pointing at a Ticket not yet written is how a breakdown gets built.
  */
 export function planBatch(
   requests: readonly DraftRequest[],
   existing: readonly TicketSummary[],
-  isId: (name: string) => boolean,
   effort: string,
 ): PlannedBatch {
   const drafts = requests.map(request => toDraft(request));
-  const keys = declaredKeys(drafts, isId, existing, effort);
-  const provisional = drafts.map((draft, index) => draft.key ?? placeholderFor(index, keys));
-
-  checkEdges(drafts, keys, existing, isId, effort);
-  // Named by their keys, so a loop between two drafts reads in the caller's own
-  // vocabulary rather than in ids they have not seen yet.
-  checkCycles(drafts, provisional, existing, effort);
-
-  return {
-    drafts,
-    validate: (ids, tickets) => {
-      checkCycles(drafts, ids, tickets, effort, resolveDraftEdges(drafts, ids));
-    },
+  const validate = (tickets: readonly TicketSummary[]): void => {
+    checkNames(drafts, tickets, effort);
+    checkCycles(drafts, tickets, effort);
   };
+
+  validate(existing);
+  return { drafts, validate };
 }
 
 function toDraft(request: DraftRequest): TicketDraft {
@@ -114,7 +101,7 @@ function toDraft(request: DraftRequest): TicketDraft {
   }
 
   return {
-    key: request.key,
+    name: request.name,
     title: request.title,
     kind: request.kind ?? 'build',
     type: request.type,
@@ -124,162 +111,125 @@ function toDraft(request: DraftRequest): TicketDraft {
   };
 }
 
-function declaredKeys(
-  drafts: readonly TicketDraft[],
-  isId: (name: string) => boolean,
-  existing: readonly TicketSummary[],
-  effort: string,
-): ReadonlySet<string> {
-  const keys = new Set<string>();
-  const names = indexNames(existing);
-
-  for (const draft of drafts) {
-    if (draft.key === undefined) continue;
-
-    // A key shaped like an id is ambiguous: an Edge naming `T8` could mean the
-    // sibling draft or the Ticket already answering to it, and the server would
-    // have to guess which. Shape alone does not cover it: a Ticket minted under
-    // an earlier pattern keeps an id the current one no longer accepts.
-    const [taken] = names.edge(draft.key, effort);
-    if (taken !== undefined) {
-      throw new Error(
-        `Temporary key "${draft.key}" is the ${taken.id === undefined ? 'name' : 'id'} of an existing Ticket. Pick another name, ` +
-          'so an Edge naming it is never ambiguous.',
-      );
-    }
-    if (isId(draft.key)) {
-      throw new Error(
-        `Temporary key "${draft.key}" looks like a Ticket id. Pick a name that does not, ` +
-          'so an Edge naming it is never ambiguous.',
-      );
-    }
-    if (keys.has(draft.key)) throw new Error(`Temporary key "${draft.key}" is used twice.`);
-    keys.add(draft.key);
-  }
-
-  return keys;
-}
-
 /**
- * An Edge is a real id — which may point at nothing yet, since a dangling Edge
- * is a Board warning rather than a refusal — an existing Ticket's name, or a key
- * declared in this same call. Anything else is a typo, and letting it through
- * would quietly turn a mistyped key into a dangling Edge nobody notices.
+ * A new name is where the Ticket will live and what every Edge will call it, so
+ * it is refused when it could not be a filename everywhere, or would answer to
+ * a Ticket that already exists. Each refusal names the entry and the rule.
  */
-function checkEdges(
+function checkNames(
   drafts: readonly TicketDraft[],
-  keys: ReadonlySet<string>,
   existing: readonly TicketSummary[],
-  isId: (name: string) => boolean,
   effort: string,
 ): void {
   const names = indexNames(existing);
+  const seen = new Map<string, number>();
 
-  for (const draft of drafts) {
-    for (const edge of draft.blockedBy) {
-      if (keys.has(edge) || names.edge(edge, effort).length > 0 || isId(edge)) continue;
-
+  drafts.forEach((draft, index) => {
+    const refuse = (reason: string): never => {
       throw new Error(
-        `"${draft.title}" is blocked by "${edge}", which is neither a Ticket id nor a key ` +
-          `declared in this call. Declared keys: ${[...keys].join(', ') || '(none)'}`,
+        `Ticket ${String(index + 1)} of this call, name "${draft.name}", ${reason}. ` +
+          'Nothing was created.',
       );
-    }
-  }
+    };
+
+    const problem = newNameProblem(draft.name);
+    if (problem !== undefined) refuse(problem);
+
+    const folded = draft.name.toLowerCase();
+    const earlier = seen.get(folded);
+    if (earlier !== undefined) refuse(`repeats the name of Ticket ${String(earlier + 1)}`);
+    seen.set(folded, index);
+
+    const [taken] = names.edge(draft.name, effort);
+    if (taken === undefined) return;
+    refuse(
+      taken.effort === effort && taken.name.toLowerCase() === folded
+        ? `is already a Ticket of ${effort}`
+        : `is the id of an existing Ticket, ${fullNameOf(taken)} in ${taken.effort}`,
+    );
+  });
 }
 
 /**
- * The graph the batch would produce: existing Tickets, plus the drafts under
- * `draftNames` — their temporary keys before allocation, their real ids after.
- *
- * A draft with no key is unreachable by any sibling, but still needs checking:
- * once it has an id, its own Edges can lead back to it through the Tickets
- * already on disk.
+ * The graph the batch would produce, resolved exactly as it will be once the
+ * files exist: the drafts stand in the index beside the Tickets on disk, so a
+ * dangling Edge already naming one of them closes its loop here.
  */
 function checkCycles(
   drafts: readonly TicketDraft[],
-  draftNames: readonly string[],
   existing: readonly TicketSummary[],
   effort: string,
-  resolve: (edge: string) => string = edge => edge,
 ): void {
-  const names = indexNames(existing);
-  const nodes = new Map<string, TicketDraft>();
-  drafts.forEach((draft, index) => nodes.set(draftNames[index] ?? '', draft));
+  const planned = drafts.map(draft => asWritten(draft, effort));
+  const names = indexNames([...existing, ...planned]);
 
-  const edges = new Map<string, readonly string[]>();
-  for (const [name, draft] of nodes) {
-    edges.set(
-      name,
-      draft.blockedBy.map(resolve).map(edge => (nodes.has(edge) ? edge : names.node(edge, effort))),
-    );
-  }
-
-  const edgesOf: EdgesOf = node => edges.get(node) ?? names.edgesFrom(node);
-
-  for (const [node, draft] of nodes) {
-    const cycle = cycleThrough(node, edgesOf);
+  for (const ticket of planned) {
+    const cycle = cycleThrough(names.nodeOf(ticket), node => names.edgesFrom(node));
     if (cycle !== undefined) {
       throw new Error(
-        `"${draft.title}" would close a cycle in the Edge graph: ${renderCycle(cycle)}. ` +
+        `"${ticket.title}" would close a cycle in the Edge graph: ${renderCycle(cycle)}. ` +
           'Nothing in a cycle is ever takeable, so nothing was created.',
       );
     }
   }
 }
 
-/** A name for a keyless draft that no Edge can collide with. */
-function placeholderFor(index: number, keys: ReadonlySet<string>): string {
-  let name = `draft ${String(index + 1)}`;
-  while (keys.has(name)) name = `${name}.`;
-  return name;
+function asWritten(draft: TicketDraft, effort: string): TicketSummary {
+  return {
+    id: undefined,
+    name: draft.name,
+    title: draft.title,
+    kind: draft.kind,
+    type: draft.type,
+    status: 'open',
+    triage: draft.triage,
+    answerGist: undefined,
+    droppedReason: undefined,
+    claimedBy: undefined,
+    claimedAt: undefined,
+    blockedBy: draft.blockedBy,
+    effort,
+    order: 0,
+    foreign: false,
+    foreignFenced: false,
+    unrecognizedStatus: undefined,
+    collapsedRefs: [],
+    keptSubSlices: [],
+    revision: '',
+  };
 }
 
 /**
- * Rides every create under a counted-only pattern and never a read: minting is
- * where the collision is realised, and a once-per-process suppression would
- * hide it from every agent connecting later. The closing clause keeps an agent
- * from reporting a standing property as this call's failure. It never mentions
- * duplicates; the Board's duplicate warning points back here instead (T56).
- */
-export function countedPatternWarning(pattern: string, configuredIn: string): string {
-  return (
-    `id pattern \`${pattern}\` mints by counting the Tickets already in this working tree, so a ` +
-    'branch that counts the same tree mints the same ids and a merge leaves two Tickets on one ' +
-    'id — a regression from random ids. `T<N>-<b36{4}>` keeps the readable number and cannot ' +
-    `collide across branches. Set in ${configuredIn}. No action is required here — this ` +
-    'describes the pattern, not this call.'
-  );
-}
-
-/**
- * One line per Ticket: the id it was minted and the Edges as resolved — the two
- * things a caller cannot work out for itself. The filename is deliberately not
- * here: it is cosmetic, and the id is what everything addresses a Ticket by.
+ * One line per Ticket: its full name, which is valid input anywhere, and its
+ * Edges as the Board renders them, so one that dangles shows here first.
+ *
+ * `names` is undefined when the workspace could not be read back after the
+ * write. The Tickets exist all the same, so they are still listed, and the
+ * Edges are left out rather than shown in a form the Board might not agree with.
  */
 export function renderCreated(
   effort: string,
   created: readonly TicketSummary[],
-  colliding?: { readonly pattern: string; readonly configuredIn: string },
+  names: Names | undefined,
 ): string {
   const lines = [`${effort}: ${String(created.length)} created`];
 
   for (const ticket of created) {
     lines.push(
       [
-        ticket.name,
+        fullNameOf(ticket),
         ticket.title,
-        ticket.blockedBy.length === 0 ? undefined : `blocked_by=${ticket.blockedBy.join(',')}`,
+        ticket.blockedBy.length === 0 || names === undefined
+          ? undefined
+          : `blocked_by=${ticket.blockedBy.map(edge => renderEdge(edge, ticket, names)).join(',')}`,
       ]
         .filter(part => part !== undefined)
         .join('  '),
     );
   }
 
-  if (colliding !== undefined) {
-    lines.push(
-      'warnings:',
-      `- ${countedPatternWarning(colliding.pattern, colliding.configuredIn)}`,
-    );
+  if (names === undefined) {
+    lines.push('note: every Ticket was created; their Edges could not be read back to render.');
   }
   return lines.join('\n');
 }

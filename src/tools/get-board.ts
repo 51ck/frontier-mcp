@@ -129,7 +129,7 @@ function renderLine(ticket: TicketSummary, board: Board): string {
     `${ticket.kind}/${ticket.status}`,
     ticket.triage === undefined ? undefined : `triage=${ticket.triage}`,
     ticket.blockedBy.length > 0
-      ? `blocked_by=${ticket.blockedBy.map(id => renderEdge(id, ticket, board)).join(',')}`
+      ? `blocked_by=${ticket.blockedBy.map(id => renderEdge(id, ticket, board.names)).join(',')}`
       : undefined,
     ticket.answerGist === undefined ? undefined : `gist=${flat(ticket.answerGist)}`,
     ticket.droppedReason === undefined ? undefined : `dropped=${flat(ticket.droppedReason)}`,
@@ -144,8 +144,8 @@ function renderLine(ticket: TicketSummary, board: Board): string {
  * followable: an id is annotated with its owning Effort, which is decoration
  * and never input, and a name shows in full, which is input.
  */
-function renderEdge(edge: string, from: TicketSummary, board: Board): string {
-  const [blocker] = board.names.edge(edge, from.effort);
+export function renderEdge(edge: string, from: TicketSummary, names: Names): string {
+  const [blocker] = names.edge(edge, from.effort);
   if (blocker === undefined) return `${edge}?`;
   if (blocker.effort === from.effort) return blocker.name;
 

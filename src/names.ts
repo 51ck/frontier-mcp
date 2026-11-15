@@ -38,6 +38,35 @@ export function duplicateKindOf(claimants: readonly TicketSummary[]): 'id' | 'na
     : 'name';
 }
 
+const NEW_NAME = /^[a-z][a-z0-9]*(?:-[a-z0-9]+){0,2}$/;
+const MAX_NEW_NAME = 24;
+
+const YAML_WORDS = new Set(['true', 'false', 'null', 'yes', 'no', 'on', 'off']);
+const WINDOWS_DEVICE = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])$/;
+
+function reservedBecause(name: string): string | undefined {
+  if (name === 'lock') return 'a git ref may not end in .lock';
+  if (YAML_WORDS.has(name)) return 'a hand-written Edge list would read it as a YAML value';
+  if (WINDOWS_DEVICE.test(name)) return 'it is a Windows device name';
+  return undefined;
+}
+
+/**
+ * Why `name` may not be given to a new Ticket, or undefined when it may. Asked
+ * on creation only: reading is lenient, and any stem already on disk is a name.
+ */
+export function newNameProblem(name: string): string | undefined {
+  const reserved = reservedBecause(fold(name));
+  if (reserved !== undefined) return `is reserved: ${reserved}`;
+  if (!NEW_NAME.test(name) || name.length > MAX_NEW_NAME) {
+    return (
+      'is not a Ticket name: one to three words of lowercase letters and digits joined by ' +
+      `hyphens, starting with a letter, at most ${String(MAX_NEW_NAME)} characters`
+    );
+  }
+  return undefined;
+}
+
 export interface Names {
   /**
    * The Tickets a stored Edge on a Ticket of `effort` means, nearest first: a

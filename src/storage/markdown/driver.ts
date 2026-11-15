@@ -23,6 +23,7 @@ import type {
 import type { TicketEdit } from '../../domain.ts';
 import { duplicateKindOf, fullNameOf, indexNames } from '../../names.ts';
 import {
+  InvalidEffortSlug,
   InvalidWorkspaceConfig,
   NoSuchEffort,
   NoSuchMap,
@@ -136,9 +137,9 @@ export function createMarkdownDriver(
 ): StorageDriver {
   const storage = join(root, storageDir);
   // Compiled once and not watched (T54); a broken one warns on read and refuses
-  // writes. T66 matches ids against it.
+  // every write but create, which mints nothing. T66 matches ids against it.
   const idPattern = loadIdPattern(storage, storageDir);
-  // Under a broken pattern every write is refused before it mints, so the
+  // Under a broken pattern migration is refused before it mints, so the
   // default here only ever feeds reads, pre-write checks and a migrate_effort
   // preview, which then behave as an unconfigured repo does.
   const effectivePattern =
@@ -245,7 +246,7 @@ export function createMarkdownDriver(
         idPattern.problem === undefined
           ? []
           : [
-              `${idPattern.problem} Writes are refused until it is fixed and the FrontierMCP ` +
+              `${idPattern.problem} Every write but create_tickets is refused until it is fixed and the FrontierMCP ` +
                 'server is restarted.',
             ];
       if (duplicates.ids.length > 0) {
@@ -275,10 +276,10 @@ export function createMarkdownDriver(
     },
 
     createTickets(effort, drafts, options) {
-      // The scan is deliberately not the cached one: allocation re-reads under
-      // its own guards, and a walk started before them would defeat the check
-      // it exists to make.
-      return moved(() => serialized(() => create(storage, minting, effort, drafts, options, walk)));
+      // The scan is deliberately not the cached one: the last check before the
+      // write has to see what another process has just created. Nothing is
+      // minted, so the id pattern's configuration cannot refuse this write.
+      return moved(() => serialized(() => create(storage, effort, drafts, options, walk)), false);
     },
 
     readMap(effort) {
@@ -341,7 +342,7 @@ async function migrate(
   options: MigrateOptions,
   walk: () => Promise<ScannedEffort[]>,
 ): Promise<MigrationReport> {
-  const dir = join(storage, effort);
+  const dir = effortDir(storage, effort);
   if ((await readEffort(storage, effort)) === undefined) throw new NoSuchEffort(effort);
 
   const entries = await readTicketFiles(dir, effort);
@@ -388,21 +389,18 @@ async function migrate(
 
 async function create(
   storage: string,
-  minting: MintingPlan,
   effort: string,
   drafts: readonly TicketDraft[],
   options: CreateOptions,
   walk: () => Promise<ScannedEffort[]>,
 ): Promise<readonly TicketSummary[]> {
-  const dir = join(storage, effort);
+  const dir = effortDir(storage, effort);
   const missing = (await readEffort(storage, effort)) === undefined;
   if (missing && !options.createEffort) throw new NoSuchEffort(effort);
 
   // The directory is made inside, after validation — an Effort created here and
   // then refused would show up in list_efforts as an empty one nobody asked for.
-  const filenames = await createTicketFiles({
-    storage,
-    minting,
+  const files = await createTicketFiles({
     effort,
     dir,
     issues: join(dir, ISSUES_DIR),
@@ -412,14 +410,19 @@ async function create(
     createEffort: missing,
   });
 
-  const written = await readTicketFiles(dir, effort);
+  // The files have landed, so from here the call has succeeded. A read-back
+  // that fails, or misses a file another session has already replaced, falls
+  // back to the text that was written rather than reporting a failure.
+  const written = await readTicketFiles(dir, effort).catch(() => []);
   const byFilename = new Map(written.map(entry => [entry.filename, entry.ticket]));
 
-  return filenames.map(filename => {
-    const ticket = byFilename.get(filename);
-    if (ticket === undefined)
-      throw new Error(`${filename} was written but could not be read back.`);
-    return ticket;
+  return files.map(({ filename, contents }) => {
+    const read = byFilename.get(filename);
+    if (read !== undefined) return read;
+    const [asWritten] = resolveSubSlices([
+      parseTicketSummary(effort, { filename, contents }, 0, ''),
+    ]);
+    return asWritten as TicketSummary;
   });
 }
 
@@ -486,7 +489,7 @@ async function write(
 }
 
 async function loadMap(storage: string, effort: string): Promise<MapDocument> {
-  const path = join(storage, effort, MAP_FILE);
+  const path = join(effortDir(storage, effort), MAP_FILE);
   const revision = await currentRevision(path);
   if (revision === undefined) throw new NoSuchMap(effort);
   return readMapDocument(await readFile(path, 'utf8'), revision);
@@ -499,7 +502,7 @@ async function saveMap(
   expectedRevision: string | undefined,
   options: HeaderDocOptions,
 ): Promise<MapDocument> {
-  const dir = join(storage, effort);
+  const dir = effortDir(storage, effort);
   const path = join(dir, MAP_FILE);
   const current = await currentRevision(path);
   const handle = `map:${effort}`;
@@ -612,7 +615,7 @@ class DerivedRefreshLost extends Error {
 }
 
 async function loadSpec(storage: string, effort: string): Promise<SpecDocument> {
-  const path = join(storage, effort, SPEC_FILE);
+  const path = join(effortDir(storage, effort), SPEC_FILE);
   const revision = await currentRevision(path);
   if (revision === undefined) throw new NoSuchSpec(effort);
   return { body: await readFile(path, 'utf8'), revision };
@@ -625,7 +628,7 @@ async function saveSpec(
   expectedRevision: string | undefined,
   options: HeaderDocOptions,
 ): Promise<SpecDocument> {
-  const dir = join(storage, effort);
+  const dir = effortDir(storage, effort);
   const path = join(dir, SPEC_FILE);
   const current = await currentRevision(path);
   const handle = `spec:${effort}`;
@@ -902,21 +905,34 @@ async function readTicketFiles(dir: string, effort: string): Promise<TicketFileE
     .map(entry => entry.name)
     .toSorted();
 
-  const parsed = await Promise.all(
+  const read = await Promise.all(
     filenames.map(async (filename, position) => {
       const path = join(issues, filename);
-      const [contents, revision] = await Promise.all([
-        readFile(path, 'utf8'),
-        currentRevision(path),
-      ]);
+      let contents: string;
+      let revision: string | undefined;
+      try {
+        [contents, revision] = await Promise.all([readFile(path, 'utf8'), currentRevision(path)]);
+      } catch (error) {
+        // Listed and then gone: another process took back a batch it could not
+        // complete. It is not a Ticket of this Effort, and never was.
+        if (isMissing(error)) return undefined;
+        throw error;
+      }
       // A file with no `NN-` prefix still needs a position; its place in the
       // sorted listing is the only order it has.
-      return parseTicketSummary(effort, { filename, contents }, position + 1, revision ?? '');
+      const parsed = parseTicketSummary(
+        effort,
+        { filename, contents },
+        position + 1,
+        revision ?? '',
+      );
+      return { filename, parsed };
     }),
   );
 
-  const tickets = resolveSubSlices(parsed);
-  const files = filenames.map((filename, position) => ({
+  const present = read.filter(entry => entry !== undefined);
+  const tickets = resolveSubSlices(present.map(entry => entry.parsed));
+  const files = present.map(({ filename }, position) => ({
     filename,
     ticket: tickets[position] as TicketSummary,
   }));
@@ -978,6 +994,27 @@ async function readDir(dir: string) {
     if (isMissing(error)) return [];
     throw error;
   }
+}
+
+/**
+ * The directory of an Effort a caller named. Every Effort-addressed call builds
+ * its paths from here, so a slug is checked once: it is one directory name
+ * under the storage directory, and anything that could step out of it, or
+ * reach into another Effort, is refused before a path exists. Slugs the scan
+ * found on disk are directory names already and do not pass through.
+ */
+function effortDir(storage: string, slug: string): string {
+  const refuse = (reason: string): never => {
+    throw new InvalidEffortSlug(slug, reason);
+  };
+
+  if (slug === '') refuse('is empty');
+  if (slug.startsWith('.')) refuse('starts with a dot');
+  if (slug.includes('/') || slug.includes('\\')) refuse('contains a path separator');
+  if ([...slug].some(character => (character.codePointAt(0) ?? 0) < 0x20 || character === '\x7f'))
+    refuse('contains a control character');
+
+  return join(storage, slug);
 }
 
 function isMissing(error: unknown): boolean {
