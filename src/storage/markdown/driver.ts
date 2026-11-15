@@ -22,6 +22,7 @@ import type {
 } from '../driver.ts';
 import type { TicketEdit } from '../../domain.ts';
 import {
+  InvalidEffortSlug,
   InvalidWorkspaceConfig,
   NoSuchEffort,
   NoSuchMap,
@@ -323,6 +324,19 @@ export function createMarkdownDriver(
   }
 }
 
+/**
+ * The directory of an Effort a caller named. Every path built from a caller's
+ * slug comes through here, so a slug that is not one directory name is refused
+ * before it can address anything outside its own Effort. Slugs read off disk by
+ * the scan are directory names already and do not pass through.
+ */
+function effortDir(storage: string, slug: string): string {
+  if (slug === '' || slug.startsWith('.') || /[/\\\p{Cc}]/u.test(slug)) {
+    throw new InvalidEffortSlug(slug);
+  }
+  return join(storage, slug);
+}
+
 function unreachable(): never {
   throw new Error(`The default id pattern ${DEFAULT_ID_PATTERN} does not compile.`);
 }
@@ -335,7 +349,7 @@ async function migrate(
   options: MigrateOptions,
   walk: () => Promise<ScannedEffort[]>,
 ): Promise<MigrationReport> {
-  const dir = join(storage, effort);
+  const dir = effortDir(storage, effort);
   if ((await readEffort(storage, effort)) === undefined) throw new NoSuchEffort(effort);
 
   const entries = await readTicketFiles(dir, effort);
@@ -381,7 +395,7 @@ async function create(
   options: CreateOptions,
   walk: () => Promise<ScannedEffort[]>,
 ): Promise<readonly TicketSummary[]> {
-  const dir = join(storage, effort);
+  const dir = effortDir(storage, effort);
   const missing = (await readEffort(storage, effort)) === undefined;
   if (missing && !options.createEffort) throw new NoSuchEffort(effort);
 
@@ -473,7 +487,7 @@ async function write(
 }
 
 async function loadMap(storage: string, effort: string): Promise<MapDocument> {
-  const path = join(storage, effort, MAP_FILE);
+  const path = join(effortDir(storage, effort), MAP_FILE);
   const revision = await currentRevision(path);
   if (revision === undefined) throw new NoSuchMap(effort);
   return readMapDocument(await readFile(path, 'utf8'), revision);
@@ -486,7 +500,7 @@ async function saveMap(
   expectedRevision: string | undefined,
   options: HeaderDocOptions,
 ): Promise<MapDocument> {
-  const dir = join(storage, effort);
+  const dir = effortDir(storage, effort);
   const path = join(dir, MAP_FILE);
   const current = await currentRevision(path);
   const handle = `map:${effort}`;
@@ -599,7 +613,7 @@ class DerivedRefreshLost extends Error {
 }
 
 async function loadSpec(storage: string, effort: string): Promise<SpecDocument> {
-  const path = join(storage, effort, SPEC_FILE);
+  const path = join(effortDir(storage, effort), SPEC_FILE);
   const revision = await currentRevision(path);
   if (revision === undefined) throw new NoSuchSpec(effort);
   return { body: await readFile(path, 'utf8'), revision };
@@ -612,7 +626,7 @@ async function saveSpec(
   expectedRevision: string | undefined,
   options: HeaderDocOptions,
 ): Promise<SpecDocument> {
-  const dir = join(storage, effort);
+  const dir = effortDir(storage, effort);
   const path = join(dir, SPEC_FILE);
   const current = await currentRevision(path);
   const handle = `spec:${effort}`;

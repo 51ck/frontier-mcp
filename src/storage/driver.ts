@@ -277,6 +277,21 @@ export class NoSuchEffort extends Error {
   }
 }
 
+/**
+ * Thrown when a caller's Effort slug is not one directory name. A slug is joined
+ * into a path, so one that climbs or nests would read and write outside the
+ * Effort it claims to name — outside the workspace altogether, for `..`.
+ */
+export class InvalidEffortSlug extends Error {
+  constructor(slug: string) {
+    super(
+      `${JSON.stringify(slug)} is not an Effort slug. A slug is one directory name: not empty, ` +
+        'not starting with a dot, and holding no path separator or control character.',
+    );
+    this.name = 'InvalidEffortSlug';
+  }
+}
+
 /** Thrown when a Map operation names an Effort that holds no Map. */
 export class NoSuchMap extends Error {
   constructor(slug: string) {
