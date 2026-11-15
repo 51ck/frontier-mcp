@@ -3,7 +3,7 @@
     "frontier": {
       "type": "stdio",
       "command": "pnpm",
-      "args": ["dlx", "frontier-mcp@latest"]
+      "args": ["dlx", "frontier-mcp@1.0.0"]
     }
   }
 }
