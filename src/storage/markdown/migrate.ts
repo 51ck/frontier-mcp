@@ -21,7 +21,7 @@ export interface MigrateFilesRequest {
   /** Every Ticket in the workspace as scanned, to tell which Effort a written Edge lands on. */
   readonly allTickets: readonly TicketSummary[];
   readonly preview: boolean;
-  /** Preview only: preserved ids already carried elsewhere, with every claimant file. */
+  /** Preview only, by filename: every file claiming the same id or name as that Ticket. */
   readonly conflicts: ReadonlyMap<string, readonly string[]>;
   readonly rescan: Rescan;
   readonly readContents: (filename: string) => Promise<string>;
@@ -41,12 +41,14 @@ interface PlannedFile {
  * A real run mints through `withIdReservations`, so the pattern decides the
  * strategy — a `<N>` pattern holds its guards until every file is on disk, a
  * random one draws against a fresh scan (T62). A preview takes no guards and
- * predicts no ids: an unminted Ticket is named by its handle, everywhere it
- * appears, so two previews of unchanged files are identical.
+ * predicts no ids: an unminted Ticket keeps its name, everywhere it appears, so
+ * two previews of unchanged files are identical.
  *
  * Bare sort-order Edges (`Blocked by: 01`) are rewritten to the id the target
  * Ticket carries after this call — preserved or newly minted — so migration
- * does not leave a Board full of unresolvable `01` references.
+ * does not leave a Board full of unresolvable `01` references. An Edge naming a
+ * Ticket this call mints is rewritten the same way: minting replaces the name
+ * the Edge was resolving by.
  */
 export async function migrateEffortFiles(request: MigrateFilesRequest): Promise<MigrationReport> {
   const { effort, entries, preview, directory } = request;
@@ -59,7 +61,7 @@ export async function migrateEffortFiles(request: MigrateFilesRequest): Promise<
   const needMint = candidates.filter(entry => entry.ticket.id === undefined).length;
 
   if (preview) {
-    const plan = planChanges(candidates, undefined, entries, request.conflicts);
+    const plan = planChanges(effort, candidates, undefined, entries, request.conflicts);
     return {
       effort,
       preview: true,
@@ -75,7 +77,7 @@ export async function migrateEffortFiles(request: MigrateFilesRequest): Promise<
     needMint,
     request.rescan,
     async minted => {
-      const plan = planChanges(candidates, minted, entries);
+      const plan = planChanges(effort, candidates, minted, entries);
       await applyPlan(request, plan);
       return {
         effort,
@@ -88,8 +90,9 @@ export async function migrateEffortFiles(request: MigrateFilesRequest): Promise<
   );
 }
 
-/** `minted` undefined is a preview: unminted Tickets are named by handle. */
+/** `minted` undefined is a preview: unminted Tickets keep their names. */
 function planChanges(
+  effort: string,
   candidates: readonly TicketFileEntry[],
   minted: readonly string[] | undefined,
   entries: readonly TicketFileEntry[],
@@ -104,32 +107,37 @@ function planChanges(
     if (entry.ticket.id !== undefined) nameByOrder.set(entry.ticket.order, entry.ticket.id);
   }
 
+  // Keyed by file, which an Effort cannot repeat; two files may share a name.
   const assigned = new Map<string, string | undefined>();
+  const idByName = new Map<string, string>();
   for (const entry of candidates) {
     if (entry.ticket.id !== undefined) {
-      assigned.set(entry.ticket.handle, entry.ticket.id);
+      assigned.set(entry.filename, entry.ticket.id);
       continue;
     }
     if (minted === undefined) {
-      assigned.set(entry.ticket.handle, undefined);
-      nameByOrder.set(entry.ticket.order, entry.ticket.handle);
+      assigned.set(entry.filename, undefined);
+      nameByOrder.set(entry.ticket.order, entry.ticket.name);
       continue;
     }
     const id = minted[mintAt++];
     if (id === undefined) throw new Error('Reserved fewer ids than Tickets needing one.');
-    assigned.set(entry.ticket.handle, id);
+    assigned.set(entry.filename, id);
     nameByOrder.set(entry.ticket.order, id);
+    const name = entry.ticket.name.toLowerCase();
+    idByName.set(name, id);
+    idByName.set(`${effort.toLowerCase()}.${name}`, id);
   }
 
   return candidates.map(entry => {
-    const id = assigned.get(entry.ticket.handle);
-    const blockedBy = remapEdges(entry.ticket.blockedBy, nameByOrder);
+    const id = assigned.get(entry.filename);
+    const blockedBy = remapEdges(entry.ticket.blockedBy, nameByOrder, idByName);
 
     return {
       filename: entry.filename,
       keptSubSlices: entry.ticket.keptSubSlices,
       defaults: {
-        id: id ?? entry.ticket.handle,
+        id,
         title: entry.ticket.title,
         kind: entry.ticket.kind,
         type: entry.ticket.type,
@@ -138,14 +146,14 @@ function planChanges(
         blockedBy,
       },
       change: {
-        beforeHandle: entry.ticket.handle,
+        beforeName: entry.ticket.name,
         id,
         title: entry.ticket.title,
         minted: entry.ticket.id === undefined,
         normalized: entry.ticket.foreign,
         filename: entry.filename,
         blockedBy,
-        duplicateFiles: entry.ticket.id === undefined ? undefined : conflicts.get(entry.ticket.id),
+        duplicateFiles: conflicts.get(entry.filename),
       },
     };
   });
@@ -172,12 +180,17 @@ async function applyPlan(
 }
 
 /**
- * A bare sort-order Edge becomes the id of the Ticket at that order. Real ids
- * and anything else pass through unchanged — dangling Edges stay Board warnings.
+ * A bare sort-order Edge becomes the id of the Ticket at that order, and the
+ * name of a Ticket minted here becomes its id. Real ids and anything else pass
+ * through unchanged — dangling Edges stay Board warnings.
  */
-function remapEdges(edges: readonly string[], idByOrder: ReadonlyMap<number, string>): string[] {
+function remapEdges(
+  edges: readonly string[],
+  idByOrder: ReadonlyMap<number, string>,
+  idByName: ReadonlyMap<string, string>,
+): string[] {
   return edges.map(edge => {
-    if (!/^\d+$/.test(edge)) return edge;
+    if (!/^\d+$/.test(edge)) return idByName.get(edge.toLowerCase()) ?? edge;
     return idByOrder.get(Number(edge)) ?? edge;
   });
 }

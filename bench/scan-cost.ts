@@ -742,6 +742,7 @@ async function runSession(): Promise<void> {
  */
 async function measureCreates(fixture: Fixture, batchSize: number) {
   const samples: Array<{ scanMs: number; createMs: number }> = [];
+  const effort = fixture.name.startsWith('real') ? 'frontier-v1' : 'bench-1';
   const batch = planBatch(
     Array.from({ length: batchSize }, (_, index) => ({
       title: `Benchmark creation ${String(index)}`,
@@ -749,8 +750,8 @@ async function measureCreates(fixture: Fixture, batchSize: number) {
     })),
     [],
     () => false,
+    effort,
   );
-  const effort = fixture.name.startsWith('real') ? 'frontier-v1' : 'bench-1';
 
   for (let i = 0; i < SCAN_WARMUPS + fixture.iterations; i += 1) {
     const trial = await mkdtemp(join(tmpdir(), 'frontier-create-trial-'));

@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
 import type { Effort, Status, TicketSummary } from '../domain.ts';
-import { frontierOf, indexById } from '../frontier.ts';
+import { frontierOf } from '../frontier.ts';
+import { fullNameOf, indexNames, type Names } from '../names.ts';
 
 export const getBoardInputSchema = z.object({
   effort: z.string().describe('Effort slug, as reported by list_efforts.'),
@@ -9,7 +10,7 @@ export const getBoardInputSchema = z.object({
 });
 
 export const getBoardDescription =
-  "An Effort's Destination, then one line per Ticket — id, title, kind, status, Edges — with the " +
+  "An Effort's Destination, then one line per Ticket — name, title, kind, status, Edges — with the " +
   'Frontier marked. Never returns bodies; fetch those with get_tickets.';
 
 export interface Board {
@@ -17,15 +18,15 @@ export interface Board {
   readonly tickets: readonly TicketSummary[];
   /** The Tickets takeable right now. Computed repo-wide; never read from a file. */
   readonly frontier: ReadonlySet<TicketSummary>;
-  /** Every Ticket in the workspace, because Edges resolve repo-wide. */
-  readonly byId: ReadonlyMap<string, TicketSummary>;
+  /** Over every Ticket in the workspace, because an Edge can lead into another Effort. */
+  readonly names: Names;
   /** Problems with the workspace's own configuration, which no Ticket carries. */
   readonly workspaceWarnings: readonly string[];
 }
 
 /**
  * A Board is three views of one array — the Effort's slice of it, the Frontier
- * over all of it, and an id lookup across all of it. Building them here keeps
+ * over all of it, and a name lookup across all of it. Building them here keeps
  * the identity relationship they depend on in one place: `frontier.has(ticket)`
  * only works because every view derives from the same objects.
  */
@@ -34,11 +35,12 @@ export function boardFor(
   all: readonly TicketSummary[],
   workspaceWarnings: readonly string[] = [],
 ): Board {
+  const names = indexNames(all);
   return {
     effort,
     tickets: all.filter(ticket => ticket.effort === effort.slug),
-    frontier: frontierOf(all),
-    byId: indexById(all),
+    frontier: frontierOf(all, names),
+    names,
     workspaceWarnings,
   };
 }
@@ -122,7 +124,7 @@ function flat(prose: string): string {
 
 function renderLine(ticket: TicketSummary, board: Board): string {
   const parts = [
-    ticket.handle,
+    ticket.name,
     flat(ticket.title),
     `${ticket.kind}/${ticket.status}`,
     ticket.triage === undefined ? undefined : `triage=${ticket.triage}`,
@@ -138,15 +140,16 @@ function renderLine(ticket: TicketSummary, board: Board): string {
 }
 
 /**
- * An Edge is a plain id. A blocker living in another Effort is annotated with
- * its owning Effort so it stays followable — there is no compound reference
- * form to carry that, and without it a foreign blocker is a dead end.
+ * A blocker in this Effort shows bare. One living in another Effort has to stay
+ * followable: an id is annotated with its owning Effort, which is decoration
+ * and never input, and a name shows in full, which is input.
  */
-function renderEdge(id: string, from: TicketSummary, board: Board): string {
-  const blocker = board.byId.get(id);
-  if (blocker === undefined) return `${id}?`;
+function renderEdge(edge: string, from: TicketSummary, board: Board): string {
+  const [blocker] = board.names.edge(edge, from.effort);
+  if (blocker === undefined) return `${edge}?`;
+  if (blocker.effort === from.effort) return blocker.name;
 
-  return blocker.effort === from.effort ? id : `${id}@${blocker.effort}`;
+  return blocker.id === undefined ? fullNameOf(blocker) : `${blocker.id}@${blocker.effort}`;
 }
 
 /** The field each lifecycle Status requires, as the tracker doc states it. */
@@ -182,21 +185,21 @@ function collectWarnings(board: Board): string[] {
 
   for (const ticket of board.tickets) {
     for (const edge of ticket.blockedBy) {
-      const blocker = board.byId.get(edge);
+      const [blocker] = board.names.edge(edge, ticket.effort);
 
       if (blocker === undefined) dangling.add(edge);
-      else if (blocker.status === 'dropped') orphaned.add(ticket.handle);
+      else if (blocker.status === 'dropped') orphaned.add(ticket.name);
     }
 
     if (ticket.unrecognizedStatus !== undefined) {
-      unrecognized.add(`${ticket.handle} "${ticket.unrecognizedStatus}"`);
+      unrecognized.add(`${ticket.name} "${ticket.unrecognizedStatus}"`);
     }
     // Still takeable as far as the graph is concerned — a Triage role never
     // moves the Frontier — but somebody has declined it, which is worth saying
     // before an agent picks it up.
-    if (ticket.status === 'open' && ticket.triage === 'wontfix') declined.add(ticket.handle);
+    if (ticket.status === 'open' && ticket.triage === 'wontfix') declined.add(ticket.name);
     for (const ref of ticket.collapsedRefs) collapsed.add(ref);
-    if (isStaleClaim(ticket)) stale.add(`${ticket.handle} (${ticket.claimedBy ?? '?'})`);
+    if (isStaleClaim(ticket)) stale.add(`${ticket.name} (${ticket.claimedBy ?? '?'})`);
   }
 
   if (dangling.size > 0) {
@@ -266,19 +269,6 @@ function collectWarnings(board: Board): string[] {
         `${String(missing)}/${String(holding.length)} ${status} Tickets carry no ${field}`,
       );
     }
-  }
-
-  // Tracked separately from Foreign, because normalizing a Foreign file gives it
-  // frontmatter without giving it an id. It would otherwise leave the Foreign
-  // count and take its need for migration silently with it, while still being
-  // unaddressable by anything but its handle.
-  const unidentified = board.tickets.filter(ticket => ticket.id === undefined);
-  if (unidentified.length > 0) {
-    warnings.push(
-      `no id (${String(unidentified.length)}): ` +
-        `${unidentified.map(ticket => ticket.handle).join(' ')} — fetch by the handle shown; ` +
-        'nothing can declare an Edge on them until migrate_effort mints one.',
-    );
   }
 
   return warnings;

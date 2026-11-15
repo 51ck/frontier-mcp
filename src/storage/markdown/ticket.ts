@@ -32,7 +32,7 @@ export function parseTicketSummary(
   const { fields } = splitFrontmatter(file.contents);
   const order = readOrder(file.filename) ?? fallbackOrder;
 
-  if (fields === undefined) return parseUnfenced(effort, order, file.contents, revision);
+  if (fields === undefined) return parseUnfenced(effort, order, file, revision);
 
   const id = text(fields['id']);
   const rawStatus = text(fields['status']);
@@ -42,7 +42,7 @@ export function parseTicketSummary(
 
   const ticket: TicketSummary = {
     id,
-    handle: handleFor(id, effort, order),
+    name: id ?? nameFromFilename(file.filename),
     title: text(fields['title']) ?? '(untitled)',
     kind: readKind(fields['kind']),
     type: text(fields['type']),
@@ -163,14 +163,14 @@ function unimportedEntries(raw: string): string | undefined {
 function parseUnfenced(
   effort: string,
   order: number,
-  contents: string,
+  file: TicketFile,
   revision: string,
 ): ParsedTicket {
-  const inferred = parseProseBody(contents);
+  const inferred = parseProseBody(file.contents);
 
   const ticket: TicketSummary = {
     id: inferred.id,
-    handle: handleFor(inferred.id, effort, order),
+    name: inferred.id ?? nameFromFilename(file.filename),
     title: inferred.title,
     kind: inferred.kind,
     type: inferred.type,
@@ -195,13 +195,13 @@ function parseUnfenced(
 }
 
 /**
- * A Ticket with no id still has to be nameable, or a whole Effort of Foreign Tickets
- * has no route to its own bodies. `<effort>#<order>` is that fallback — an
- * address, deliberately not an id: it is not repo-stable and never appears as
- * an Edge.
+ * A Ticket with no id is named by its file: the stem, less a leading `<digits>-`,
+ * which is sort order and never identity. Lenient — any stem is a name, and one
+ * that is nothing but the prefix is kept whole rather than left empty.
  */
-function handleFor(id: string | undefined, effort: string, order: number): string {
-  return id ?? `${effort}#${String(order)}`;
+function nameFromFilename(filename: string): string {
+  const stem = filename.replace(/\.md$/, '');
+  return stem.replace(/^\d+-/, '') || stem;
 }
 
 /** `<NN>-...` gives sort order. A file with no numeric prefix has none of its own. */

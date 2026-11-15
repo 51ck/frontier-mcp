@@ -45,23 +45,26 @@ describe('Foreign Tickets', () => {
     expect(board.toLowerCase()).toContain('foreign');
   });
 
-  it('gives a Ticket with no T-id an addressable handle instead of no name', async () => {
+  it('names a Ticket with no T-id by its file, less the sort-order prefix', async () => {
     const { frontier } = await foreignRepo();
 
     const board = await frontier.call('get_board', { effort: 'ship-0-5-0' });
 
     // `# 01 — Is the data-map colour-space fix an r185 fix or a latent bug?`
     expect(board).toContain('Is the data-map colour-space fix');
-    expect(board).toContain('ship-0-5-0#1');
-    expect(board).not.toContain('(no id)');
+    expect(board).toContain('srgb-data-maps-verdict  Is the data-map colour-space fix');
+    expect(board).not.toContain('ship-0-5-0#1');
+    expect(board).not.toContain('no id');
   });
 
-  it('fetches an id-less Ticket by that handle, so no Effort is unreachable', async () => {
+  it('fetches an id-less Ticket by that name, so no Effort is unreachable', async () => {
     const { frontier } = await foreignRepo();
 
-    const text = await frontier.call('get_tickets', { ids: ['ship-0-5-0#1'] });
+    const text = await frontier.call('get_tickets', { ids: ['srgb-data-maps-verdict'] });
 
-    expect(text).toContain('Is the data-map colour-space fix');
+    expect(text).toMatch(
+      /^# ship-0-5-0\.srgb-data-maps-verdict — Is the data-map colour-space fix/,
+    );
     // The body, which is the whole point of fetching one.
     expect(text).toContain('was `0.147` doing the same wrong thing');
   });

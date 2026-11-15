@@ -43,7 +43,7 @@ function fixedDriver(
       async readTickets(handles) {
         const wanted = new Set(handles);
         return tickets.filter(
-          entry => wanted.has(entry.handle) || (entry.id !== undefined && wanted.has(entry.id)),
+          entry => wanted.has(entry.name) || (entry.id !== undefined && wanted.has(entry.id)),
         );
       },
       updateTicket() {

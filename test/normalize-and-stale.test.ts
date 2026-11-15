@@ -83,22 +83,23 @@ describe('writing to a Foreign Ticket', () => {
 });
 
 describe('a Foreign Ticket with no id', () => {
-  it('stays flagged for migration after a write gives it frontmatter', async () => {
+  it('keeps its name, and gains no warning, after a write gives it frontmatter', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
       '.scratch/alpha/issues/01-no-id.md': '# 01 — A question with no id\n\nStatus: open\n',
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    await frontier.call('update_ticket', { id: 'alpha#1', claim: { by: 'agent-7' } });
+    await frontier.call('update_ticket', { id: 'no-id', claim: { by: 'agent-7' } });
 
     const board = await frontier.call('get_board', { effort: 'alpha' });
 
-    // Normalizing gave it frontmatter but not an id — minting one is T7's job.
-    // It must not drop out of the migration set on the way.
+    // Normalizing gave it frontmatter but not an id. A schema fence with no id
+    // is a Ticket named by its file, so nothing is left to flag.
     expect(board).not.toContain('are Foreign');
-    expect(board).toContain('no id (1)');
-    expect(board).toContain('alpha#1');
+    expect(board).not.toContain('no id (');
+    expect(board).toContain('no-id  A question with no id  build/claimed');
+    expect(board).not.toContain('warnings:');
   });
 });
 

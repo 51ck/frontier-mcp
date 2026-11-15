@@ -14,7 +14,7 @@ export const migrateEffortInputSchema = z.object({
 export const migrateEffortDescription =
   'Normalize Foreign Tickets in an Effort: schema frontmatter, preserve existing ids, mint ' +
   'ids for Tickets that have none, turn prose Edges into blocked_by. Filenames never change. ' +
-  'Preview writes nothing and names a Ticket it would mint by its handle, not a predicted id. ' +
+  'Preview writes nothing and names a Ticket it would mint by its name, not a predicted id. ' +
   'Unrecognized files in the Effort directory are ignored.';
 
 /**
@@ -75,12 +75,12 @@ function capped(items: readonly string[]): string {
 }
 
 /**
- * A Ticket's id, or its handle before it has one. Two files a preview finds
+ * A Ticket's id, or its name before it has one. Two files a preview finds
  * carrying one id would share a label and the first definition would win, so
  * those are labelled by filename, which an Effort cannot repeat.
  */
 function labelsOf(changes: readonly MigrationChange[]): Map<MigrationChange, string> {
-  const natural = changes.map(change => change.id ?? change.beforeHandle);
+  const natural = changes.map(change => change.id ?? change.beforeName);
   return new Map(
     changes.map((change, index) => {
       const label = natural[index] ?? change.filename;
@@ -103,8 +103,8 @@ function renderChange(
   ].filter(part => part !== undefined);
 
   const was =
-    change.minted && change.id !== undefined && change.beforeHandle !== change.id
-      ? `was ${change.beforeHandle}`
+    change.minted && change.id !== undefined && change.beforeName !== change.id
+      ? `was ${change.beforeName}`
       : undefined;
 
   const edges =
@@ -120,7 +120,7 @@ function renderChange(
     edges,
     change.duplicateFiles === undefined
       ? undefined
-      : `duplicate id, carried by ${change.duplicateFiles.join(', ')} — a real run refuses`,
+      : `duplicate ${change.id === undefined ? 'name' : 'id'}, carried by ${change.duplicateFiles.join(', ')} — a real run refuses`,
   ]
     .filter(part => part !== undefined)
     .join('  ');

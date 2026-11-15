@@ -14,7 +14,9 @@ frontmatter fence; a fence whose YAML does not parse as a mapping (`splitFrontma
 as no frontmatter, and the whole file goes to `parseProseBody`); or a fence that parses, carries no
 `id`, and has at least one key outside the schema's eleven (`isForeignFence` in
 `src/storage/markdown/ticket.ts`). A fence with an `id` is never Foreign, whatever else it carries;
-a fence of schema keys and no `id` is not Foreign either, and shows on the Board as `no id (N)`. `CONTEXT.md` still carries only the unfenced case, as **Legacy ticket**; its Foreign entry is T78's
+a fence of schema keys and no `id` is not Foreign either: under
+[ADR 0008](./0008-a-ticket-is-named-by-its-path.md) it is a Ticket named by its file, and the
+Board's `no id (N)` warning and the `<effort>#<order>` handle are gone. `CONTEXT.md` still carries only the unfenced case, as **Legacy ticket**; its Foreign entry is T78's
 and pending.
 
 The predicate is about conformance, not provenance, because provenance cannot be read. A file with
@@ -33,8 +35,8 @@ block after a comment, which leaves the fence foreign"). Its keys outside the sc
 carries them, id or not, and the server never removes one on its own. T101 decided that only an
 agent does, naming each in `update_ticket`'s `drop_keys` (T103). A foreign-fenced Ticket therefore
 stops being Foreign in one of two ways: `migrate_effort` mints its id, with its Unimported keys
-still in the fence, or an agent drops the last of them, which leaves a schema fence with no id that
-the Board names as `no id (N)`. So the two kinds of Foreign Ticket leave the set by different
+still in the fence, or an agent drops the last of them, which leaves a schema fence with no id,
+named by its file. So the two kinds of Foreign Ticket leave the set by different
 routes, and the Board counts them apart (T104).
 
 **Minting is the one step that cannot be lazy, so `migrate_effort` is the id-minting batch, not a
@@ -56,7 +58,7 @@ So `migrate_effort` mints ids Effort-wide, keeps any id already read from a head
 sort-order Edges to the ids those Tickets now carry, normalizes unfenced files on the way, and
 writes nothing else. Into a fence that parses it writes only `id`, if missing, and `blocked_by`,
 always; a foreign fence's own keys, `status` among them, stay as they were. It renames no file, and
-its preview predicts no id: an unminted Ticket is named by its handle everywhere, `blocked_by=`
+its preview predicts no id: an unminted Ticket keeps the name it has everywhere, `blocked_by=`
 included (T69). A prose sub-slice such as `T38.1` is resolved at scan, coarsening to `T38` only when
 `T38` is another Ticket of the same Effort and never onto the Ticket declaring it (T82), so for a
 sub-slice migration writes the Edge the Board already showed. A bare sort-order Edge is the
@@ -74,10 +76,9 @@ first. This extends T38's warn-on-read rule, and the read path stays pure as T8 
 
 **`awaits_migration` was designed and never built.** T40 proposed a stored flag on every migrated
 Ticket, cleared by the agent that read it, because the only marker then — fence presence — is
-destroyed by the fence migration writes. Three markers already survive: Foreign before any write;
-a missing `id`, which survives the normalizing write as `no id (N)` (`test/normalize-and-stale.test.ts`,
-"stays flagged for migration after a write gives it frontmatter"); and `unrecognizedStatus` for a
-status that will not map. Two cases miss all three. One is a fenceless Ticket whose id sat in its
+destroyed by the fence migration writes. Two markers survive: Foreign before any write, and
+`unrecognizedStatus` for a status that will not map. A third, the missing `id` shown as
+`no id (N)`, went with ADR 0008, under which a missing `id` marks nothing. Two cases miss them all. One is a fenceless Ticket whose id sat in its
 heading, where the prose inference is most trustworthy — a labelled title and Status, and a Kind
 read from a `Type:` line, else defaulted to `build`. The other is a foreign-fenced Ticket after
 `migrate_effort`, whose title and status were read from keys that share our names. That one keeps a

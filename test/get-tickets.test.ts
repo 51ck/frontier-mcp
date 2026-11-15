@@ -52,10 +52,10 @@ describe('get_tickets', () => {
   });
 });
 
-describe('handle collisions', () => {
+describe('a file with no sort-order prefix', () => {
   // `a.md` sorts after `02-b.md` at position 2, so it takes order 2 — the order
-  // `02-b.md`'s prefix already gave.
-  it('suffixes a prefix-less file whose position lands on a sibling prefix', async () => {
+  // `02-b.md`'s prefix already gave. Order is never identity, so neither is renamed for it.
+  it('is named by its whole stem, whatever order it lands on', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/spec.md': spec('Alpha'),
       '.scratch/alpha/issues/02-b.md': '# 02 — Prefixed\n\nStatus: open\n\nPrefixed prose.\n',
@@ -64,12 +64,14 @@ describe('handle collisions', () => {
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
     const board = await frontier.call('get_board', { effort: 'alpha' });
-    expect(board).toContain('alpha#2 ');
-    expect(board).toContain('alpha#2.2 ');
+    expect(board).toContain('> b  Prefixed  ');
+    expect(board).toContain('> a  Unprefixed  ');
+    expect(board).not.toContain('#2');
 
-    expect(await frontier.call('get_tickets', { ids: ['alpha#2'] })).toContain('Prefixed prose.');
-    expect(await frontier.call('get_tickets', { ids: ['alpha#2.2'] })).toContain(
-      'Unprefixed prose.',
+    expect(await frontier.call('get_tickets', { ids: ['b'] })).toContain('Prefixed prose.');
+    expect(await frontier.call('get_tickets', { ids: ['a'] })).toContain('Unprefixed prose.');
+    expect(await frontier.call('get_tickets', { ids: ['alpha#2', 'alpha#2.2'] })).toBe(
+      'not found: alpha#2 alpha#2.2',
     );
   });
 });

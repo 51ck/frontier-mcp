@@ -41,7 +41,7 @@ describe('a non-conforming frontmatter fence on read', () => {
       '1/1 Tickets have a foreign fence — title, status and Edges came from frontmatter that was not imported',
     );
     expect(board).not.toContain('are Foreign');
-    expect(ticketLine(board)).toContain('alpha#1');
+    expect(ticketLine(board)).toMatch(/^> foreign  GitHub export  /);
   });
 
   it('surfaces fenced status: closed as unrecognized and keeps it off the Frontier', async () => {
@@ -56,7 +56,7 @@ describe('a non-conforming frontmatter fence on read', () => {
     expect(ticketLine(board)).toContain('/open');
     expect(board).toContain('unrecognized status');
     expect(board).toContain('kept off the Frontier');
-    expect(board).toContain('alpha#1 "closed"');
+    expect(board).toContain('foreign "closed"');
     expect(marked(board)).toEqual([]);
   });
 
@@ -113,7 +113,7 @@ describe('get_tickets on a foreign fence', () => {
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    const out = await frontier.call('get_tickets', { ids: ['alpha#1'] });
+    const out = await frontier.call('get_tickets', { ids: ['foreign'] });
 
     expect(out.endsWith(`Body prose.\n\n${HEADING}\n\n\`\`\`yaml\n${raw}\n\`\`\``)).toBe(true);
   });
@@ -126,7 +126,7 @@ describe('get_tickets on a foreign fence', () => {
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    const out = await frontier.call('get_tickets', { ids: ['alpha#1'] });
+    const out = await frontier.call('get_tickets', { ids: ['foreign'] });
 
     expect(out).toContain(`${HEADING}\n\n\`\`\`\`\`yaml\n${raw}\n\`\`\`\`\``);
   });
@@ -140,7 +140,7 @@ describe('get_tickets on a foreign fence', () => {
     const before = await stat(join(root, FILE));
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    await frontier.call('get_tickets', { ids: ['alpha#1'] });
+    await frontier.call('get_tickets', { ids: ['foreign'] });
 
     expect(await readFile(join(root, FILE), 'utf8')).toBe(contents);
     expect((await stat(join(root, FILE))).mtimeMs).toBe(before.mtimeMs);
@@ -166,9 +166,9 @@ describe('get_tickets on a foreign fence', () => {
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    await frontier.call('update_ticket', { id: 'alpha#1', comment: 'Migrating.' });
+    await frontier.call('update_ticket', { id: 'foreign', comment: 'Migrating.' });
 
-    expect(await frontier.call('get_tickets', { ids: ['alpha#1'] })).toContain(HEADING);
+    expect(await frontier.call('get_tickets', { ids: ['foreign'] })).toContain(HEADING);
     expect(await frontier.call('get_board', { effort: 'alpha' })).toContain(
       '1/1 Tickets have a foreign fence',
     );
@@ -282,6 +282,7 @@ describe("where a Foreign Ticket's fields came from (T104)", () => {
         'was not imported; get_tickets shows the rest of it. Run migrate_effort to normalize.',
     );
     expect(warnings.filter(line => line.includes('foreign fence'))).toHaveLength(1);
-    expect(warnings.some(line => line.includes('alpha#1') && line.includes('fence'))).toBe(false);
+    // The two grouped lines and nothing itemized per Ticket beside them.
+    expect(warnings).toHaveLength(3);
   });
 });

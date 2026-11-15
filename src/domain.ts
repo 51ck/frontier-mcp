@@ -21,8 +21,7 @@ export type Status = 'open' | 'claimed' | 'resolved' | 'dropped';
 /**
  * The bare id inside a pasted `<id>@<effort>`, or undefined for any other name.
  * A Board renders a foreign blocker as `T9@beta` and the obvious next call pastes
- * it back; the `@<effort>` half is decoration, never input. A `#` on either side
- * is a handle, which is a different address.
+ * it back; the `@<effort>` half is decoration, never input.
  */
 export function bareIdOf(name: string): string | undefined {
   return /^([^@#]+)@[^@#]+$/.exec(name)?.[1];
@@ -37,15 +36,15 @@ export const STATUSES: readonly Status[] = ['open', 'claimed', 'resolved', 'drop
 export interface TicketSummary {
   /**
    * Opaque, unique repo-wide, never reused or changed. Its shape is the storage
-   * driver's to define. Absent on a Foreign Ticket that carries no id.
+   * driver's to define. Absent on a Ticket named by where it lives instead.
    */
   readonly id: string | undefined;
   /**
-   * How to name this Ticket in a call. The id when it has one; otherwise
-   * `<effort>#<order>`, which is the only handle an id-less Ticket has
-   * until migration mints it a real one.
+   * What this Ticket is called. The id when it has one, which is global;
+   * otherwise a name the driver derives from where the Ticket is stored, which
+   * is local to its Effort and written `<effort>.<name>` from outside it.
    */
-  readonly handle: string;
+  readonly name: string;
   readonly title: string;
   readonly kind: Kind;
   /** `research` / `prototype` / `grilling` / `task`. Only when `kind` is `decision`. */
@@ -60,7 +59,10 @@ export interface TicketSummary {
   /** Who holds the claim, and when they took it. Set together. */
   readonly claimedBy: string | undefined;
   readonly claimedAt: string | undefined;
-  /** Edges: the Tickets that must finish first, as plain ids resolved repo-wide. */
+  /**
+   * Edges: the Tickets that must finish first, as stored. Each is a name in this
+   * Effort, a full `<effort>.<name>`, or an id resolved repo-wide.
+   */
   readonly blockedBy: readonly string[];
   /** The slug of the Effort that owns this Ticket. */
   readonly effort: string;
@@ -250,15 +252,15 @@ export interface SpecDocument {
 export interface MigrateOptions {
   /**
    * Report every change and write nothing. Takes no allocation guards and
-   * predicts no ids: a Ticket that would be minted is named by its handle.
+   * predicts no ids: a Ticket that would be minted keeps the name it has.
    */
   readonly preview: boolean;
 }
 
 /** One Ticket a migration would touch, or did. */
 export interface MigrationChange {
-  /** Handle before the call — the id when it had one, else `<effort>#<order>`. */
-  readonly beforeHandle: string;
+  /** The Ticket's name before the call — its id when it had one. */
+  readonly beforeName: string;
   /**
    * Id after migration — preserved or newly minted. Undefined in a preview of
    * a Ticket that would be minted: which id is not knowable until the real run.
@@ -273,11 +275,11 @@ export interface MigrationChange {
   readonly filename: string;
   /**
    * Edges as they will be written after bare sort-order remapping. In a preview
-   * a sibling that would be minted appears as its handle.
+   * a sibling that would be minted appears by the name it has now.
    */
   readonly blockedBy: readonly string[];
   /**
-   * Preview only: every Ticket file already carrying this preserved id, this
+   * Preview only: every Ticket file claiming this Ticket's id or name, this
    * one included. A real run refuses with DuplicateId instead.
    */
   readonly duplicateFiles: readonly string[] | undefined;

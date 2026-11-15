@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { Kind, TicketDraft, TicketSummary, TriageRole } from '../domain.ts';
 import { TRIAGE_ROLES } from '../domain.ts';
 import { cycleThrough, renderCycle, resolveDraftEdges, type EdgesOf } from '../edges.ts';
-import { claimantsById, edgesOfClaimants } from '../frontier.ts';
+import { indexNames } from '../names.ts';
 
 export const createTicketsInputSchema = z.object({
   effort: z.string().describe('Effort slug to create them in.'),
@@ -86,20 +86,21 @@ export function planBatch(
   requests: readonly DraftRequest[],
   existing: readonly TicketSummary[],
   isId: (name: string) => boolean,
+  effort: string,
 ): PlannedBatch {
   const drafts = requests.map(request => toDraft(request));
-  const keys = declaredKeys(drafts, isId, existing);
+  const keys = declaredKeys(drafts, isId, existing, effort);
   const provisional = drafts.map((draft, index) => draft.key ?? placeholderFor(index, keys));
 
-  checkEdges(drafts, keys, existing, isId);
+  checkEdges(drafts, keys, existing, isId, effort);
   // Named by their keys, so a loop between two drafts reads in the caller's own
   // vocabulary rather than in ids they have not seen yet.
-  checkCycles(drafts, provisional, existing);
+  checkCycles(drafts, provisional, existing, effort);
 
   return {
     drafts,
     validate: (ids, tickets) => {
-      checkCycles(drafts, ids, tickets, resolveDraftEdges(drafts, ids));
+      checkCycles(drafts, ids, tickets, effort, resolveDraftEdges(drafts, ids));
     },
   };
 }
@@ -127,9 +128,10 @@ function declaredKeys(
   drafts: readonly TicketDraft[],
   isId: (name: string) => boolean,
   existing: readonly TicketSummary[],
+  effort: string,
 ): ReadonlySet<string> {
   const keys = new Set<string>();
-  const taken = new Set(existing.map(ticket => ticket.id));
+  const names = indexNames(existing);
 
   for (const draft of drafts) {
     if (draft.key === undefined) continue;
@@ -138,9 +140,10 @@ function declaredKeys(
     // sibling draft or the Ticket already answering to it, and the server would
     // have to guess which. Shape alone does not cover it: a Ticket minted under
     // an earlier pattern keeps an id the current one no longer accepts.
-    if (taken.has(draft.key)) {
+    const [taken] = names.edge(draft.key, effort);
+    if (taken !== undefined) {
       throw new Error(
-        `Temporary key "${draft.key}" is the id of an existing Ticket. Pick another name, ` +
+        `Temporary key "${draft.key}" is the ${taken.id === undefined ? 'name' : 'id'} of an existing Ticket. Pick another name, ` +
           'so an Edge naming it is never ambiguous.',
       );
     }
@@ -158,22 +161,23 @@ function declaredKeys(
 }
 
 /**
- * An Edge is either a real id — which may point at nothing yet, since a dangling
- * Edge is a Board warning rather than a refusal — or a key declared in this same
- * call. Anything else is a typo, and letting it through would quietly turn a
- * mistyped key into a dangling Edge nobody notices.
+ * An Edge is a real id — which may point at nothing yet, since a dangling Edge
+ * is a Board warning rather than a refusal — an existing Ticket's name, or a key
+ * declared in this same call. Anything else is a typo, and letting it through
+ * would quietly turn a mistyped key into a dangling Edge nobody notices.
  */
 function checkEdges(
   drafts: readonly TicketDraft[],
   keys: ReadonlySet<string>,
   existing: readonly TicketSummary[],
   isId: (name: string) => boolean,
+  effort: string,
 ): void {
-  const ids = claimantsById(existing);
+  const names = indexNames(existing);
 
   for (const draft of drafts) {
     for (const edge of draft.blockedBy) {
-      if (keys.has(edge) || ids.has(edge) || isId(edge)) continue;
+      if (keys.has(edge) || names.edge(edge, effort).length > 0 || isId(edge)) continue;
 
       throw new Error(
         `"${draft.title}" is blocked by "${edge}", which is neither a Ticket id nor a key ` +
@@ -184,8 +188,8 @@ function checkEdges(
 }
 
 /**
- * The graph the batch would produce: existing Tickets by id, plus the drafts
- * under `names` — their temporary keys before allocation, their real ids after.
+ * The graph the batch would produce: existing Tickets, plus the drafts under
+ * `draftNames` — their temporary keys before allocation, their real ids after.
  *
  * A draft with no key is unreachable by any sibling, but still needs checking:
  * once it has an id, its own Edges can lead back to it through the Tickets
@@ -193,21 +197,24 @@ function checkEdges(
  */
 function checkCycles(
   drafts: readonly TicketDraft[],
-  names: readonly string[],
+  draftNames: readonly string[],
   existing: readonly TicketSummary[],
+  effort: string,
   resolve: (edge: string) => string = edge => edge,
 ): void {
-  const ids = claimantsById(existing);
+  const names = indexNames(existing);
   const nodes = new Map<string, TicketDraft>();
+  drafts.forEach((draft, index) => nodes.set(draftNames[index] ?? '', draft));
+
   const edges = new Map<string, readonly string[]>();
+  for (const [name, draft] of nodes) {
+    edges.set(
+      name,
+      draft.blockedBy.map(resolve).map(edge => (nodes.has(edge) ? edge : names.node(edge, effort))),
+    );
+  }
 
-  drafts.forEach((draft, index) => {
-    const name = names[index] ?? '';
-    nodes.set(name, draft);
-    edges.set(name, draft.blockedBy.map(resolve));
-  });
-
-  const edgesOf: EdgesOf = id => edges.get(id) ?? edgesOfClaimants(ids, id);
+  const edgesOf: EdgesOf = node => edges.get(node) ?? names.edgesFrom(node);
 
   for (const [node, draft] of nodes) {
     const cycle = cycleThrough(node, edgesOf);
@@ -259,7 +266,7 @@ export function renderCreated(
   for (const ticket of created) {
     lines.push(
       [
-        ticket.id ?? ticket.handle,
+        ticket.name,
         ticket.title,
         ticket.blockedBy.length === 0 ? undefined : `blocked_by=${ticket.blockedBy.join(',')}`,
       ]

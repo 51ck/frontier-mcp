@@ -6,6 +6,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 
 import type { TicketSummary } from './domain.ts';
 import { frontierOf } from './frontier.ts';
+import { indexNames } from './names.ts';
 import { createDriverRegistry } from './driver-registry.ts';
 import { createMarkdownDriver } from './storage/markdown/driver.ts';
 import type { StorageDriver, TicketWriteResult } from './storage/driver.ts';
@@ -245,8 +246,11 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       // an unknown key, a cycle — leaves the workspace exactly as it was. The
       // one rule that needs real ids runs under the driver's reservations,
       // still before any file lands.
-      const { drafts, validate } = planBatch(tickets, await driver.listTickets(), name =>
-        driver.isId(name),
+      const { drafts, validate } = planBatch(
+        tickets,
+        await driver.listTickets(),
+        name => driver.isId(name),
+        effort,
       );
       const created = await driver.createTickets(effort, drafts, {
         createEffort: create === true,
@@ -318,24 +322,24 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
         kind,
         type,
       };
-      const find = (from: readonly TicketSummary[]): TicketSummary => {
-        const ticket = from.find(entry => entry.id === id || entry.handle === id);
+      const find = (from: readonly TicketSummary[]): readonly [TicketSummary, number, string] => {
+        const names = indexNames(from);
+        const claimants = names.input(id);
+        const [ticket] = claimants;
         if (ticket === undefined) throw new NoSuchTicket(id, workspace);
-        return ticket;
+        return [ticket, claimants.length, names.addressOf(ticket)];
       };
 
-      const ticket = find(tickets);
+      const [ticket, claimants, address] = find(tickets);
       // Two claimants: the driver refuses with the files named, which only it
       // knows, so ask it before any rule judges the first claimant. Asking
       // writes nothing, so a duplicate already fixed by hand is never rewritten.
-      if (tickets.filter(entry => entry.id === id).length > 1) {
-        await driver.assertAddressable(id);
-      }
+      if (claimants > 1) await driver.assertAddressable(id);
 
       let written: TicketWriteResult;
       try {
         written = await driver.updateTicket(
-          ticket.handle,
+          address,
           editFor(ticket, tickets, request, now()),
           ticket.revision,
         );
@@ -348,7 +352,7 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
         // retried — a mismatch may equally be somebody's hand edit, and
         // overwriting that is exactly what the check exists to prevent.
         const fresh = await driver.listTickets();
-        editFor(find(fresh), fresh, request, now());
+        editFor(find(fresh)[0], fresh, request, now());
         throw error;
       }
 

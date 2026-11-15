@@ -28,8 +28,8 @@ export function resolveDraftEdges(
   return edge => byKey.get(edge) ?? edge;
 }
 
-/** The Edges leaving one node, by id. A node nothing knows about has none. */
-export type EdgesOf = (id: string) => readonly string[];
+/** The Edges leaving one node, as the nodes they lead to. A node nothing knows about has none. */
+export type EdgesOf = (node: string) => readonly string[];
 
 /**
  * The cycle running through `node`, as the path back to itself, or undefined

@@ -119,16 +119,18 @@ export interface StorageDriver {
 
   /**
    * Refuses as a write addressed to `handle` would refuse before it reads the
-   * Ticket — {@link DuplicateId} when more than one Ticket answers to it — and
-   * never writes. Lets a caller put that refusal ahead of its own rules.
+   * Ticket — {@link DuplicateId} when more than one Ticket answers to it,
+   * `AmbiguousName` for a bare name several Efforts have — and never
+   * writes. Lets a caller put that refusal ahead of its own rules.
    */
   assertAddressable(handle: string): Promise<void>;
 
   /**
-   * The named Tickets with their bodies, addressed by id or by the
-   * `<effort>#<order>` handle an id-less Ticket answers to. A name the
-   * workspace does not hold is simply absent: which names were asked for is the
-   * caller's knowledge, not the driver's.
+   * The named Tickets with their bodies, each addressed as `Names.input`
+   * resolves it: an id, a full `<effort>.<name>`, or a bare name one Effort
+   * alone has. A name the workspace does not hold is simply absent: which names
+   * were asked for is the caller's knowledge, not the driver's. A bare name
+   * several Efforts have throws `AmbiguousName`.
    *
    * Separate from {@link listTickets} because a body is the one field almost
    * nothing reads — Boards, the Frontier and Edge resolution all work from
@@ -205,7 +207,7 @@ export interface StorageDriver {
   /**
    * Normalize every Foreign Ticket in one Effort and mint ids for Tickets that
    * have none. Filenames never change. Preview writes nothing and names a
-   * Ticket it would mint by its handle. Unrecognized files in the Effort directory are ignored.
+   * Ticket it would mint by the name it has. Unrecognized files in the Effort directory are ignored.
    */
   migrateEffort(effort: string, options: MigrateOptions): Promise<MigrationReport>;
 
@@ -253,17 +255,20 @@ export class NoSuchTicket extends Error {
 }
 
 /**
- * Thrown when a write is addressed to an id more than one Ticket carries. Which
- * of them the caller means cannot be told, and picking one is how a duplicate
- * becomes two Tickets with diverged content. Nothing renumbers either one: a
- * new id cannot reach the commit messages and PR bodies already naming the old.
+ * Thrown when a write is addressed to an id more than one Ticket carries, or to
+ * a name more than one file of an Effort reduces to. Which of them the caller
+ * means cannot be told, and picking one is how a duplicate becomes two Tickets
+ * with diverged content. Nothing renumbers or renames either one: a new id
+ * cannot reach the commit messages and PR bodies already naming the old.
  */
 export class DuplicateId extends Error {
-  constructor(id: string, files: readonly string[]) {
+  constructor(id: string, files: readonly string[], kind: 'id' | 'name' = 'id') {
     super(
       `Nothing was written: ${id} is carried by ${String(files.length)} Ticket files — ` +
-        `${files.join(', ')} — so which one is meant cannot be told. Give all but one a new ` +
-        'id by hand; FrontierMCP never renumbers.',
+        `${files.join(', ')} — so which one is meant cannot be told. ` +
+        (kind === 'id'
+          ? 'Give all but one a new id by hand; FrontierMCP never renumbers.'
+          : 'Rename all but one file by hand; FrontierMCP never renames one.'),
     );
     this.name = 'DuplicateId';
   }

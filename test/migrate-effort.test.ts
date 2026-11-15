@@ -214,7 +214,7 @@ blocked_by: []
     ]);
   });
 
-  it('preview names unminted Tickets by unpadded handle, linked reference-style', async () => {
+  it('preview names unminted Tickets by the name they have, linked reference-style', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
       '.scratch/alpha/issues/01-grammy-group-boot.md': `# T30 — Grammy group boot
@@ -239,15 +239,15 @@ Blocked by: 02, 01
       [
         'alpha: preview — would migrate 3',
         '[T30]  Grammy group boot  normalize',
-        '[alpha#2]  Is the colour-space fix a latent bug?  normalize+mint',
-        '[alpha#3]  Port the texture leak fix  normalize+mint  blocked_by=[alpha#2],[T30]',
+        '[colour]  Is the colour-space fix a latent bug?  normalize+mint',
+        '[texture]  Port the texture leak fix  normalize+mint  blocked_by=[colour],[T30]',
         '',
         '[T30]: <.scratch/alpha/issues/01-grammy-group-boot.md>',
-        '[alpha#2]: <.scratch/alpha/issues/02-colour.md>',
-        '[alpha#3]: <.scratch/alpha/issues/03-texture.md>',
+        '[colour]: <.scratch/alpha/issues/02-colour.md>',
+        '[texture]: <.scratch/alpha/issues/03-texture.md>',
       ].join('\n'),
     );
-    expect(report).not.toContain('#02');
+    expect(report).not.toContain('#');
     expect(await readFile(join(root, '.scratch/alpha/issues/02-colour.md'), 'utf8')).toBe(before);
     expect(await readdir(join(root, '.scratch/alpha/issues'))).toHaveLength(3);
   });
@@ -269,7 +269,7 @@ Blocked by: 02, 01
 
     expect(second).toBe(first);
     expect(first).toContain(
-      '[alpha#2]  Port the texture leak fix  normalize+mint  blocked_by=[alpha#1]',
+      '[texture]  Port the texture leak fix  normalize+mint  blocked_by=[colour]',
     );
     expect(first).not.toMatch(/\bT[0-9a-z]+\b/);
   });
@@ -286,10 +286,10 @@ Blocked by: 02, 01
     const report = await frontier.call('migrate_effort', { effort: 'alpha' });
 
     expect(report).toContain(
-      '[T1]  Is the colour-space fix a latent bug?  normalize+mint  was alpha#1',
+      '[T1]  Is the colour-space fix a latent bug?  normalize+mint  was colour',
     );
     expect(report).toContain(
-      '[T2]  Port the texture leak fix  normalize+mint  was alpha#2  blocked_by=[T1]',
+      '[T2]  Port the texture leak fix  normalize+mint  was texture  blocked_by=[T1]',
     );
     expect(report).toContain('[T1]: <.scratch/alpha/issues/01-colour.md>');
     expect(report).toContain('[T2]: <.scratch/alpha/issues/02-texture.md>');
@@ -349,8 +349,8 @@ Body.
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
     // A write gives it frontmatter without an id — T7's job is the mint.
-    await frontier.call('update_ticket', { id: 'alpha#1', claim: { by: 'agent-7' } });
-    expect(await frontier.call('get_board', { effort: 'alpha' })).toContain('no id (1)');
+    await frontier.call('update_ticket', { id: 'no-id', claim: { by: 'agent-7' } });
+    expect(await frontier.call('get_board', { effort: 'alpha' })).toContain('no-id  Is the colour');
 
     await frontier.call('migrate_effort', { effort: 'alpha' });
 
@@ -440,8 +440,8 @@ describe('migrate_effort against real Foreign fixtures', () => {
     const board = await frontier.call('get_board', { effort: 'ship-0-5-0' });
     expect(board).not.toContain('are Foreign');
     expect(board).not.toContain('no id');
-    // Former handle is gone; every Ticket now has a real id.
-    expect(board).not.toContain('ship-0-5-0#');
+    // Every Ticket now has a real id, and is named by it rather than by its file.
+    expect(board).not.toContain('srgb-data-maps-verdict');
 
     const afterResearch = await readFile(
       join(root, '.scratch/ship-0-5-0/research/01-srgb-data-maps.md'),
@@ -477,7 +477,7 @@ describe('migrate_effort against real Foreign fixtures', () => {
   });
 });
 
-/** Migration mints an id where the handle stood; everything else on the line must match. */
+/** Migration mints an id where the name stood; everything else on the line must match. */
 function ticketLines(board: string): string[] {
   return board
     .split('\n')
@@ -498,7 +498,7 @@ describe('migrate_effort preview is a faithful plan', () => {
     expect(preview).toContain('blocked_by=T1.4');
 
     const report = await frontier.call('migrate_effort', { effort: 'rewrite' });
-    expect(report).toContain('[T1]  Port  normalize+mint  was rewrite#1  blocked_by=T1.4');
+    expect(report).toContain('[T1]  Port  normalize+mint  was port  blocked_by=T1.4');
     expect(await readFile(join(root, '.scratch/rewrite/issues/01-port.md'), 'utf8')).toContain(
       'blocked_by: [T1.4]',
     );
@@ -573,7 +573,7 @@ describe('a prose sub-slice is coarsened only within its own Effort (T82)', () =
     it(`keeps the sub-slice as declared when a ${name} normalizes the file`, async () => {
       const { root, frontier } = await crossEffort('T1.4');
 
-      await frontier.call('update_ticket', { id: 'rewrite#1', ...edit });
+      await frontier.call('update_ticket', { id: 'port', ...edit });
       const written = await readFile(join(root, PORT), 'utf8');
       expect(written).toMatch(/blocked_by: \[["']?T1\.4["']?\]/);
 

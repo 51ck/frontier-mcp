@@ -132,7 +132,7 @@ Design decisions settled and binding until an ADR revises them:
   compiled pattern carries `needsCoordination` and `survivesMerge`, and compiles once into the
   minting plan. Id matching consumes it too: `StorageDriver.isId()` answers from the pattern (any
   length per random token, so existing `T<n>` ids still match the default), and `create_tickets`
-  refuses a temporary key that would match it or that is an existing Ticket's id. Under a broken config `isId` answers from
+  refuses a temporary key that would match it or that names an existing Ticket. Under a broken config `isId` answers from
   the default. Rules: T52–T55 in
   `.scratch/ids-patterns/`.
 - **`.md` with YAML frontmatter.** Not `.mdc`.
@@ -142,7 +142,16 @@ Design decisions settled and binding until an ADR revises them:
   `T<b36{6}>` by default — unique across every Effort, never reused or changed, though a counted
   one may be skipped. Existing `T<n>` ids stay valid. `<NN>-<id>-<slug>.md` carries
   sort order in `NN` only. Frontmatter is the authority — on disagreement the field wins, and the
-  filename is never rewritten: another Effort's prose may link it by path. Edges are plain ids resolved repo-wide; there is no compound cross-Effort reference form.
+  filename is never rewritten: another Effort's prose may link it by path.
+- **A Ticket with no `id` is named by its file** ([ADR 0008](./docs/adr/0008-a-ticket-is-named-by-its-path.md),
+  read path only so far): the stem less a leading `<digits>-`, any stem accepted. An id is global; a
+  stem name is local to its Effort and `<effort>.<name>` in full. A stored Edge resolves nearest
+  first — `<effort>.<name>` on the longest known slug, then a name in the Ticket's own Effort, then
+  an id anywhere — and a full name whose Effort holds no such Ticket falls through to the next step.
+  Tool input has no Effort: a full name wins outright, then an id or a bare name one Effort alone
+  has. A bare name in several Efforts, or a string that is an id and another Ticket's bare name at
+  once, is refused with `AmbiguousName` listing every candidate in full. Names and ids compare without regard to case and
+  show as stored. The order lives once, in `src/names.ts`.
 - **A random pattern draws; a `<N>` pattern counts under a guard.** Random ids are drawn and checked
   against the batch's scan, redrawn on a hit up to a bounded limit, with no guard files. Any pattern
   containing `<N>`, mixed ones included, takes `max + 1` over the ids in its namespace, so there is
@@ -153,7 +162,7 @@ Design decisions settled and binding until an ADR revises them:
 - **Type what gets surgically mutated; leave the rest opaque.** The Map has typed sections because
   wayfinder edits them section by section. The Spec is an opaque body because nothing edits it.
 - **Derive, don't store, what tickets already know.** The Map's Decisions-so-far renders from resolved
-  tickets. The frontier is computed. Neither is written to disk as state. See
+  tickets, one named by its file included, under its bare name. The frontier is computed. Neither is written to disk as state. See
   [ADR 0002](./docs/adr/0002-map-decisions-derived-from-tickets.md).
 - **Lenient on read, strict on write.** Foreign files — no fence, a fence that does not parse, or a fence with no
   `id` and a key outside the schema — parse best-effort and are flagged Foreign. A write normalizes
@@ -304,7 +313,8 @@ Source layout:
 | Path | Holds |
 | --- | --- |
 | `src/domain.ts` | The CONTEXT.md vocabulary as types. Naming here is bound by the glossary, including its `_Avoid_` lines. Ids are opaque here; their shape is the driver's (`isId`). |
-| `src/frontier.ts` | The Frontier computation. Takes every Ticket in the workspace, because Edges resolve repo-wide. |
+| `src/frontier.ts` | The Frontier computation. Takes every Ticket in the workspace, because an Edge can lead into another Effort. |
+| `src/names.ts` | How a string names a Ticket: Edge and tool-input resolution, duplicate claimants, and the graph nodes cycle checks walk. The Frontier, the Board, the tool lookups and the markdown driver's file lookup all resolve through it. |
 | `src/edges.ts` | Cycle detection over the Edge graph. Above the seam, because a cycle is a rule about the domain rather than about storage — the same reason the Status model is checked in the tool layer. |
 | `src/storage/driver.ts` | The ADR 0001 seam, its edit vocabulary, and its typed failures. A driver is the workspace cached and live, so `close()` sits here beside the reads and writes. |
 | `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout, which it takes as a construction parameter — `frontmatter.ts` splits the fence, `ticket.ts` parses a Ticket, `legacy.ts` infers one from prose when there is no parseable fence (named for that one shape, not for Foreign), `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` allocates ids and writes a new batch, `migrate.ts` normalizes an Effort at once, `schema.ts` is the one list of schema frontmatter keys, `id-pattern.ts` reads `<storageDir>/frontier.yml` once at construction and compiles `id_pattern`, `write.ts` renames it into place, `watcher.ts` tells the driver another process moved the workspace under it. |
@@ -341,17 +351,20 @@ Rendering rules that are load-bearing, not cosmetic:
 - **Warnings are grouped, never itemized per Ticket.** An Effort of Foreign Tickets carries a dangling Edge
   on nearly every Ticket; itemizing produced a warnings block longer than the Board it annotated,
   which undoes the saving the Board exists to deliver.
-- **A foreign blocker renders `T9@beta`, a local one bare.** There is no compound cross-Effort
-  reference form, so the Board is the only thing that can make a foreign Edge followable. The
+- **A foreign blocker with an id renders `T9@beta`, one named by its file `beta.token-cache`, a
+  local one bare.** The full name is valid input. The
   `@<effort>` is never input: a pasted `T9@beta` fails — `NoSuchTicket` on a write, the `not found:` line on
   `get_tickets` — and both name `T9` back.
 - **An unresolvable Edge renders `T9?`** and is counted in the warnings block. It never silently
   makes a Ticket look takeable.
 - **A duplicate id is one grouped warning**, on every Board, computed from the cached scan the Board
-  is built from. One id is one exact string. It names the files of at most 3 ids, 10 more ids bare,
+  is built from. Case does not tell two ids apart. It names the files of at most 3 ids, 10 more ids bare,
   then counts the rest; the total stays exact. Under a counted pattern it names that pattern as the
-  likely cause. Every claimant answers to the real id — only id-less Tickets get a `.2` handle
-  suffix — so no handle reaches one claimant. `get_tickets` returns every claimant once under a line
+  likely cause. Two Tickets that share a full name — two stems of one Effort, or `a/b.foo` beside
+  `a.b/foo` — are a duplicate under the same rules, in a `duplicate names` warning of the same
+  shape that labels each by that full name. `Names.claimants` in `src/names.ts` is the one
+  definition; the driver's warning and refusals ask it. Every
+  claimant answers to the duplicated id or name and nothing reaches just one. `get_tickets` returns every claimant once under a line
   saying so. An Edge to a duplicated id is satisfied only when every claimant is resolved, and cycle
   checks follow every claimant's Edges: a duplicate never enlarges the Frontier. A Ticket whose own
   id is duplicated is never takeable, because every write to it is refused.
@@ -361,7 +374,7 @@ Rendering rules that are load-bearing, not cosmetic:
   `TicketSummary.foreignFenced`.
 - **A lifecycle Status missing its field is counted, per Status** (T85): `N/M resolved Tickets
   carry no answer_gist`, likewise `dropped` / `dropped_reason` and `claimed` / `claimed_by` and `claimed_at`. M is
-  that Status's count; no handles are listed. A Ticket with no parseable fence is left out of all of them,
+  that Status's count; no Tickets are listed. A Ticket with no parseable fence is left out of all of them,
   since its answer is prose. Computed from the cached scan. `list_efforts` stays silent on it.
 - **An unrecognized status is counted in the warnings block and is never takeable.** The Board line
   may still show `/open`, but the Ticket is kept off the Frontier until a write normalizes it.
@@ -370,9 +383,9 @@ Rendering rules that are load-bearing, not cosmetic:
   `StorageDriver.mergeCollidingIdPattern()`; the text names both, names `T<N>-<b36{4}>`, says
   *regression*, and closes by saying no action is required on this call. It never mentions
   duplicates — the cross-reference runs one way, from the duplicate warning to the pattern.
-- **Every Ticket is nameable.** A Ticket with no id gets an `<effort>#<order>` handle, which
-  `get_tickets` accepts. It is an address, not an id — not repo-stable, and never usable as an Edge —
-  but without it a whole Effort has no route to its own bodies.
+- **Every Ticket is nameable.** A Board line opens with the Ticket's bare name — its id, or its
+  file's name. `get_tickets` and a write result head it with the id or the full `<effort>.<name>`.
+  The `<effort>#<order>` handle is neither produced nor accepted.
 - **Unimported keys are shown until an agent drops them.** `get_tickets` appends a Ticket's frontmatter keys
   outside the schema (`Ticket.unimported`, body path only) under `## Unimported frontmatter` as a
   `yaml` block whose backtick delimiter outruns any run inside it. A foreign fence (no `id`) shows
@@ -390,8 +403,8 @@ Rendering rules that are load-bearing, not cosmetic:
   that no longer parses, or one whose `status` quietly changed. A fence left with no key gets the schema block a fenceless
   file gets, never an empty fence. It is allowed on an
   id-less foreign fence: dropping its last unimported key ends the Foreign predicate, so the Ticket
-  becomes a schema fence with no id — not Foreign, still in the Board's `no id (N)` warning, and
-  no id is minted. The schema key list is single-sourced in `src/storage/markdown/schema.ts`.
+  becomes a schema fence with no id — not Foreign, a Ticket named by its file like any other, and
+  no id is minted. There is no `no id` Board warning. The schema key list is single-sourced in `src/storage/markdown/schema.ts`.
 - **A missing storage directory explains itself; an empty one does not** (T105). Only when
   `.scratch/` does not exist, `list_efforts` returns four lines: the root line suffixed
   `(resolved by <source>)`, `no tracker here`, a `start one` line naming real `create_tickets` /
@@ -400,8 +413,8 @@ Rendering rules that are load-bearing, not cosmetic:
   creates the directory. An empty `.scratch/` keeps `(no efforts)`, and no other result carries the
   `resolved by` suffix — a populated tracker is its own proof of the root.
 - **A `migrate_effort` preview predicts no id** (T69). It takes no guard, so a counted prediction
-  could be stolen and a random one is discarded; an unminted Ticket is named by its unpadded
-  handle everywhere, `blocked_by=` included, so two previews of unchanged files are identical.
+  could be stolen and a random one is discarded; an unminted Ticket keeps the name it has
+  everywhere, `blocked_by=` included, so two previews of unchanged files are identical.
   Every report line is labelled reference-style and resolved once in a closing block of
   workspace-root-relative paths. Migration never renames a file: another Effort's prose may link it
   by path, and the server cannot see that link.
@@ -431,11 +444,11 @@ Write rules, equally load-bearing:
   GENERATED marker in any of the four, which the reader would take for a block the server owns.
   A newline in `add_fog` or `rule_out` fails with `MultiLineBullet` (T98): a bullet is one line
   to the reader, so the rest could never be graduated. Both name the argument, not the section.
-- **A write addressed to a duplicated id refuses** with `DuplicateId`, naming every file, before
+- **A write addressed to a duplicated id or name refuses** with `DuplicateId`, naming every file, before
   any other rule judges one claimant. `update_ticket` asks `StorageDriver.assertAddressable()`
   first, which never writes. A real `migrate_effort` refuses the same way when an inferred id is
-  already carried elsewhere; its preview is a read, so it reports the conflict on that Ticket's
-  line and still shows the plan. Nothing renumbers: a new id cannot reach the commit messages and
+  already carried elsewhere or a Ticket it would touch has a duplicated name; its preview is a read,
+  so it reports the conflict on each such Ticket's line and still shows the plan. Nothing renumbers: a new id cannot reach the commit messages and
   PR bodies already naming the old one, so a human renumbers all but one file by hand.
 - **A mismatch is never retried.** It is re-read only to produce a better message — usually
   "already claimed by X" — and then the original failure is raised. A mismatch may equally be
@@ -454,7 +467,8 @@ Write rules, equally load-bearing:
   off the Frontier. A plain `T38` is always its own Edge. The Board, the Frontier, a lazy
   normalization on any write and `migrate_effort` all write or show these resolved Edges, so
   migrating never changes a Frontier through a sub-slice. A bare sort-order Edge is different: it
-  dangles (`01?`) until migration resolves it, which can put its Ticket on the Frontier. The migration report, preview and real, ends with grouped
+  dangles (`01?`) until migration resolves it, which can put its Ticket on the Frontier. An in-Effort
+  name Edge to a Ticket the run mints is rewritten to that id, so it keeps resolving. The migration report, preview and real, ends with grouped
   lines for sub-slices kept as declared (with the `update_ticket blocked_by` fix) and for written
   Edges that land on another Effort (`T9@beta`), each naming ten and counting the rest.
 - **A write normalizes the Foreign file it touches when that file has no parseable fence**, and keeps

@@ -21,6 +21,7 @@ import type {
   TicketWriteResult,
 } from '../driver.ts';
 import type { TicketEdit } from '../../domain.ts';
+import { duplicateKindOf, fullNameOf, indexNames } from '../../names.ts';
 import {
   InvalidWorkspaceConfig,
   NoSuchEffort,
@@ -152,7 +153,7 @@ export function createMarkdownDriver(
   // describes the scan its lines were built from. The fresh walks behind
   // readTickets, create and migrate never touch it. Kept beside the cache rather
   // than in it because workspaceWarnings is synchronous.
-  let duplicates: ReadonlyMap<string, readonly string[]> = new Map();
+  let duplicates: DuplicateClaims = { ids: [], names: [] };
 
   const walk = async (): Promise<ScannedEffort[]> => {
     // A repo that has never used the tracker is a supported starting state,
@@ -247,7 +248,12 @@ export function createMarkdownDriver(
               `${idPattern.problem} Writes are refused until it is fixed and the FrontierMCP ` +
                 'server is restarted.',
             ];
-      if (duplicates.size > 0) warnings.push(duplicateWarning(duplicates, colliding));
+      if (duplicates.ids.length > 0) {
+        warnings.push(duplicateWarning(duplicates.ids, DUPLICATE_IDS, colliding));
+      }
+      if (duplicates.names.length > 0) {
+        warnings.push(duplicateWarning(duplicates.names, DUPLICATE_NAMES, undefined));
+      }
       return warnings;
     },
 
@@ -342,17 +348,24 @@ async function migrate(
   const scanned = await walk();
 
   // An id inferred from Foreign prose is preserved, so one another file already
-  // carries would be written into frontmatter as a duplicate — the same refusal
-  // as any write addressed to that id. A preview is a read, so it reports the
-  // conflict beside the rest of the plan instead.
-  const claims = duplicateClaims(scanned);
+  // carries would be written into frontmatter as a duplicate. A duplicated name
+  // would be minted apart, and the Edges naming it handed to whichever claimant
+  // came last. Both get the refusal any write addressed to a duplicate gets; a
+  // preview is a read, so it reports the conflict beside the rest of the plan.
+  const { fileOf, names } = filesByTicket(scanned);
   const conflicts = new Map<string, readonly string[]>();
-  for (const { ticket } of entries) {
-    if (!ticket.foreign || ticket.id === undefined) continue;
-    const files = claims.get(ticket.id);
-    if (files === undefined) continue;
-    if (options.preview !== true) throw new DuplicateId(ticket.id, files);
-    conflicts.set(ticket.id, files);
+  for (const scannedEffort of scanned) {
+    if (scannedEffort.effort.slug !== effort) continue;
+    for (const { filename, ticket } of scannedEffort.entries) {
+      if (!ticket.foreign && ticket.id !== undefined) continue;
+      const claimants = names.claimants(ticket);
+      if (claimants.length < 2) continue;
+      const files = claimants.map(claimant => fileOf.get(claimant) ?? '');
+      if (options.preview !== true) {
+        throw new DuplicateId(ticket.id ?? fullNameOf(ticket), files, duplicateKindOf(claimants));
+      }
+      conflicts.set(filename, files);
+    }
   }
   const issues = join(dir, ISSUES_DIR);
 
@@ -670,11 +683,11 @@ function ticketPointers(
 ): DerivedPointer[] {
   return entries.flatMap(entry => {
     const { ticket, filename } = entry;
-    if (ticket.status !== status || ticket.id === undefined) return [];
+    if (ticket.status !== status) return [];
     const gist = status === 'resolved' ? ticket.answerGist : ticket.droppedReason;
     return [
       {
-        id: ticket.id,
+        id: ticket.name,
         title: ticket.title,
         link: `${ISSUES_DIR}/${filename}`,
         gist: gist ?? '',
@@ -683,7 +696,10 @@ function ticketPointers(
   });
 }
 
-/** Find the file backing a Ticket, by id or by its `<effort>#<order>` handle. */
+/**
+ * Find the file backing a Ticket, by whatever names it: an id, a full name, or
+ * a bare name only one Effort has.
+ */
 async function locate(
   storage: string,
   handle: string,
@@ -693,21 +709,25 @@ async function locate(
     slugs.map(async slug => ({ slug, entries: await readTicketFiles(join(storage, slug), slug) })),
   );
 
-  const found = perEffort.flatMap(({ slug, entries }) =>
-    entries
-      .filter(entry => entry.ticket.id === handle || entry.ticket.handle === handle)
-      .map(entry => ({
-        dir: join(storage, slug),
-        effort: slug,
-        filename: entry.filename,
-        ticket: entry.ticket,
-      })),
+  const files = perEffort.flatMap(({ slug, entries }) =>
+    entries.map(entry => ({
+      dir: join(storage, slug),
+      effort: slug,
+      filename: entry.filename,
+      ticket: entry.ticket,
+    })),
   );
+  const byTicket = new Map(files.map(file => [file.ticket, file]));
+  const found = indexNames(files.map(file => file.ticket))
+    .input(handle)
+    .map(ticket => byTicket.get(ticket))
+    .filter(file => file !== undefined);
 
   if (found.length > 1) {
     throw new DuplicateId(
       handle,
       found.map(entry => relativeFile(entry.effort, entry.filename)),
+      duplicateKindOf(found.map(entry => entry.ticket)),
     );
   }
   return found[0];
@@ -717,23 +737,44 @@ function relativeFile(effort: string, filename: string): string {
   return `${effort}/${ISSUES_DIR}/${filename}`;
 }
 
-/**
- * Ids carried by more than one Ticket file, with every claimant. One id is one
- * exact string: `T5` and `t5` are different ids, as they are to an Edge.
- */
-function duplicateClaims(
-  scanned: readonly ScannedEffort[],
-): ReadonlyMap<string, readonly string[]> {
-  const files = new Map<string, string[]>();
+/** One duplicated id or name: how it is spelled, and every file claiming it. */
+interface DuplicateClaim {
+  readonly label: string;
+  readonly files: readonly string[];
+}
+
+interface DuplicateClaims {
+  /** Sets whose claimants all carry one id. */
+  readonly ids: readonly DuplicateClaim[];
+  /** Every other set: Tickets that share a full name, not all by carrying one id. */
+  readonly names: readonly DuplicateClaim[];
+}
+
+/** Each scanned Ticket's file, and the name index that says which of them are duplicates. */
+function filesByTicket(scanned: readonly ScannedEffort[]) {
+  const fileOf = new Map<TicketSummary, string>();
   for (const { effort, entries } of scanned) {
     for (const { filename, ticket } of entries) {
-      if (ticket.id === undefined) continue;
-      const claimants = files.get(ticket.id) ?? [];
-      claimants.push(relativeFile(effort.slug, filename));
-      files.set(ticket.id, claimants);
+      fileOf.set(ticket, relativeFile(effort.slug, filename));
     }
   }
-  return new Map([...files].filter(([, claimants]) => claimants.length > 1));
+  return { fileOf, names: indexNames(scanned.flatMap(summariesOf)) };
+}
+
+/** What `Names.duplicates` finds in a scan, with the file behind every claimant. */
+function duplicateClaims(scanned: readonly ScannedEffort[]): DuplicateClaims {
+  const { fileOf, names } = filesByTicket(scanned);
+  const ids: DuplicateClaim[] = [];
+  const named: DuplicateClaim[] = [];
+  for (const claimants of names.duplicates()) {
+    const [first] = claimants;
+    if (first === undefined) continue;
+    (duplicateKindOf(claimants) === 'id' ? ids : named).push({
+      label: fullNameOf(first),
+      files: claimants.map(claimant => fileOf.get(claimant) ?? ''),
+    });
+  }
+  return { ids, names: named };
 }
 
 // Reported, never repaired: renumbering cannot reach the commit messages and
@@ -743,17 +784,27 @@ function duplicateClaims(
 const DUPLICATES_WITH_FILES = 3;
 const DUPLICATES_NAMED = 10;
 
+const DUPLICATE_IDS = {
+  what: 'duplicate ids, each carried by more than one Ticket file',
+  fix: 'renumber all but one by hand',
+};
+const DUPLICATE_NAMES = {
+  what: 'duplicate names, each the full name of more than one Ticket file',
+  fix: 'rename all but one file by hand',
+};
+
 function duplicateWarning(
-  duplicates: ReadonlyMap<string, readonly string[]>,
+  duplicates: readonly DuplicateClaim[],
+  wording: { readonly what: string; readonly fix: string },
   colliding: { readonly pattern: string } | undefined,
 ): string {
-  const sorted = [...duplicates].toSorted(([a], [b]) => a.localeCompare(b));
+  const sorted = duplicates.toSorted((a, b) => a.label.localeCompare(b.label));
   const withFiles = sorted
     .slice(0, DUPLICATES_WITH_FILES)
-    .map(([id, files]) => `${id} (${files.join(', ')})`);
+    .map(({ label, files }) => `${label} (${files.join(', ')})`);
   const named = sorted
     .slice(DUPLICATES_WITH_FILES, DUPLICATES_WITH_FILES + DUPLICATES_NAMED)
-    .map(([id]) => id);
+    .map(({ label }) => label);
   const rest = sorted.length - DUPLICATES_WITH_FILES - named.length;
 
   let listed = withFiles.join('; ');
@@ -766,8 +817,8 @@ function duplicateWarning(
       ? ''
       : `; the counted id pattern ${colliding.pattern} is the likely cause`;
   return (
-    `duplicate ids, each carried by more than one Ticket file (${String(duplicates.size)}): ` +
-    `${listed} — writes to them are refused; renumber all but one by hand${cause}`
+    `${wording.what} (${String(duplicates.length)}): ` +
+    `${listed} — writes to them are refused; ${wording.fix}${cause}`
   );
 }
 
@@ -816,14 +867,12 @@ async function readBodies(
   scanned: readonly ScannedEffort[],
   handles: readonly string[],
 ): Promise<readonly Ticket[]> {
-  const wanted = new Set(handles);
+  const names = indexNames(scanned.flatMap(summariesOf));
+  const wanted = new Set(handles.flatMap(handle => names.input(handle)));
 
   const found = scanned.flatMap(entry =>
     entry.entries
-      .filter(
-        ({ ticket }) =>
-          wanted.has(ticket.handle) || (ticket.id !== undefined && wanted.has(ticket.id)),
-      )
+      .filter(({ ticket }) => wanted.has(ticket))
       .map(({ filename, ticket }) => ({
         ticket,
         path: join(storage, entry.effort.slug, ISSUES_DIR, filename),
@@ -871,38 +920,7 @@ async function readTicketFiles(dir: string, effort: string): Promise<TicketFileE
     filename,
     ticket: tickets[position] as TicketSummary,
   }));
-  return withUniqueHandles(files.toSorted((a, b) => a.ticket.order - b.ticket.order));
-}
-
-/**
- * Two id-less Tickets can land on one order, which would make one of them
- * unfetchable. The cause is a prefix-less file taking `position + 1`, which
- * lands on whatever order a sibling's `NN-` prefix already gave: `a.md` listed
- * second collides with `02-b.md`. Two prefix-less files never collide with each
- * other. Later collisions in sort order get a `.2`, `.3` suffix.
- *
- * A Ticket with an id is never suffixed. Every claimant of a duplicated id must
- * keep answering to that id, so a write addressed to it refuses; a suffix would
- * be a handle reaching one claimant behind the refusal's back.
- */
-function withUniqueHandles(entries: readonly TicketFileEntry[]): TicketFileEntry[] {
-  const seen = new Set<string>();
-
-  return entries.map(entry => {
-    const { ticket } = entry;
-    if (ticket.id !== undefined) return entry;
-    if (!seen.has(ticket.handle)) {
-      seen.add(ticket.handle);
-      return entry;
-    }
-
-    let suffix = 2;
-    while (seen.has(`${ticket.handle}.${String(suffix)}`)) suffix += 1;
-    const handle = `${ticket.handle}.${String(suffix)}`;
-    seen.add(handle);
-
-    return { filename: entry.filename, ticket: { ...ticket, handle } };
-  });
+  return files.toSorted((a, b) => a.ticket.order - b.ticket.order);
 }
 
 /**

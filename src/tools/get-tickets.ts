@@ -2,14 +2,15 @@ import { z } from 'zod';
 
 import { bareIdOf } from '../domain.ts';
 import type { Ticket } from '../domain.ts';
+import { duplicateKindOf, fullNameOf, indexNames } from '../names.ts';
 
 export const getTicketsInputSchema = z.object({
   ids: z
     .array(z.string())
     .min(1)
     .describe(
-      'Ticket ids, e.g. ["T12","T14"], resolved repo-wide. A Ticket with no id is ' +
-        'fetched by the <effort>#<order> handle its Board line shows.',
+      'Ticket ids or names, e.g. ["T12","token-cache"]. A name several Efforts have ' +
+        'must be given in full: <effort>.<name>.',
     ),
   root: z.string().optional().describe('Workspace directory. Defaults to the session workspace.'),
 });
@@ -20,37 +21,29 @@ export const getTicketsDescription =
 
 /**
  * Bodies verbatim, under a header carrying the fields a reader needs in hand
- * while reading one. Ids that resolve to nothing are named rather than dropped,
- * so a typo does not look like an empty Ticket.
+ * while reading one. Names that resolve to nothing are named rather than
+ * dropped, so a typo does not look like an empty Ticket.
  */
 export function renderTickets(requested: readonly string[], found: readonly Ticket[]): string {
-  // Addressable by id when it has one, and by its handle either way — an
-  // id-less Ticket has no other route to its own body.
-  const byName = new Map<string, Ticket[]>();
-  const add = (name: string, ticket: Ticket) => {
-    const claimants = byName.get(name) ?? [];
-    if (!claimants.includes(ticket)) claimants.push(ticket);
-    byName.set(name, claimants);
-  };
-  for (const ticket of found) {
-    add(ticket.handle, ticket);
-    if (ticket.id !== undefined) add(ticket.id, ticket);
-  }
+  // The driver resolved each name against the whole workspace and returned only
+  // what it meant, so resolving again over that subset pairs them back up.
+  const names = indexNames(found);
 
   const blocks: string[] = [];
   const missing: string[] = [];
 
   for (const name of requested) {
-    const claimants = byName.get(name);
-    if (claimants === undefined) {
+    const claimants = names.input(name) as readonly Ticket[];
+    if (claimants.length === 0) {
       missing.push(name);
       continue;
     }
-    // Every claimant of a duplicated id, never silently the first.
+    // Every claimant of a duplicated name, never silently the first.
     if (claimants.length > 1) {
+      const fix = duplicateKindOf(claimants) === 'id' ? 'renumbered' : 'renamed';
       blocks.push(
         `${name} is carried by ${String(claimants.length)} Tickets — writes to it are refused ` +
-          'until all but one are renumbered by hand',
+          `until all but one are ${fix} by hand`,
       );
     }
     for (const ticket of claimants) blocks.push(renderOne(ticket));
@@ -85,7 +78,7 @@ function renderOne(ticket: Ticket): string {
     ticket.foreign ? 'foreign' : undefined,
   ].filter(field => field !== undefined);
 
-  const head = `# ${ticket.handle} — ${ticket.title}\n${fields.join('  ')}\n\n${ticket.body}`;
+  const head = `# ${fullNameOf(ticket)} — ${ticket.title}\n${fields.join('  ')}\n\n${ticket.body}`;
   return ticket.unimported === undefined
     ? head
     : `${head}\n\n${renderFence(ticket.unimported.yaml)}`;

@@ -164,7 +164,7 @@ describe('a duplicate id', () => {
     expect(refused).toContain('alpha/issues/01-T5-first.md, alpha/issues/02-T5-again.md');
     // The fix is a human renumbering one file by hand; no handle routes around it.
     const errors = await Promise.all(
-      ['T5.2', 'alpha#2', 'alpha#1'].map(handle =>
+      ['T5.2', 'alpha#2', 'alpha#1', 'alpha.T5', 'T5-first', 'T5-again'].map(handle =>
         frontier.callExpectingError('update_ticket', { id: handle, claim: { by: 'agent-1' } }),
       ),
     );
@@ -324,7 +324,7 @@ describe('a duplicate id', () => {
       'duplicate id, carried by alpha/issues/01-foreign.md, beta/issues/01-T5-second.md — ' +
         'a real run refuses',
     );
-    expect(preview).toContain('[alpha#2]  Untitled work  normalize+mint');
+    expect(preview).toContain('[plain]  Untitled work  normalize+mint');
     expect(preview).not.toContain('T6');
     expect(await readFile(foreign, 'utf8')).toBe(before);
     expect(await frontier.callExpectingError('migrate_effort', { effort: 'alpha' })).toContain(
