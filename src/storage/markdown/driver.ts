@@ -20,6 +20,7 @@ import type {
   StorageDriver,
   TicketWriteResult,
 } from '../driver.ts';
+import { compareByOrderHint } from '../../board-order.ts';
 import type { TicketEdit } from '../../domain.ts';
 import { duplicateKindOf, fullNameOf, indexNames } from '../../names.ts';
 import {
@@ -75,7 +76,7 @@ import { watchStorage, type StorageWatcher } from './watcher.ts';
  *   ├── map.md            # Header doc — wayfinder
  *   ├── spec.md           # Header doc — to-spec
  *   └── issues/
- *       └── NN-slug.md    # Tickets
+ *       └── <name>.md     # Tickets; an older file may carry an `NN-` prefix
  *
  * Anything else in an Effort directory is ignored, never an error.
  */
@@ -422,9 +423,7 @@ async function create(
   return files.map(({ filename, contents }) => {
     const read = byFilename.get(filename);
     if (read !== undefined) return read;
-    const [asWritten] = resolveSubSlices([
-      parseTicketSummary(effort, { filename, contents }, 0, ''),
-    ]);
+    const [asWritten] = resolveSubSlices([parseTicketSummary(effort, { filename, contents }, '')]);
     return asWritten as TicketSummary;
   });
 }
@@ -845,9 +844,9 @@ function defaultsFor(ticket: TicketSummary): Defaults {
 interface ScannedEffort {
   readonly effort: Effort;
   /**
-   * The Effort's Ticket files in sort order. A scan keeps the filename beside
-   * each summary because that is what a body fetch opens — the pairing stays
-   * below the seam, where paths live.
+   * The Effort's Ticket files by filename prefix, then by name. A scan keeps
+   * the filename beside each summary because that is what a body fetch opens —
+   * the pairing stays below the seam, where paths live.
    */
   readonly entries: readonly TicketFileEntry[];
 }
@@ -897,7 +896,8 @@ function withBody(ticket: TicketSummary, contents: string): Ticket {
 }
 
 /**
- * Every Ticket in one Effort with the file behind it, in sort order, each read
+ * Every Ticket in one Effort with the file behind it, by filename prefix and
+ * then by name — never by Edges, which only a Board orders by — each read
  * for its fields and not for its prose. Paths never cross the driver interface,
  * so this pairing stays inside the driver — it is how a write finds the file a
  * Ticket came from, and how a body fetch finds the one it must open.
@@ -911,7 +911,7 @@ async function readTicketFiles(dir: string, effort: string): Promise<TicketFileE
     .toSorted();
 
   const read = await Promise.all(
-    filenames.map(async (filename, position) => {
+    filenames.map(async filename => {
       const path = join(issues, filename);
       let contents: string;
       let revision: string | undefined;
@@ -923,14 +923,7 @@ async function readTicketFiles(dir: string, effort: string): Promise<TicketFileE
         if (isMissing(error)) return undefined;
         throw error;
       }
-      // A file with no `NN-` prefix still needs a position; its place in the
-      // sorted listing is the only order it has.
-      const parsed = parseTicketSummary(
-        effort,
-        { filename, contents },
-        position + 1,
-        revision ?? '',
-      );
+      const parsed = parseTicketSummary(effort, { filename, contents }, revision ?? '');
       return { filename, parsed };
     }),
   );
@@ -941,7 +934,9 @@ async function readTicketFiles(dir: string, effort: string): Promise<TicketFileE
     filename,
     ticket: tickets[position] as TicketSummary,
   }));
-  return files.toSorted((a, b) => a.ticket.order - b.ticket.order);
+  // Stable over the sorted filenames, so two files tying on prefix and name
+  // still come out in one order on every machine.
+  return files.toSorted((a, b) => compareByOrderHint(a.ticket, b.ticket));
 }
 
 /**

@@ -5,8 +5,11 @@ import { parseProseBody } from './legacy.ts';
 import { splitFrontmatter } from './frontmatter.ts';
 import { SCHEMA_KEYS } from './schema.ts';
 
-/** `<NN>-<rest>.md` — `NN` carries sort order and nothing else. */
-const FILENAME_ORDER = /^(\d+)/;
+/**
+ * `<NN>-<rest>.md` — `NN` is a hint for Board order and nothing else. Digits
+ * then a hyphen, the shape {@link nameFromFilename} strips: `2fa.md` has none.
+ */
+const FILENAME_ORDER = /^(\d+)-/;
 
 export interface TicketFile {
   readonly filename: string;
@@ -26,13 +29,12 @@ export interface TicketFile {
 export function parseTicketSummary(
   effort: string,
   file: TicketFile,
-  fallbackOrder: number,
   revision: string,
 ): ParsedTicket {
   const { fields } = splitFrontmatter(file.contents);
-  const order = readOrder(file.filename) ?? fallbackOrder;
+  const orderHint = readOrderHint(file.filename);
 
-  if (fields === undefined) return parseUnfenced(effort, order, file, revision);
+  if (fields === undefined) return parseUnfenced(effort, orderHint, file, revision);
 
   const id = text(fields['id']);
   const rawStatus = text(fields['status']);
@@ -54,7 +56,7 @@ export function parseTicketSummary(
     claimedAt: text(fields['claimed_at']),
     blockedBy: readEdgeList(fields['blocked_by']),
     effort,
-    order,
+    orderHint,
     foreign: isForeignFence(fields),
     foreignFenced: isForeignFence(fields),
     unrecognizedStatus,
@@ -162,7 +164,7 @@ function unimportedEntries(raw: string): string | undefined {
 
 function parseUnfenced(
   effort: string,
-  order: number,
+  orderHint: number | undefined,
   file: TicketFile,
   revision: string,
 ): ParsedTicket {
@@ -183,7 +185,7 @@ function parseUnfenced(
     claimedAt: undefined,
     blockedBy: inferred.blockedBy,
     effort,
-    order,
+    orderHint,
     foreign: true,
     foreignFenced: false,
     unrecognizedStatus: inferred.unrecognizedStatus,
@@ -196,7 +198,7 @@ function parseUnfenced(
 
 /**
  * A Ticket with no id is named by its file: the stem, less a leading `<digits>-`,
- * which is sort order and never identity. Lenient — any stem is a name, and one
+ * which is an order hint and never identity. Lenient — any stem is a name, and one
  * that is nothing but the prefix is kept whole rather than left empty.
  */
 function nameFromFilename(filename: string): string {
@@ -204,8 +206,8 @@ function nameFromFilename(filename: string): string {
   return stem.replace(/^\d+-/, '') || stem;
 }
 
-/** `<NN>-...` gives sort order. A file with no numeric prefix has none of its own. */
-function readOrder(filename: string): number | undefined {
+/** `<NN>-...` gives the hint. A file with no numeric prefix has none. */
+function readOrderHint(filename: string): number | undefined {
   const match = FILENAME_ORDER.exec(filename);
   return match?.[1] === undefined ? undefined : Number(match[1]);
 }

@@ -274,7 +274,7 @@ describe("the markdown driver's storage directory", () => {
             claimedAt: undefined,
             blockedBy: draft.blockedBy,
             effort,
-            order: 0,
+            orderHint: undefined,
             foreign: false,
             foreignFenced: false,
             unrecognizedStatus: undefined,

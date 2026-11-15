@@ -155,7 +155,7 @@ describe('a bare Edge between two named Tickets', () => {
     const { frontier } = await workspace(HAND_WRITTEN);
 
     const before = await frontier.call('get_board', { effort: 'alpha' });
-    expect(takeable(before)).toEqual(['token-cache', 'prose-only']);
+    expect(takeable(before)).toEqual(['prose-only', 'token-cache']);
     expect(before).not.toContain('dangling');
 
     await frontier.call('update_ticket', {
@@ -164,7 +164,7 @@ describe('a bare Edge between two named Tickets', () => {
     });
 
     const after = await frontier.call('get_board', { effort: 'alpha' });
-    expect(takeable(after)).toEqual(['retry-budget', 'prose-only']);
+    expect(takeable(after)).toEqual(['prose-only', 'retry-budget']);
     expect(await frontier.call('list_efforts')).toContain('alpha  tickets=3  docs=map  frontier=2');
   });
 

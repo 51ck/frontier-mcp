@@ -213,7 +213,7 @@ function asWritten(draft: TicketDraft, effort: string): TicketSummary {
     claimedAt: undefined,
     blockedBy: draft.blockedBy,
     effort,
-    order: 0,
+    orderHint: undefined,
     foreign: false,
     foreignFenced: false,
     unrecognizedStatus: undefined,

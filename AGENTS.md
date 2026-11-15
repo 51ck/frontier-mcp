@@ -142,7 +142,7 @@ Design decisions settled and binding until an ADR revises them:
 - **Stable `id`, cosmetic filename.** Only `migrate_effort` still mints, from the id pattern — random
   `T<b36{6}>` by default — unique across every Effort, never reused or changed, though a counted
   one may be skipped. Existing `T<n>` ids stay valid. On a file carrying an id, `<NN>-<id>-<slug>.md` carries
-  sort order in `NN` only. Frontmatter is the authority — on disagreement the field wins, and the
+  a hint for Board order in `NN` and nothing else. Frontmatter is the authority — on disagreement the field wins, and the
   filename is never rewritten: another Effort's prose may link it by path.
 - **A Ticket with no `id` is named by its file** ([ADR 0008](./docs/adr/0008-a-ticket-is-named-by-its-path.md),
   read path and `create_tickets`; `migrate_effort` still mints): the stem less a leading `<digits>-`, any stem accepted. An id is global; a
@@ -188,7 +188,7 @@ Structure served:
 ├── map.md            # wayfinder header doc — typed sections
 ├── spec.md           # to-spec header doc — opaque body
 └── issues/
-    └── NN-slug.md    # tickets
+    └── <name>.md     # tickets; an older file may carry an `NN-` prefix
 ```
 
 Anything else in an effort directory is ignored, never an error.
@@ -316,6 +316,7 @@ Source layout:
 | `src/domain.ts` | The CONTEXT.md vocabulary as types. Naming here is bound by the glossary, including its `_Avoid_` lines. Ids are opaque here; their shape is the driver's (`isId`). |
 | `src/frontier.ts` | The Frontier computation. Takes every Ticket in the workspace, because an Edge can lead into another Effort. |
 | `src/names.ts` | How a string names a Ticket: Edge and tool-input resolution, duplicate claimants, the form a supplied Edge is stored in or refused for, and the graph nodes cycle checks walk. The Frontier, the Board, the tool lookups and the markdown driver's file lookup all resolve through it. |
+| `src/board-order.ts` | Board order, derived from the Edges on each Board, and the prefix-then-name tie-break the driver's scan also sorts by. |
 | `src/edges.ts` | Cycle detection over the Edge graph. Above the seam, because a cycle is a rule about the domain rather than about storage — the same reason the Status model is checked in the tool layer. |
 | `src/storage/driver.ts` | The ADR 0001 seam, its edit vocabulary, and its typed failures. A driver is the workspace cached and live, so `close()` sits here beside the reads and writes. |
 | `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout, which it takes as a construction parameter — `frontmatter.ts` splits the fence, `ticket.ts` parses a Ticket, `legacy.ts` infers one from prose when there is no parseable fence (named for that one shape, not for Foreign), `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` writes a new batch at the paths its names imply and holds the minter `migrate.ts` still reserves ids from, `migrate.ts` normalizes an Effort at once, `schema.ts` is the one list of schema frontmatter keys, `id-pattern.ts` reads `<storageDir>/frontier.yml` once at construction and compiles `id_pattern`, `write.ts` renames it into place, `watcher.ts` tells the driver another process moved the workspace under it. |
@@ -383,6 +384,18 @@ Rendering rules that are load-bearing, not cosmetic:
   the Board renders them, so a dangling one shows as `name?` at once. Nothing is minted, so it
   carries no id-pattern warning under any pattern. `StorageDriver.mergeCollidingIdPattern()` now
   feeds only the duplicate-id warning.
+- **Board order comes from the Edges, never from a stored order** (ADR 0008). A Ticket is listed
+  below every Ticket of its own Effort that blocks it. Among those whose blockers are all listed,
+  the next is the smallest by the tie-break: the filename's numeric prefix where it has one
+  (`TicketSummary.orderHint`; digits then a hyphen, so `2fa.md` has none), a prefixed file before
+  an unprefixed one, then the name, case-folded and compared by code unit so no locale moves it.
+  An Edge into another Effort, a dangling one and
+  one to a duplicated name order nothing. A cycle never truncates the listing: when every remaining
+  Ticket waits on another, the smallest Ticket that is itself on a cycle is listed, so one merely
+  downstream of a cycle still follows its blocker. So an Effort whose Edges agree with its
+  prefixes lists by prefix, and one whose Edge points at a higher prefix lists the blocker first.
+  `boardOrder` in `src/board-order.ts` applies it to a Board only; the scan, the Map's generated
+  blocks and the `migrate_effort` report use the tie-break alone.
 - **Every Ticket is nameable.** A Board line opens with the Ticket's bare name — its id, or its
   file's name. `get_tickets` and a write result head it with the id or the full `<effort>.<name>`.
   The `<effort>#<order>` handle is neither produced nor accepted.
@@ -467,7 +480,8 @@ Write rules, equally load-bearing:
   off the Frontier. A plain `T38` is always its own Edge. The Board, the Frontier, a lazy
   normalization on any write and `migrate_effort` all write or show these resolved Edges, so
   migrating never changes a Frontier through a sub-slice. A bare sort-order Edge is different: it
-  dangles (`01?`) until migration resolves it, which can put its Ticket on the Frontier. An in-Effort
+  dangles (`01?`) until migration resolves it, which it does only to a file whose name carries that
+  prefix (`01-…`), never to a position in the listing; that can put its Ticket on the Frontier. An in-Effort
   name Edge to a Ticket the run mints is rewritten to that id, so it keeps resolving. The migration report, preview and real, ends with grouped
   lines for sub-slices kept as declared (with the `update_ticket blocked_by` fix) and for written
   Edges that land on another Effort (`T9@beta`), each naming ten and counting the rest.

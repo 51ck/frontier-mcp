@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import type { Effort, Status, TicketSummary } from '../domain.ts';
+import { boardOrder } from '../board-order.ts';
 import { frontierOf } from '../frontier.ts';
 import { fullNameOf, indexNames, type Names } from '../names.ts';
 
@@ -15,6 +16,7 @@ export const getBoardDescription =
 
 export interface Board {
   readonly effort: Effort;
+  /** Blockers above their dependents, per {@link boardOrder}. */
   readonly tickets: readonly TicketSummary[];
   /** The Tickets takeable right now. Computed repo-wide; never read from a file. */
   readonly frontier: ReadonlySet<TicketSummary>;
@@ -38,7 +40,10 @@ export function boardFor(
   const names = indexNames(all);
   return {
     effort,
-    tickets: all.filter(ticket => ticket.effort === effort.slug),
+    tickets: boardOrder(
+      all.filter(ticket => ticket.effort === effort.slug),
+      names,
+    ),
     frontier: frontierOf(all, names),
     names,
     workspaceWarnings,

@@ -78,8 +78,8 @@ export interface StorageDriver {
   listEfforts(): Promise<readonly Effort[]>;
 
   /**
-   * Every Ticket in the workspace without its body, ordered by Effort then by
-   * sort order. Ids resolve repo-wide, so callers that need one Effort filter
+   * Every Ticket in the workspace without its body, ordered by Effort, then by
+   * filename prefix where there is one, then by name. Ids resolve repo-wide, so callers that need one Effort filter
    * this rather than asking for a subset — at these volumes the whole set is the
    * cheap answer, and it stays cheap only because no body rides along.
    */

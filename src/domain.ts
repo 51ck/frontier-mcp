@@ -66,8 +66,11 @@ export interface TicketSummary {
   readonly blockedBy: readonly string[];
   /** The slug of the Effort that owns this Ticket. */
   readonly effort: string;
-  /** Sort order within its Effort. Order only — never identity. */
-  readonly order: number;
+  /**
+   * The numeric prefix of its filename, where the file has one. A hint that
+   * breaks ties in Board order, never identity; a file the server wrote has none.
+   */
+  readonly orderHint: number | undefined;
   /**
    * A Ticket whose file does not conform to the schema: no frontmatter fence, a
    * fence that does not parse, or a fence that parses but carries no `id` and at

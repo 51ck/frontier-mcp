@@ -102,9 +102,12 @@ function planChanges(
   const nameByOrder = new Map<number, string>();
 
   // Every Ticket in the Effort contributes to Edge remapping — a blocker that
-  // already had an id must still be findable by its sort order.
+  // already had an id must still be findable by its filename's prefix.
+  const atOrder = (entry: TicketFileEntry, name: string): void => {
+    if (entry.ticket.orderHint !== undefined) nameByOrder.set(entry.ticket.orderHint, name);
+  };
   for (const entry of entries) {
-    if (entry.ticket.id !== undefined) nameByOrder.set(entry.ticket.order, entry.ticket.id);
+    if (entry.ticket.id !== undefined) atOrder(entry, entry.ticket.id);
   }
 
   // Keyed by file, which an Effort cannot repeat; two files may share a name.
@@ -117,13 +120,13 @@ function planChanges(
     }
     if (minted === undefined) {
       assigned.set(entry.filename, undefined);
-      nameByOrder.set(entry.ticket.order, entry.ticket.name);
+      atOrder(entry, entry.ticket.name);
       continue;
     }
     const id = minted[mintAt++];
     if (id === undefined) throw new Error('Reserved fewer ids than Tickets needing one.');
     assigned.set(entry.filename, id);
-    nameByOrder.set(entry.ticket.order, id);
+    atOrder(entry, id);
     const name = entry.ticket.name.toLowerCase();
     idByName.set(name, id);
     idByName.set(`${effort.toLowerCase()}.${name}`, id);
@@ -180,9 +183,9 @@ async function applyPlan(
 }
 
 /**
- * A bare sort-order Edge becomes the id of the Ticket at that order, and the
- * name of a Ticket minted here becomes its id. Real ids and anything else pass
- * through unchanged — dangling Edges stay Board warnings.
+ * A bare sort-order Edge becomes the id of the Ticket whose filename carries
+ * that prefix, and the name of a Ticket minted here becomes its id. Real ids
+ * and anything else pass through unchanged — dangling Edges stay Board warnings.
  */
 function remapEdges(
   edges: readonly string[],
