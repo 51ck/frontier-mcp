@@ -245,10 +245,10 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       // Every name and reference is settled before anything is written, so a
       // refusal — a taken name, a cycle — leaves the workspace exactly as it
       // was. The driver runs the same rules again on a fresh read.
-      const { drafts, validate } = planBatch(tickets, await driver.listTickets(), effort);
+      const { drafts, settle } = planBatch(tickets, await driver.listTickets(), effort);
       const created = await driver.createTickets(effort, drafts, {
         createEffort: create === true,
-        validate,
+        settle,
       });
 
       // The files have landed: a scan that fails now must not turn a completed
@@ -328,12 +328,21 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       // writes nothing, so a duplicate already fixed by hand is never rewritten.
       if (claimants > 1) await driver.assertAddressable(id);
 
+      // Edges are settled against other Tickets, which the revision does not
+      // guard, so the driver settles them again on the read it writes from.
+      const at = now();
+      const settle =
+        blocked_by === undefined
+          ? undefined
+          : (fresh: readonly TicketSummary[]) => editFor(find(fresh)[0], fresh, request, at);
+
       let written: TicketWriteResult;
       try {
         written = await driver.updateTicket(
           address,
-          editFor(ticket, tickets, request, now()),
+          editFor(ticket, tickets, request, at),
           ticket.revision,
+          settle,
         );
       } catch (error) {
         if (!(error instanceof RevisionMismatch)) throw error;

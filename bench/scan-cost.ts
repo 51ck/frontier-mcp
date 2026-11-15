@@ -768,7 +768,7 @@ async function measureCreates(fixture: Fixture, batchSize: number) {
         createMs = await timed(async () => {
           const created = await writer.createTickets(effort, batch.drafts, {
             createEffort: false,
-            validate: batch.validate,
+            settle: batch.settle,
           });
           if (created.length !== batchSize) throw new Error('Incomplete benchmark batch.');
         });

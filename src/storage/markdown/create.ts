@@ -36,11 +36,13 @@ export interface CreateRequest {
   /** The Effort's directory, and the directory its Tickets go in. Both owned by the driver. */
   readonly dir: string;
   readonly issues: string;
-  readonly drafts: readonly TicketDraft[];
   /** Re-read the workspace. It feeds the last check before the write, so it must not be cached. */
   readonly rescan: Rescan;
-  /** The last check, run on that re-read. Throwing abandons the batch before anything is written. */
-  readonly validate: (tickets: readonly TicketSummary[]) => void;
+  /**
+   * The last check, run on that re-read, giving the drafts to write. Throwing
+   * abandons the batch before anything is written.
+   */
+  readonly settle: (tickets: readonly TicketSummary[]) => readonly TicketDraft[];
   /** Whether the Effort's directory has to be made, and unmade if nothing lands. */
   readonly createEffort: boolean;
 }
@@ -60,10 +62,10 @@ export interface WrittenFile {
  * guard file is involved, and none can be left behind.
  */
 export async function createTicketFiles(request: CreateRequest): Promise<readonly WrittenFile[]> {
-  const { effort, dir, issues, drafts, rescan, validate, createEffort } = request;
+  const { effort, dir, issues, rescan, settle, createEffort } = request;
 
   // Nothing has been written or even created, so a refusal leaves no trace.
-  validate(await rescan());
+  const drafts = settle(await rescan());
 
   const files = drafts.map(draft => ({
     name: draft.name,

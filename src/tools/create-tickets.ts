@@ -65,31 +65,55 @@ export interface PlannedBatch {
   readonly drafts: readonly TicketDraft[];
   /**
    * Every rule again, against the workspace as the driver reads it immediately
-   * before writing. The read behind the first pass may be a cached scan, taken
-   * before another session added the Ticket a name now collides with or the
-   * Edge a name now closes a loop through.
+   * before writing, giving the drafts as they are to be written. The read
+   * behind the first pass may be a cached scan, taken before another session
+   * added the Ticket a name now collides with, an Edge now closes a loop
+   * through, or a shortened Edge would now mean instead.
    */
-  readonly validate: (tickets: readonly TicketSummary[]) => void;
+  readonly settle: (tickets: readonly TicketSummary[]) => readonly TicketDraft[];
 }
 
 /**
  * Turn the request into drafts, refusing anything the schema, the naming rules
- * or the graph do not allow. An Edge that resolves to nothing is not refused:
- * pointing at a Ticket not yet written is how a breakdown gets built.
+ * or the graph do not allow, with every Edge in the form it is stored in. An
+ * Edge that resolves to nothing is refused only when it reads as a slip of a
+ * name that exists: pointing at a Ticket not yet written is how a breakdown
+ * gets built.
  */
 export function planBatch(
   requests: readonly DraftRequest[],
   existing: readonly TicketSummary[],
   effort: string,
 ): PlannedBatch {
-  const drafts = requests.map(request => toDraft(request));
-  const validate = (tickets: readonly TicketSummary[]): void => {
-    checkNames(drafts, tickets, effort);
+  const requested = requests.map(request => toDraft(request));
+  const settle = (tickets: readonly TicketSummary[]): readonly TicketDraft[] => {
+    checkNames(requested, tickets, effort);
+    const drafts = withStoredEdges(requested, tickets, effort);
     checkCycles(drafts, tickets, effort);
+    return drafts;
   };
 
-  validate(existing);
-  return { drafts, validate };
+  return { drafts: settle(existing), settle };
+}
+
+/**
+ * The drafts stand in the index beside the Tickets on disk, so an Edge to a
+ * sibling of the same call resolves, and a slip of a sibling's name is caught,
+ * exactly as it would be once the files exist.
+ */
+function withStoredEdges(
+  drafts: readonly TicketDraft[],
+  existing: readonly TicketSummary[],
+  effort: string,
+): readonly TicketDraft[] {
+  const planned = drafts.map(draft => asWritten(draft, effort));
+  const names = indexNames([...existing, ...planned]);
+
+  return drafts.map((draft, index) => {
+    const from = planned[index];
+    if (from === undefined) return draft;
+    return { ...draft, blockedBy: names.stored(draft.blockedBy, from) };
+  });
 }
 
 function toDraft(request: DraftRequest): TicketDraft {

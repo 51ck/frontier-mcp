@@ -315,7 +315,7 @@ Source layout:
 | --- | --- |
 | `src/domain.ts` | The CONTEXT.md vocabulary as types. Naming here is bound by the glossary, including its `_Avoid_` lines. Ids are opaque here; their shape is the driver's (`isId`). |
 | `src/frontier.ts` | The Frontier computation. Takes every Ticket in the workspace, because an Edge can lead into another Effort. |
-| `src/names.ts` | How a string names a Ticket: Edge and tool-input resolution, duplicate claimants, and the graph nodes cycle checks walk. The Frontier, the Board, the tool lookups and the markdown driver's file lookup all resolve through it. |
+| `src/names.ts` | How a string names a Ticket: Edge and tool-input resolution, duplicate claimants, the form a supplied Edge is stored in or refused for, and the graph nodes cycle checks walk. The Frontier, the Board, the tool lookups and the markdown driver's file lookup all resolve through it. |
 | `src/edges.ts` | Cycle detection over the Edge graph. Above the seam, because a cycle is a rule about the domain rather than about storage — the same reason the Status model is checked in the tool layer. |
 | `src/storage/driver.ts` | The ADR 0001 seam, its edit vocabulary, and its typed failures. A driver is the workspace cached and live, so `close()` sits here beside the reads and writes. |
 | `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout, which it takes as a construction parameter — `frontmatter.ts` splits the fence, `ticket.ts` parses a Ticket, `legacy.ts` infers one from prose when there is no parseable fence (named for that one shape, not for Foreign), `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` writes a new batch at the paths its names imply and holds the minter `migrate.ts` still reserves ids from, `migrate.ts` normalizes an Effort at once, `schema.ts` is the one list of schema frontmatter keys, `id-pattern.ts` reads `<storageDir>/frontier.yml` once at construction and compiles `id_pattern`, `write.ts` renames it into place, `watcher.ts` tells the driver another process moved the workspace under it. |
@@ -513,8 +513,24 @@ Write rules, equally load-bearing:
 - **A cycle is refused on both write paths**, creation and Edge update, and only when it runs through
   the node being written. A cycle already in the workspace is somebody's hand edit; refusing it here
   would make an unrelated Effort unwritable, and the Board already reports the damage it does.
-- **A dangling Edge is never refused.** It is a Board warning, and pointing at a Ticket not yet
-  written is how a breakdown gets built up.
+- **A dangling Edge is refused only when it reads as a slip.** `Names.stored()` in `src/names.ts`
+  is the one check, run by `create_tickets` and `update_ticket` `blocked_by` on the Edges the call
+  supplies. A reference that resolves to nothing is `ProbableTypo` when it is a near miss of a name
+  in the writing Ticket's Effort (siblings of the same call included), of any id, or — for
+  `<effort>.<name>` on a known Effort — of a name there: 1 edit when the shorter string has 4–6
+  characters, 2 from 7 up, never at 1–3, an adjacent swap counting as one, case folded. The
+  message gives both outs: write the near name, or declare the Ticket in the same call or create
+  it first. A bare reference that is exactly a name in another Effort is `NameInAnotherEffort`,
+  judged before any near miss; a Board's `<name>@<known effort>` whose name resolves there is
+  `BoardFormAsEdge`, naming the form to write. Everything else, an unknown Effort included,
+  dangles as a Board warning: pointing at a Ticket not yet written is how a breakdown gets built
+  up. An Edge the Ticket already stored is never refused, and Edges elsewhere are never judged.
+- **A supplied Edge that resolves is stored in the shortest form that resolves to the same
+  Ticket**, in the target's spelling: bare within the Effort, the id, else `<effort>.<name>`. Two
+  that mean one Ticket are stored once, where the first stood. Both write paths settle Edges
+  twice: on the cached scan, then inside the driver on the read it writes from
+  (`CreateOptions.settle`, `updateTicket`'s `settle`), and what the second pass returns is what is
+  written — a scan taken before a hand-written file landed never decides a stored form.
 
 Annotation rules — a comment, a ticked criterion, and a Triage role are records of work, not moves
 in the graph:

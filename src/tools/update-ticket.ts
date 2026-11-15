@@ -227,21 +227,21 @@ function identityFor(ticket: TicketSummary, request: UpdateRequest): TicketEdit 
 }
 
 /**
- * The new Edge list, refused if it closes a cycle. This is the same check
- * `create_tickets` runs and the easier of the two ways to close a loop — a
- * breakdown published in one call is at least written down in one place, where
- * an Edge added later is not.
+ * The new Edge list as it is stored, refused if it closes a cycle. This is the
+ * same check `create_tickets` runs and the easier of the two ways to close a
+ * loop — a breakdown published in one call is at least written down in one
+ * place, where an Edge added later is not.
  *
- * A dangling Edge is not refused: it is a Board warning, and pointing at a
- * Ticket that has not been written yet is how a breakdown gets built up.
+ * An Edge that resolves to nothing dangles, a Board warning, unless it reads as
+ * a slip of a name that exists. One the Ticket already carried is never judged.
  */
 function edgesFor(
   ticket: TicketSummary,
   all: readonly TicketSummary[],
   request: UpdateRequest,
 ): readonly string[] {
-  const blockedBy = request.blocked_by ?? [];
   const names = indexNames(all);
+  const blockedBy = names.stored(request.blocked_by ?? [], ticket, ticket.blockedBy);
   const self = names.nodeOf(ticket);
   const proposed = blockedBy.map(edge => names.node(edge, ticket.effort));
   const edgesOf: EdgesOf = node => (node === self ? proposed : names.edgesFrom(node));

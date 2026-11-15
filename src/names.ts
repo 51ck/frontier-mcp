@@ -18,6 +18,44 @@ export class AmbiguousName extends Error {
   }
 }
 
+const STILL_TO_WRITE =
+  'is still to be written, declare it in the same create_tickets call or create it first. ' +
+  'Nothing was written.';
+
+/** Thrown when an Edge supplied on a write resolves to nothing and is a near miss of a name that does. */
+export class ProbableTypo extends Error {
+  constructor(reference: string, nearest: string) {
+    super(
+      `'${reference}' names no Ticket and is close to '${nearest}'. Write '${nearest}' if that ` +
+        `is the Ticket meant. If a Ticket named '${reference}' ${STILL_TO_WRITE}`,
+    );
+    this.name = 'ProbableTypo';
+  }
+}
+
+/** Thrown when a bare Edge supplied on a write is a Ticket's name only in another Effort. */
+export class NameInAnotherEffort extends Error {
+  constructor(reference: string, effort: string, candidates: readonly string[]) {
+    super(
+      `'${reference}' names no Ticket of ${effort}, and is the name of ${candidates.join(', ')}. ` +
+        `Write that full name if it is the Ticket meant. If a Ticket of ${effort} named ` +
+        `'${reference}' ${STILL_TO_WRITE}`,
+    );
+    this.name = 'NameInAnotherEffort';
+  }
+}
+
+/** Thrown when an Edge supplied on a write is the Board's rendering of one, which is never input. */
+export class BoardFormAsEdge extends Error {
+  constructor(reference: string, write: string) {
+    super(
+      `'${reference}' is how a Board shows an Edge into another Effort, not a name. ` +
+        `Write '${write}'. Nothing was written.`,
+    );
+    this.name = 'BoardFormAsEdge';
+  }
+}
+
 /**
  * A Ticket's name where there is no Effort to resolve against: its id, which is
  * global, or `<effort>.<name>` for a name that is local to its Effort.
@@ -93,6 +131,23 @@ export interface Names {
    * another Ticket's bare name.
    */
   addressOf(ticket: TicketSummary): string;
+  /**
+   * The Edges supplied on a write to `from`, as they are stored. One that
+   * resolves is put in the shortest form resolving to the same Ticket, in the
+   * Ticket's own spelling: bare within the Effort, an id, or the full name. Two
+   * that mean one Ticket are stored once, where the first stood.
+   *
+   * One that resolves to nothing is kept as written, to dangle — unless it is
+   * a near miss of a name it could have meant ({@link ProbableTypo}), is
+   * exactly a name in another Effort ({@link NameInAnotherEffort}), or is a
+   * Board's `<name>@<effort>` ({@link BoardFormAsEdge}). An Edge in `kept`,
+   * those `from` already stored, is never refused.
+   */
+  stored(
+    references: readonly string[],
+    from: TicketSummary,
+    kept?: readonly string[],
+  ): readonly string[];
   /** Every set of duplicate claimants in the workspace, each set once. */
   duplicates(): readonly (readonly TicketSummary[])[];
   /** The graph node a Ticket is: one per name, however many files claim it. */
@@ -106,6 +161,62 @@ export interface Names {
 /** Names and ids compare without regard to case; what is shown is the stored spelling. */
 function fold(name: string): string {
   return name.toLowerCase();
+}
+
+const MAX_EDITS = 2;
+
+/**
+ * How many edits a slip may be for two strings this long. Scaled by the shorter
+ * one, so that `T1` beside `T2` or `api` beside `cli` are two names rather than
+ * one mistyped, and `parse` is not taken for `purge`: none at length 1–3, one
+ * at 4–6, two from 7 up.
+ */
+function editsAllowed(a: string, b: string): number {
+  return Math.min(MAX_EDITS, Math.floor((Math.min(a.length, b.length) - 1) / 3));
+}
+
+function at(row: readonly number[], index: number): number {
+  return row[index] ?? Infinity;
+}
+
+/**
+ * Edits between two strings: a substitution, an insertion, a deletion, or two
+ * adjacent characters swapped, one each. Lengths further apart than any slip
+ * is allowed are not measured.
+ */
+function editDistance(a: string, b: string): number {
+  if (Math.abs(a.length - b.length) > MAX_EDITS) return MAX_EDITS + 1;
+
+  let twoBack: readonly number[] = [];
+  let previous: readonly number[] = Array.from({ length: b.length + 1 }, (_, j) => j);
+
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j++) {
+      const same = a[i - 1] === b[j - 1];
+      const swapped = i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1];
+      current.push(
+        Math.min(
+          at(previous, j) + 1,
+          at(current, j - 1) + 1,
+          at(previous, j - 1) + (same ? 0 : 1),
+          swapped ? at(twoBack, j - 2) + 1 : Infinity,
+        ),
+      );
+    }
+    twoBack = previous;
+    previous = current;
+  }
+
+  return at(previous, b.length);
+}
+
+/** The distance between two folded strings when one reads as a slip of the other. */
+function nearMiss(a: string, b: string): number | undefined {
+  const allowed = editsAllowed(a, b);
+  if (allowed < 1) return undefined;
+  const distance = editDistance(a, b);
+  return distance >= 1 && distance <= allowed ? distance : undefined;
 }
 
 /**
@@ -228,6 +339,94 @@ export function indexNames(all: readonly TicketSummary[]): Names {
     return first === undefined ? name : fullNameOf(first);
   };
 
+  const shortest = (target: TicketSummary, effort: string): string | undefined =>
+    [
+      target.effort === effort ? target.name : undefined,
+      target.id,
+      `${target.effort}.${target.name}`,
+    ].find(form => form !== undefined && node(form, effort) === nodeOf(target));
+
+  const boardForm = (folded: string): TicketSummary | undefined => {
+    const mark = folded.lastIndexOf('@');
+    if (mark < 0) return undefined;
+    const slug = folded.slice(mark + 1);
+    for (const [known, tickets] of byEffort) {
+      if (fold(known) === slug) return tickets.get(folded.slice(0, mark))?.[0];
+    }
+    return undefined;
+  };
+
+  const storedOne = (reference: string, from: TicketSummary, kept: readonly string[]): string => {
+    const effort = from.effort;
+    const found = edge(reference, effort);
+    const target = found.find(ticket => ticket.effort === effort) ?? found[0];
+    if (target !== undefined) return shortest(target, effort) ?? reference;
+
+    const folded = fold(reference);
+    if (kept.some(held => fold(held) === folded)) return reference;
+
+    const shown = boardForm(folded);
+    if (shown !== undefined) {
+      throw new BoardFormAsEdge(reference, shortest(shown, effort) ?? fullNameOf(shown));
+    }
+
+    const elsewhere = bare.get(folded) ?? [];
+    if (elsewhere.length > 0) {
+      throw new NameInAnotherEffort(reference, effort, [...new Set(elsewhere.map(fullNameOf))]);
+    }
+
+    // What the reference could have meant, each beside the text it is a slip
+    // of. The Ticket being written is left out: an Edge to itself is a cycle,
+    // so its own name is never what a caller reached for.
+    const self = new Set(claimants(from));
+    const meant: { text: string; name: string; ticket: TicketSummary }[] = [];
+    const offer = (text: string, known: ReadonlyMap<string, readonly TicketSummary[]>): void => {
+      for (const [name, tickets] of known) {
+        const [ticket] = tickets;
+        if (ticket !== undefined && !tickets.some(one => self.has(one))) {
+          meant.push({ text, name, ticket });
+        }
+      }
+    };
+    offer(folded, byEffort.get(effort) ?? new Map());
+    for (const [slug, prefix] of prefixes) {
+      if (folded.startsWith(prefix)) {
+        offer(folded.slice(prefix.length), byEffort.get(slug) ?? new Map());
+      }
+    }
+    offer(folded, byId);
+
+    let nearest: TicketSummary | undefined;
+    let fewest = Infinity;
+    for (const { text, name, ticket } of meant) {
+      const distance = nearMiss(text, name);
+      if (distance !== undefined && distance < fewest) {
+        nearest = ticket;
+        fewest = distance;
+      }
+    }
+    if (nearest !== undefined) {
+      throw new ProbableTypo(reference, shortest(nearest, effort) ?? fullNameOf(nearest));
+    }
+    return reference;
+  };
+
+  const stored = (
+    references: readonly string[],
+    from: TicketSummary,
+    kept: readonly string[] = [],
+  ): readonly string[] => {
+    const seen = new Set<string>();
+    return references
+      .map(reference => storedOne(reference, from, kept))
+      .filter(form => {
+        const key = fold(node(form, from.effort));
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  };
+
   let groups: Map<string, readonly TicketSummary[]> | undefined;
   const edgesFrom = (from: string): readonly string[] => {
     if (groups === undefined) {
@@ -243,5 +442,5 @@ export function indexNames(all: readonly TicketSummary[]): Names {
     );
   };
 
-  return { edge, input, claimants, addressOf, duplicates, nodeOf, node, edgesFrom };
+  return { edge, input, claimants, addressOf, stored, duplicates, nodeOf, node, edgesFrom };
 }

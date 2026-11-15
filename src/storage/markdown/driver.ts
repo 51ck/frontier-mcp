@@ -271,8 +271,12 @@ export function createMarkdownDriver(
       return readBodies(storage, await walk(), handles);
     },
 
-    updateTicket(handle, edit, expectedRevision) {
-      return moved(() => serialized(() => write(storage, handle, edit, expectedRevision)));
+    updateTicket(handle, edit, expectedRevision, settle) {
+      const settled =
+        settle === undefined
+          ? undefined
+          : async () => settle((await walk()).flatMap(entry => summariesOf(entry)));
+      return moved(() => serialized(() => write(storage, handle, edit, expectedRevision, settled)));
     },
 
     createTickets(effort, drafts, options) {
@@ -404,9 +408,8 @@ async function create(
     effort,
     dir,
     issues: join(dir, ISSUES_DIR),
-    drafts,
     rescan: async () => (await walk()).flatMap(summariesOf),
-    validate: options.validate ?? (() => {}),
+    settle: options.settle ?? (() => drafts),
     createEffort: missing,
   });
 
@@ -429,8 +432,9 @@ async function create(
 async function write(
   storage: string,
   handle: string,
-  edit: TicketEdit,
+  requested: TicketEdit,
   expectedRevision: string,
+  settled: (() => Promise<TicketEdit>) | undefined,
 ): Promise<TicketWriteResult> {
   const located = await locate(storage, handle);
   if (located === undefined) throw new NoSuchTicket(handle);
@@ -442,6 +446,7 @@ async function write(
   // against the file as it is right now, immediately before the write.
   if ((await currentRevision(path)) !== expectedRevision) throw new RevisionMismatch(handle);
 
+  const edit = settled === undefined ? requested : await settled();
   const contents = await readFile(path, 'utf8');
   const updated = applyEdit(contents, edit, defaultsFor(ticket));
 

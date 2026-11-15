@@ -31,14 +31,16 @@ export interface CreateOptions {
   readonly createEffort: boolean;
   /**
    * Called with the workspace as the driver reads it immediately before
-   * writing. Throwing abandons the batch and nothing is created — not the
+   * writing; the drafts it returns are the ones written, in place of those
+   * passed. Throwing abandons the batch and nothing is created — not the
    * Tickets, and not the Effort either.
    *
-   * It exists because the rules above the seam were first checked against a
-   * scan that may be stale: a name taken since, or a dangling Edge that the
-   * new name would close into a loop, is only visible here.
+   * It exists because the rules above the seam were first applied to a scan
+   * that may be stale: a name taken since, a dangling Edge that the new name
+   * would close into a loop, or what an Edge's stored form now resolves to, is
+   * only visible here.
    */
-  readonly validate?: (tickets: readonly TicketSummary[]) => void;
+  readonly settle?: (tickets: readonly TicketSummary[]) => readonly TicketDraft[];
 }
 
 /**
@@ -146,11 +148,18 @@ export interface StorageDriver {
    * Resolving or dropping also refreshes the Map's derived blocks. That refresh
    * is best-effort: a failure after the Ticket write still returns success, with
    * a warning that Decisions-so-far / dropped Out-of-scope may be stale.
+   *
+   * `settle`, when given, is called with the workspace as the driver reads it
+   * immediately before writing, and the edit it returns is the one applied in
+   * place of `edit`. It is for an edit that depends on Tickets other than this
+   * one — its Edges — which `expectedRevision` does not guard. Throwing
+   * abandons the write.
    */
   updateTicket(
     handle: string,
     edit: TicketEdit,
     expectedRevision: string,
+    settle?: (tickets: readonly TicketSummary[]) => TicketEdit,
   ): Promise<TicketWriteResult>;
 
   /**
