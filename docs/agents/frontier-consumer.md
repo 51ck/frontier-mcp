@@ -26,11 +26,12 @@ A suggestion earns its place when it would move at least one goal for the next a
    Done when at least one goal is named.
 3. **Scan before filing.** `get_board` on `frontier-v1` (and `get_tickets` on near matches) for an
    open Ticket that already covers this friction.
-   Done when you either have a matching Ticket id or know none exists.
+   Done when you either have a matching Ticket or know none exists.
 4. **Land the signal.**
    - Match found → append a comment with your capture (tool, args, expectation, result, goal tags).
-   - No match → `create_tickets` on `frontier-v1`: `kind: build`, triage `needs-triage`, title that
-     states the desired behaviour, body with Problem / Done when / the capture from step 1.
+   - No match → `create_tickets` on `frontier-v1`: a `name` for what it covers, `kind: build`,
+     triage `needs-triage`, title that states the desired behaviour, body with Problem / Done when /
+     the capture from step 1.
    - You cannot write the tracker → tell the user the same content in one short block and stop.
    Done when a Ticket holds the signal, a comment enriched an existing one, or the user has the block.
 

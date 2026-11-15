@@ -330,14 +330,14 @@ seam. A third wanting one is a design signal, not a third exception.
 
 Rendering rules that are load-bearing, not cosmetic:
 
-- **A Board never carries a body.** Bodies come from `get_tickets`, by id, only for the Tickets
+- **A Board never carries a body.** Bodies come from `get_tickets`, by name, only for the Tickets
   actually being worked. The read path is built that way and not merely rendered that way:
   `listTickets` yields `TicketSummary`, so a scan parses frontmatter and keeps no prose, and the
-  driver caches exactly what a Board is built from. `readTickets(handles)` opens the named files and
+  driver caches exactly what a Board is built from. `readTickets()` opens the named files and
   is the only route to a body — it walks fresh rather than reading the cached scan, which is why
   `get_tickets` can never serve prose another process has already rewritten.
 - **A write names the workspace it resolved; a read does not** ([T11](./.scratch/frontier-v1/issues/11-T11-should-a-mutating-call-report-the-workspace-it-r.md)).
-  Ticket ids are unique within a repository, not across repositories, so `T10 updated` is as plausible
+  A Ticket's name is unique within a repository, not across repositories, so `T10 updated` is as plausible
   against the wrong repository as the right one, and it is the one result a caller cannot check from
   what it got back. A read needs no such line: the wrong repository returns visibly wrong content.
   What decides is *whether the call wrote*, not whether the tool can — `edit_map` with no section
@@ -681,8 +681,9 @@ Shapes the parser handles that these two Efforts happen **not** to contain — s
 `docs/agents/issue-tracker.md` opens with `Tracker doc revision <n>`, pinned in form only by
 `test/ship.test.ts`; raise it by hand whenever the doc's contract changes.
 
-`test/read-path-cost.test.ts` asserts the spec's token measurements. They are the argument for the
-project existing, so they are checked rather than restated.
+`test/read-path-cost.test.ts` asserts the spec's token measurements, and what a Board of named
+Tickets costs against the same Board rendered in ids. They are the argument for the project
+existing, so they are checked rather than restated.
 
 ## Agent skills
 
@@ -755,6 +756,12 @@ When the user requests a durable behavior change, record it here or in the relev
   supersedes it. Every file here opens with its date and the Ticket it answered.
 - `.scratch/` holds this repo's own Efforts, in the same layout FrontierMCP serves —
   [frontier-v1](./.scratch/frontier-v1/spec.md) (the server itself),
-  [frontier-web](./.scratch/frontier-web/map.md) (serving the tracker to a browser), and
-  [frontier-hive](./.scratch/frontier-hive/map.md) (whether processes share one driver). It is work
-  tracking, not source; no child AGENTS.md.
+  [frontier-web](./.scratch/frontier-web/map.md) (serving the tracker to a browser),
+  [frontier-hive](./.scratch/frontier-hive/map.md) (whether processes share one driver),
+  [frontier-ids](./.scratch/frontier-ids/map.md) and [ids-patterns](./.scratch/ids-patterns/map.md)
+  (the 1.x minted id and its pattern, both superseded by ADR 0008),
+  [ticket-names](./.scratch/ticket-names/map.md) (naming a Ticket by its path, 2.0),
+  [frontier-onboarding](./.scratch/frontier-onboarding/map.md) (how a consumer adopts the product),
+  [frontier-launch](./.scratch/frontier-launch/map.md) (the go-to-market plan), and
+  [migration-field-report](./.scratch/migration-field-report/spec.md) (findings from migrating a
+  real repository). It is work tracking, not source; no child AGENTS.md.

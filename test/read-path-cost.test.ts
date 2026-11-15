@@ -25,6 +25,46 @@ async function snapshot(dir: string): Promise<Map<string, string>> {
   return new Map(stamped);
 }
 
+/**
+ * The telegram fixture again as `create_tickets` writes it: the same fifteen
+ * titles, the same Edges between them, each Ticket named for what it is. The
+ * fixture's Tickets carry ids, so its own measurements say nothing about what
+ * a Board of names costs.
+ */
+const NAMED_TELEGRAM = [
+  ['group-boot', 'Grammy group boot', []],
+  ['identity-bridge', 'Identity bridge', ['group-boot']],
+  ['inbound-events', 'Inbound event → Session hub', ['identity-bridge']],
+  ['outbound-send', 'Outbound send path', ['group-boot']],
+  ['inline-keyboard', 'askWithOptions → inline keyboard', ['inbound-events', 'outbound-send']],
+  ['reminder-delivery', 'Reminder delivery', ['inline-keyboard']],
+  ['button-checkin', 'Button Check-in → core verbs', ['inline-keyboard', 'reminder-delivery']],
+  ['freetext-checkin', 'Free-text Check-in handoff', ['inbound-events']],
+  ['settings-command', '`/settings` (admins)', ['identity-bridge', 'outbound-send']],
+  [
+    'checklist-membership',
+    'Checklist join / leave commands',
+    ['identity-bridge', 'outbound-send', 'settings-command'],
+  ],
+  ['day-summary', 'Day Summary delivery', ['outbound-send']],
+  [
+    'scheduler-loop',
+    'Scheduler loop in telegram process',
+    ['reminder-delivery', 'button-checkin', 'day-summary'],
+  ],
+  [
+    'reminder-chrome',
+    'Reminder chrome hygiene',
+    ['outbound-send', 'reminder-delivery', 'button-checkin'],
+  ],
+  ['help-progress', 'Help + progress command handoff', ['inbound-events', 'outbound-send']],
+  [
+    'character-settings',
+    'Character `/settings` + force-choose + admin title',
+    ['settings-command'],
+  ],
+] as const;
+
 /** What reading the Effort the old way costs: every Ticket file, whole. */
 async function costOfReadingWhole(root: string, effort: string): Promise<number> {
   const issues = join(root, '.scratch', effort, 'issues');
@@ -58,8 +98,8 @@ describe('the cost of a Board', () => {
     const measured = await Promise.all(
       (
         [
-          ['telegram', 12],
-          ['ship-0-5-0', 20],
+          ['telegram', 15],
+          ['ship-0-5-0', 30],
         ] as const
       ).map(async ([effort, floor]) => ({
         effort,
@@ -76,9 +116,52 @@ describe('the cost of a Board', () => {
 
       // And pinned, not merely bounded — a Board that doubled would still clear
       // a ratio floor on an Effort this expensive, and quietly giving back the
-      // saving is the regression this file exists to catch.
-      expect(board).toBeLessThan(700);
+      // saving is the regression this file exists to catch. Measured: 473 for
+      // telegram, whose Tickets carry ids, and 386 for ship-0-5-0, whose seven
+      // are named by their files.
+      expect(board).toBeLessThan(500);
     }
+  });
+
+  it('holds for an Effort of named Tickets, at the same bodies', async () => {
+    const root = await makeForeignWorkspace({ telegram: 'sobrina-telegram' });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const issues = join(root, '.scratch', 'telegram', 'issues');
+    const files = (await readdir(issues)).toSorted();
+    const bodies = await Promise.all(files.map(async file => readFile(join(issues, file), 'utf8')));
+
+    await frontier.call('create_tickets', {
+      effort: 'telegram-named',
+      create: true,
+      tickets: NAMED_TELEGRAM.map(([name, title, blocked_by], index) => ({
+        name,
+        title,
+        blocked_by: [...blocked_by],
+        body: bodies[index],
+      })),
+    });
+
+    const board = await frontier.call('get_board', { effort: 'telegram-named' });
+    const whole = await costOfReadingWhole(root, 'telegram-named');
+
+    // Every line opens with a name and no Ticket is Foreign or unnamed.
+    for (const [name, title] of NAMED_TELEGRAM) expect(board).toContain(`${name}  ${title}`);
+    expect(board).not.toContain('warnings:');
+
+    // The same Board with each name swapped for the three-character id the
+    // fixture's Ticket carries (T30 to T44): what naming costs on a Board.
+    const asIds = NAMED_TELEGRAM.reduce(
+      (text, [name], index) => text.replaceAll(name, `T${String(30 + index)}`),
+      board,
+    );
+
+    // Measured: 354 tokens against 8,588 read whole, 24x; the id rendering
+    // is 244. Fifteen names and twenty-four Edges cost 110 tokens, under three
+    // a reference, and the Board stays below either fixture's.
+    expect(whole / tokens(board)).toBeGreaterThan(20);
+    expect(tokens(board)).toBeLessThan(400);
+    expect(tokens(board) / tokens(asIds)).toBeLessThan(1.5);
   });
 
   it('does not grow when an Effort carries far longer bodies', async () => {

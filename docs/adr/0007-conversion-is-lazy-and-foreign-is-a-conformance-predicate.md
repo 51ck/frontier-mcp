@@ -48,33 +48,27 @@ line. The server never removes one on its own. T101 decided that only an agent d
 `update_ticket`'s `drop_keys` (T103); dropping a Ticket's last one takes it out of the Board's
 count. `migrate_effort` does not: it keeps every key it finds.
 
-**Minting is the one step that cannot be lazy, so `migrate_effort` is the id-minting batch, not a
-conversion pass.** `Blocked by: 01, 02` names this Effort's sort orders, and the siblings it names
-may have no ids yet. Only a batch over the whole Effort holds the order-to-id map that turns those
-into Edges (`remapEdges` in `src/storage/markdown/migrate.ts`). Each way of doing it per Ticket is
-worse:
+**`migrate_effort` is the batch that resolves sort-order Edges, not a conversion pass, and it mints
+nothing.** `Blocked by: 01, 02` names this Effort's sort orders, and under
+[ADR 0008](./0008-a-ticket-is-named-by-its-path.md) every Ticket those name already has a name: its
+id, or its file's stem. The batch rewrites each bare sort-order Edge to the name of the one other
+Ticket whose file carries that prefix (`planChanges` in `src/storage/markdown/migrate.ts`). One it
+cannot settle stays as declared and dangling, and is listed in the report: two files carry the
+prefix, that file's name is not its alone, or the file is the Ticket's own. Digits that already name
+a Ticket keep meaning that Ticket.
 
-- **Store the handle in `blocked_by`.** `<effort>#<order>` stops naming a Ticket the moment it is
-  minted, and Edges resolve only by id. Before that it is sort order, never identity, so a hand
-  renumbering would silently retarget it.
-- **Mint the blockers too, on the first write.** One `update_ticket` then writes at least three
-  files, and as many more as those blockers' own sort-order Edges reach, and a
-  write that touches Tickets it was not addressed to breaks, from inside, the invariant that nothing
-  changes until an agent writes to that Ticket.
-- **Drop the Edge.** That loses graph data the batch recovers mechanically.
-
-So `migrate_effort` mints ids Effort-wide, keeps any id already read from a heading, rewrites bare
-sort-order Edges to the ids those Tickets now carry, normalizes unfenced files on the way, and
-writes nothing else. Into a fence that parses it writes only `id`, if missing, and `blocked_by`,
-always; the fence's other keys, Unimported ones and `status` among them, stay as they were. It renames no file, and
-its preview predicts no id: an unminted Ticket keeps the name it has everywhere, `blocked_by=`
-included (T69). A prose sub-slice such as `T38.1` is resolved at scan, coarsening to `T38` only when
-`T38` is another Ticket of the same Effort and never onto the Ticket declaring it (T82), so for a
-sub-slice migration writes the Edge the Board already showed. A bare sort-order Edge is the
-exception: the Board shows it dangling (`01?`), and migration resolves it, which can put its Ticket
-on the Frontier. Everything else — a real title, a Kind
-the prose implies — is an agent's to write per Ticket, through `update_ticket`'s `title`, `kind`
-and `type`.
+So `migrate_effort` normalizes unfenced files, rewrites those Edges, and writes nothing else. Into a
+fence that parses it writes only `blocked_by`, and only when an Edge changed; the fence's other keys,
+Unimported ones and `status` among them, stay as they were. The only `id` it writes is one a
+fenceless file's prose already declared, and no file is renamed, so every Ticket keeps its name, the
+preview and the real run report the same lines, and an Edge into the Effort from elsewhere resolves
+afterwards as before. A prose sub-slice such as `T38.1`
+is resolved at scan, coarsening to `T38` only when `T38` is another Ticket of the same Effort and
+never onto the Ticket declaring it (T82), so for a sub-slice migration writes the Edge the Board
+already showed. A bare sort-order Edge is the exception: the Board shows it dangling (`01?`), and
+migration resolves it, which can put its Ticket on the Frontier. Everything else — a real title, a
+Kind the prose implies — is an agent's to write per Ticket, through `update_ticket`'s `title`,
+`kind` and `type`.
 
 **Detection writes nothing.** A Foreign file is flagged on read and counted on the Board, a fence
 holding Unimported keys is counted beside it, and a fenced `status` outside the four sets
