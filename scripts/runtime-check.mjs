@@ -20,7 +20,8 @@ const TOOL_NAMES = [
 const TRACKER_DOC_URI = 'frontier://tracker-doc';
 const CLAIMANTS = 4;
 const CREATORS = 4;
-const TICKETS_PER_CREATOR = 3;
+const LIFECYCLE_NAME = 'runtime-lifecycle';
+const CONTENDED_NAME = 'contended';
 const WATCHER_SETTLE_MS = 1_300;
 const WATCHER_TIMEOUT_MS = 5_000;
 
@@ -67,9 +68,9 @@ function parseArguments(args) {
   };
 }
 
-/** Returns the id the server minted and the file it wrote, which no caller may guess. */
+/** Returns the full name the Ticket answers to and the file its name implies. */
 async function verifyPublicSurface(root) {
-  let minted;
+  let created;
   await withServer(root, 'surface', async client => {
     const { tools } = await client.listTools();
     assertEqual(
@@ -87,14 +88,33 @@ async function verifyPublicSurface(root) {
     const trackerDoc = contents.map(content => ('text' in content ? content.text : '')).join('\n');
     assert(trackerDoc.includes('get_board'), 'the shipped tracker resource is readable');
 
-    const created = await call(client, 'create_tickets', {
+    const report = await call(client, 'create_tickets', {
       effort: 'alpha',
       create: true,
-      tickets: [{ title: 'Runtime lifecycle', body: 'Created through the packaged server.' }],
+      tickets: [
+        {
+          name: LIFECYCLE_NAME,
+          title: 'Runtime lifecycle',
+          body: 'Created through the packaged server.',
+        },
+      ],
     });
-    const id = /^(\S+) +Runtime lifecycle$/m.exec(created)?.[1];
-    assert(id !== undefined, 'create_tickets reports the id it minted');
-    assert(/^T[0-9a-z]{6}$/.test(id), `the default id pattern mints T<b36{6}>; got ${id}`);
+    const id = `alpha.${LIFECYCLE_NAME}`;
+    assert(
+      /^(\S+) +Runtime lifecycle$/m.exec(report)?.[1] === id,
+      `create_tickets reports the Ticket by its full name ${id}; got\n${report}`,
+    );
+    const issues = join(root, '.scratch', 'alpha', 'issues');
+    assertEqual(
+      await readdir(issues),
+      [`${LIFECYCLE_NAME}.md`],
+      'the created Ticket is the one file its name implies, with no sort-order prefix',
+    );
+    const path = join(issues, `${LIFECYCLE_NAME}.md`);
+    assert(
+      !/^id:/m.test(frontmatterOf(await readFile(path, 'utf8'))),
+      'a created Ticket carries no id field',
+    );
     const board = await call(client, 'get_board', { effort: 'alpha' });
     assert(board.includes('Runtime lifecycle'), 'created Ticket appears on its Board');
     const ticket = await call(client, 'get_tickets', { ids: [id] });
@@ -113,13 +133,17 @@ async function verifyPublicSurface(root) {
       id,
       reopen: { reason: 'Exercise the full lifecycle.' },
     });
+    const updated = await readFile(path, 'utf8');
+    assert(
+      /^status:\s*open$/m.test(frontmatterOf(updated)) &&
+        updated.includes('Exercise the full lifecycle.'),
+      'updates addressed by name land in the file the name implies',
+    );
+    assert(!/^id:/m.test(frontmatterOf(updated)), 'an update adds no id field');
 
-    const issues = join(root, '.scratch', 'alpha', 'issues');
-    const [file] = await readdir(issues);
-    assert(file !== undefined, 'the created Ticket has a file');
-    minted = { id, path: join(issues, file) };
+    created = { id, path };
   });
-  return minted;
+  return created;
 }
 
 async function verifyWatcher(root, ticket) {
@@ -216,10 +240,8 @@ async function verifyCrossProcessClaim(root, ticket) {
 }
 
 async function verifyCrossProcessCreate(root) {
-  // Only a counted pattern allocates under guards, so only one can show that
-  // separate processes never hand out the same counter. Read at construction,
-  // so it must be in place before these servers start.
-  await writeFile(join(root, '.scratch', 'frontier.yml'), 'id_pattern: T<N>\n', 'utf8');
+  const storage = join(root, '.scratch');
+  const before = await filesUnder(storage);
 
   const servers = await Promise.all(
     Array.from({ length: CREATORS }, (_, index) => openServer(root, `create-${String(index)}`)),
@@ -228,43 +250,56 @@ async function verifyCrossProcessCreate(root) {
   try {
     await Promise.all(servers.map(({ client }) => call(client, 'get_board', { effort: 'alpha' })));
     const outcomes = await Promise.all(
-      servers.map(({ client }, creator) =>
-        callResult(client, 'create_tickets', {
+      servers.map(({ client }, creator) => {
+        const title = `Creator ${String(creator)}`;
+        return callResult(client, 'create_tickets', {
           effort: 'alpha',
-          tickets: Array.from({ length: TICKETS_PER_CREATOR }, (_, ticket) => ({
-            title: `Creator ${String(creator)} Ticket ${String(ticket)}`,
-          })),
-        }),
-      ),
+          tickets: [{ name: CONTENDED_NAME, title }],
+        }).then(result => ({ title, result }));
+      }),
     );
+    const winners = outcomes.filter(({ result }) => result.isError !== true);
     assert(
-      outcomes.every(result => result.isError !== true),
-      'every concurrent batch is created',
+      winners.length === 1,
+      `exactly one separate server process creates a name; got ${winners.length}\n` +
+        outcomes
+          .map(
+            ({ title, result }, index) =>
+              `${title}: ${JSON.stringify(result)}\nServer stderr:\n${servers[index].stderr()}`,
+          )
+          .join('\n'),
     );
 
-    const issues = join(root, '.scratch', 'alpha', 'issues');
-    const files = (await readdir(issues)).filter(name => name.endsWith('.md'));
-    assert(
-      files.length === 1 + CREATORS * TICKETS_PER_CREATOR,
-      'every concurrent Ticket has a file',
+    const contended = join('alpha', 'issues', `${CONTENDED_NAME}.md`);
+    assertEqual(
+      await filesUnder(storage),
+      [...before, contended].toSorted(),
+      'concurrent creation of one name leaves exactly one file and nothing else in storage',
     );
-    const ids = await Promise.all(
-      files.map(
-        async file => /^id:\s*(\S+)$/m.exec(await readFile(join(issues, file), 'utf8'))?.[1],
-      ),
-    );
-    assert(
-      ids.every(id => id !== undefined),
-      'every concurrent Ticket has an id',
-    );
-    assert(new Set(ids).size === ids.length, 'concurrent creation never issues an id twice');
-    assert(
-      ids.filter(id => /^T\d+$/.test(id)).length === CREATORS * TICKETS_PER_CREATOR,
-      'every concurrent Ticket is counted under the pinned pattern',
-    );
+    const onDisk = await readFile(join(storage, contended), 'utf8');
+    const title = /^title:\s*(.+)$/m.exec(frontmatterOf(onDisk))?.[1];
+    assert(title === winners[0]?.title, 'the process told it created the Ticket wrote the file');
+    assert(!/^id:/m.test(frontmatterOf(onDisk)), 'a concurrently created Ticket carries no id');
   } finally {
     await closeServers(servers);
   }
+}
+
+/** Every file below a directory, hidden ones included, as sorted relative paths. */
+async function filesUnder(directory, prefix = '') {
+  const entries = await readdir(join(directory, prefix), { withFileTypes: true });
+  const nested = await Promise.all(
+    entries.map(item =>
+      item.isDirectory()
+        ? filesUnder(directory, join(prefix, item.name))
+        : [join(prefix, item.name)],
+    ),
+  );
+  return nested.flat().toSorted();
+}
+
+function frontmatterOf(contents) {
+  return /^---\r?\n([\s\S]*?)\r?\n---/.exec(contents)?.[1] ?? '';
 }
 
 async function openServer(root, name) {

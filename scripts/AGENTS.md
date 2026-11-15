@@ -13,12 +13,14 @@ These scripts provide runtime probes and setup helpers for T88–T91.
 
 - `runtime-check.mjs` starts the supplied runtime and compiled package entry as real MCP stdio
   subprocesses. It never imports FrontierMCP source modules.
-- Its check covers the public MCP surface, filesystem invalidation, and cross-process claim and id
-  allocation. Prime the watcher cache after its attach settle schedule finishes so a scheduled
+- Its check covers the public MCP surface, filesystem invalidation, and cross-process claim and
+  creation. Prime the watcher cache after its attach settle schedule finishes so a scheduled
   invalidation cannot hide a missing filesystem event. Keep checks at the MCP/process boundary.
-  It never assumes an id: the public-surface step reads the id `create_tickets` minted under the
-  default pattern, and the allocation step pins `id_pattern: T<N>` first, because only a counted
-  pattern allocates under guards.
+  It creates Tickets by name (ADR 0008): the public-surface step requires the file at
+  `<name>.md` with no sort-order prefix and no `id` field, then reads and updates the Ticket by
+  its full name. The creation step has several processes create one name in one Effort at once
+  and requires exactly one success, the rest refused, the winner's file on disk, and no other
+  new file anywhere in the storage directory.
 - `runtime-check.mjs` accepts `--runtime` and `--entry` so another setup or launcher can supply the
   command it wants verified.
 - `package-runtime-check.mjs` creates an npm tarball and installs it with production dependencies in
