@@ -519,11 +519,14 @@ Write rules, equally load-bearing:
 - **A creation that landed reports success.** The driver falls back to the text it wrote if the
   read-back fails, and `create_tickets` lists the full names with a note, without Edges, if the
   scan it renders them from fails.
-- **An Effort slug from a caller is one directory name.** `effortDir` in the markdown driver is the
-  only place a caller's slug becomes a path, for `create_tickets`, `edit_map`, `spec` and
-  `migrate_effort`, reads included. Empty, starting with a dot (so `.` and `..`), or containing `/`,
-  `\`, a NUL or a control character is `InvalidEffortSlug`, naming the slug; nothing else is
-  restricted. `get_board` builds no path from a slug — it looks it up among the Efforts scanned.
+- **A caller's Effort slug is one directory name, or the call is refused.** `effortDir` in the
+  markdown driver is the only place a caller's slug becomes a path, for `create_tickets`,
+  `edit_map`, `spec` and `migrate_effort`, on reads as much as writes — the slug is joined under
+  the storage directory, so `../../x` wrote outside the workspace. Empty, a leading dot (so `.` and
+  `..`), `/` or `\`, or any control character (`\p{Cc}`: NUL, the rest of C0, DEL, C1) fails with
+  `InvalidEffortSlug`, naming the slug, before a path is built. `get_board` looks a slug up among
+  scanned Efforts and builds none. Nothing else is restricted: spaces, dots inside, and non-ASCII
+  stay legal.
 - **A cycle is refused on both write paths**, creation and Edge update, and only when it runs through
   the node being written. A cycle already in the workspace is somebody's hand edit; refusing it here
   would make an unrelated Effort unwritable, and the Board already reports the damage it does.

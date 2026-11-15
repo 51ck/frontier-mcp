@@ -1004,16 +1004,10 @@ async function readDir(dir: string) {
  * found on disk are directory names already and do not pass through.
  */
 function effortDir(storage: string, slug: string): string {
-  const refuse = (reason: string): never => {
-    throw new InvalidEffortSlug(slug, reason);
-  };
-
-  if (slug === '') refuse('is empty');
-  if (slug.startsWith('.')) refuse('starts with a dot');
-  if (slug.includes('/') || slug.includes('\\')) refuse('contains a path separator');
-  if ([...slug].some(character => (character.codePointAt(0) ?? 0) < 0x20 || character === '\x7f'))
-    refuse('contains a control character');
-
+  // `\p{Cc}` is every control character: C0 with NUL, DEL, and C1.
+  if (slug === '' || slug.startsWith('.') || /[/\\\p{Cc}]/u.test(slug)) {
+    throw new InvalidEffortSlug(slug);
+  }
   return join(storage, slug);
 }
 

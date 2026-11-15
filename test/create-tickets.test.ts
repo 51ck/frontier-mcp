@@ -612,21 +612,21 @@ describe('an Effort slug that is not one directory name', () => {
     '.scratch/alpha/spec.md': spec('Alpha'),
   };
 
-  const REFUSED: readonly (readonly [string, string, string])[] = [
-    ['empty', '', 'is empty'],
-    ['a single dot', '.', 'starts with a dot'],
-    ['two dots', '..', 'starts with a dot'],
-    ['a leading dot', '.hidden', 'starts with a dot'],
-    ['a climb out of the storage directory', '../../escaped', 'starts with a dot'],
-    ['a climb from inside', 'alpha/../../../escaped', 'contains a path separator'],
-    ['a path into another Effort', 'alpha/issues', 'contains a path separator'],
-    ['a backslash', 'alpha\\issues', 'contains a path separator'],
-    ['a NUL', 'al\u0000pha', 'contains a control character'],
-    ['a newline', 'al\npha', 'contains a control character'],
-    ['a DEL', 'al\u007fpha', 'contains a control character'],
+  const REFUSED: readonly (readonly [string, string])[] = [
+    ['empty', ''],
+    ['a single dot', '.'],
+    ['two dots', '..'],
+    ['a leading dot', '.hidden'],
+    ['a climb out of the storage directory', '../../escaped'],
+    ['a climb from inside', 'alpha/../../../escaped'],
+    ['a path into another Effort', 'alpha/issues'],
+    ['a backslash', 'alpha\\issues'],
+    ['a NUL', 'al\u0000pha'],
+    ['a newline', 'al\npha'],
+    ['a DEL', 'al\u007fpha'],
   ];
 
-  it.each(REFUSED)('refuses %s on every read', async (_what, effort, reason) => {
+  it.each(REFUSED)('refuses %s on every read', async (_what, effort) => {
     const root = await makeFixtureTree(TREE);
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
@@ -637,13 +637,13 @@ describe('an Effort slug that is not one directory name', () => {
     ]);
 
     for (const error of errors) {
-      expect(error).toContain(`${JSON.stringify(effort)} is not an Effort slug: it ${reason}`);
+      expect(error).toContain(`${JSON.stringify(effort)} is not an Effort slug`);
     }
     // get_board never builds a path from the slug: it looks it up among the Efforts found.
     expect(await frontier.callExpectingError('get_board', { effort })).toContain('No Effort');
   });
 
-  it.each(REFUSED)('refuses %s on every creating write', async (_what, effort, reason) => {
+  it.each(REFUSED)('refuses %s on every creating write', async (_what, effort) => {
     const root = await makeFixtureTree(TREE);
     const frontier = await connectFrontier({ cwd: root, env: {} });
     const before = await everythingUnder(root);
@@ -660,7 +660,7 @@ describe('an Effort slug that is not one directory name', () => {
     ]);
 
     for (const error of errors) {
-      expect(error).toContain(`${JSON.stringify(effort)} is not an Effort slug: it ${reason}`);
+      expect(error).toContain(`${JSON.stringify(effort)} is not an Effort slug`);
     }
     expect(await everythingUnder(root)).toEqual(before);
     // Beside the workspace is where `../../escaped` would land.

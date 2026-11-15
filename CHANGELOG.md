@@ -2,6 +2,12 @@
 
 Package release notes for `frontier-mcp` (npm). Not part of the `.scratch/` issue tracker.
 
+## [1.0.1](https://github.com/51ck/frontier-mcp/compare/v1.0.0...v1.0.1) (2026-11-15)
+
+### Bug Fixes
+
+* refuse an Effort slug that escapes the storage directory ([50c2408](https://github.com/51ck/frontier-mcp/commit/50c240851ac12fc7a8ed22842256dd0961cc88ec))
+
 ## [1.0.0](https://github.com/51ck/frontier-mcp/compare/v0.6.0...v1.0.0) (2026-11-13)
 
 ### ⚠ BREAKING CHANGES

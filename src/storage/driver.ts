@@ -318,13 +318,15 @@ export class TicketStorageUnusable extends Error {
 
 /**
  * Thrown when an Effort slug from a caller could not be one directory name
- * inside the storage directory. Checked before any path is built from it.
+ * inside the storage directory. Checked before any path is built from it: a
+ * slug that climbs or nests would read and write outside the Effort it claims
+ * to name — outside the workspace altogether, for `..`.
  */
 export class InvalidEffortSlug extends Error {
-  constructor(slug: string, reason: string) {
+  constructor(slug: string) {
     super(
-      `${JSON.stringify(slug)} is not an Effort slug: it ${reason}. A slug is one directory ` +
-        'name. Nothing was read or written.',
+      `${JSON.stringify(slug)} is not an Effort slug. A slug is one directory name: not empty, ` +
+        'not starting with a dot, and holding no path separator or control character.',
     );
     this.name = 'InvalidEffortSlug';
   }
