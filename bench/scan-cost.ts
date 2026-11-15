@@ -734,9 +734,9 @@ async function runSession(): Promise<void> {
 // ----------------------------------------------------------- the report
 
 /**
- * Current driver create, including guard scans, validation, staging and readback.
- * Each call gets a fresh clone so neither the Ticket count nor abandoned guards
- * accumulate. Copying and cleanup are outside the timer and prime the OS cache.
+ * Current driver create, including its scan, validation, staging and readback.
+ * Each call gets a fresh clone so the Ticket count does not accumulate. Copying
+ * and cleanup are outside the timer and prime the OS cache.
  * The independent scan uses the unchanged base fixture and a fresh driver.
  * Alternating which timer goes first reduces systematic ordering bias.
  */
@@ -804,8 +804,8 @@ async function measureCreates(fixture: Fixture, batchSize: number) {
     warmupsDiscarded: SCAN_WARMUPS,
     scan,
     create,
-    // Arithmetic only: neither this difference nor paired differences time a
-    // random-id implementation or isolate the scan occurring under a guard.
+    // Arithmetic only: neither this difference nor paired differences time
+    // another creation strategy or isolate the scan inside the create.
     differenceOfMediansMs: create.median - scan.median,
     samples,
   };

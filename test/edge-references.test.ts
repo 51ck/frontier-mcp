@@ -369,3 +369,60 @@ describe('an Edge a Ticket already carries', () => {
     expect(await storedEdges(root, 'unrelated.md')).toEqual(['host']);
   });
 });
+
+describe('an Edge list reads back what was written', () => {
+  const DIGITS: FixtureTree = {
+    '.git/HEAD': '',
+    '.scratch/alpha/map.md': map('Somewhere.'),
+    '.scratch/alpha/issues/02.md': named('Two'),
+    '.scratch/alpha/issues/7.md': named('Seven'),
+    '.scratch/alpha/issues/1.0.md': named('Release'),
+    '.scratch/alpha/issues/waits.md': named('Waits', ['02', '7', '1.0', 'true', '~']),
+    '.scratch/alpha/issues/later.md': named('Later'),
+  };
+
+  it('takes an unquoted entry YAML reads as a number for the text it was written as', async () => {
+    const { frontier } = await start(DIGITS);
+
+    const board = await frontier.call('get_board', { effort: 'alpha' });
+
+    expect(board).toContain('waits  Waits  build/open  blocked_by=02,7,1.0,true?');
+    expect(board).toContain('dangling Edges (1), pointing at no Ticket in this workspace: true');
+  });
+
+  it('writes such a name so that it reads back as itself', async () => {
+    const { root, frontier } = await start(DIGITS);
+
+    await frontier.call('update_ticket', { id: 'alpha.later', blocked_by: ['02', '1.0'] });
+
+    expect(await readFile(join(root, '.scratch/alpha/issues/later.md'), 'utf8')).toContain(
+      'blocked_by: ["02", "1.0"]',
+    );
+    expect(await frontier.call('get_board', { effort: 'alpha' })).toContain(
+      'later  Later  build/open  blocked_by=02,1.0',
+    );
+  });
+
+  it.each([
+    ['02', 'blocked_by: [02]'],
+    ['1.10', 'blocked_by: [1.10]'],
+    ['02', 'note: &two 02\nblocked_by: [*two]'],
+  ])(
+    'reads id: %s and the Edge in %j as one name, so the dependent is takeable',
+    async (id, edges) => {
+      const { frontier } = await start({
+        '.git/HEAD': '',
+        '.scratch/alpha/map.md': map('Somewhere.'),
+        '.scratch/alpha/issues/a.md': `---\nid: ${id}\ntitle: Done\nkind: build\nstatus: resolved\nanswer_gist: Yes.\nblocked_by: []\n---\n`,
+        '.scratch/alpha/issues/c.md': `---\ntitle: Waits\nkind: build\nstatus: open\n${edges}\n---\n`,
+      });
+
+      const board = await frontier.call('get_board', { effort: 'alpha' });
+
+      expect(board).toContain(`${id}  Done  build/resolved`);
+      expect(board).toContain(`> c  Waits  build/open  blocked_by=${id}`);
+      expect(board).not.toContain('dangling');
+      expect(await frontier.call('get_tickets', { ids: [id] })).toContain(`# ${id} — Done`);
+    },
+  );
+});

@@ -33,12 +33,6 @@ function fixedDriver(
       workspaceWarnings() {
         return [];
       },
-      isId() {
-        return false;
-      },
-      mergeCollidingIdPattern() {
-        return undefined;
-      },
       async assertAddressable() {},
       async readTickets(handles) {
         const wanted = new Set(handles);
@@ -141,13 +135,7 @@ describe('the storage driver seam', () => {
       workspaceWarnings() {
         return [];
       },
-      isId() {
-        return false;
-      },
       absentStorage() {
-        return undefined;
-      },
-      mergeCollidingIdPattern() {
         return undefined;
       },
       async assertAddressable() {},

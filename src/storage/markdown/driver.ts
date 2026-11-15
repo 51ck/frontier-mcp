@@ -1,6 +1,8 @@
 import { mkdir, readdir, readFile } from 'node:fs/promises';
-import { statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { isMap, parseDocument } from 'yaml';
 
 import type {
   Effort,
@@ -25,7 +27,6 @@ import type { TicketEdit } from '../../domain.ts';
 import { duplicateKindOf, fullNameOf, indexNames } from '../../names.ts';
 import {
   InvalidEffortSlug,
-  InvalidWorkspaceConfig,
   NoSuchEffort,
   NoSuchMap,
   NoSuchSpec,
@@ -33,14 +34,7 @@ import {
   NoSuchTicket,
   RevisionMismatch,
 } from '../driver.ts';
-import { createTicketFiles, mintingPlan, type MintingPlan } from './create.ts';
-import {
-  CONFIG_FILE,
-  compileIdPattern,
-  DEFAULT_ID_PATTERN,
-  idMatcher,
-  loadIdPattern,
-} from './id-pattern.ts';
+import { createTicketFiles } from './create.ts';
 import { migrateEffortFiles } from './migrate.ts';
 import { applyEdit, type Defaults } from './serialize.ts';
 import {
@@ -84,6 +78,8 @@ const DEFAULT_STORAGE_DIR = '.scratch';
 const ISSUES_DIR = 'issues';
 const MAP_FILE = 'map.md';
 const SPEC_FILE = 'spec.md';
+/** 1.x read `id_pattern` from it. Its contents decide nothing now; it only earns a warning. */
+const CONFIG_FILE = 'frontier.yml';
 const HEADER_DOCS: ReadonlyArray<readonly [HeaderDoc, string]> = [
   ['map', MAP_FILE],
   ['spec', SPEC_FILE],
@@ -137,19 +133,8 @@ export function createMarkdownDriver(
   }: MarkdownDriverOptions = {},
 ): StorageDriver {
   const storage = join(root, storageDir);
-  // Compiled once and not watched (T54); a broken one warns on read and refuses
-  // every write but create, which mints nothing. T66 matches ids against it.
-  const idPattern = loadIdPattern(storage, storageDir);
-  // Under a broken pattern migration is refused before it mints, so the
-  // default here only ever feeds reads, pre-write checks and a migrate_effort
-  // preview, which then behave as an unconfigured repo does.
-  const effectivePattern =
-    idPattern.pattern ?? compileIdPattern(DEFAULT_ID_PATTERN).pattern ?? unreachable();
-  const minting = mintingPlan(effectivePattern);
-  const matchesId = idMatcher(effectivePattern);
-  const colliding = effectivePattern.survivesMerge
-    ? undefined
-    : { pattern: effectivePattern.source, configuredIn: `${storageDir}/${CONFIG_FILE}` };
+  // Read once and not watched: the answer changes only when a person deletes the file.
+  const ignoredConfig = ignoredConfigWarning(storage, storageDir);
   let writes: Promise<unknown> = Promise.resolve();
   // Set only when the cached scan completes, so a Board's duplicate warning
   // describes the scan its lines were built from. The fresh walks behind
@@ -206,9 +191,7 @@ export function createMarkdownDriver(
    * A write moves the workspace on whether or not it succeeded partway, so the
    * next read rebuilds rather than trusting a scan taken before it.
    */
-  const moved = async <T>(operation: () => Promise<T>, writing = true): Promise<T> => {
-    if (writing && idPattern.problem !== undefined)
-      throw new InvalidWorkspaceConfig(idPattern.problem);
+  const moved = async <T>(operation: () => Promise<T>): Promise<T> => {
     try {
       return await operation();
     } finally {
@@ -230,31 +213,15 @@ export function createMarkdownDriver(
       return (await scan()).flatMap(entry => summariesOf(entry));
     },
 
-    isId(name) {
-      return matchesId.test(name);
-    },
-
-    mergeCollidingIdPattern() {
-      return colliding;
-    },
-
     absentStorage() {
       return isAbsent(storage) ? `${storageDir}/` : undefined;
     },
 
     workspaceWarnings() {
-      const warnings =
-        idPattern.problem === undefined
-          ? []
-          : [
-              `${idPattern.problem} Every write but create_tickets is refused until it is fixed and the FrontierMCP ` +
-                'server is restarted.',
-            ];
-      if (duplicates.ids.length > 0) {
-        warnings.push(duplicateWarning(duplicates.ids, DUPLICATE_IDS, colliding));
-      }
+      const warnings = ignoredConfig === undefined ? [] : [ignoredConfig];
+      if (duplicates.ids.length > 0) warnings.push(duplicateWarning(duplicates.ids, DUPLICATE_IDS));
       if (duplicates.names.length > 0) {
-        warnings.push(duplicateWarning(duplicates.names, DUPLICATE_NAMES, undefined));
+        warnings.push(duplicateWarning(duplicates.names, DUPLICATE_NAMES));
       }
       return warnings;
     },
@@ -282,9 +249,8 @@ export function createMarkdownDriver(
 
     createTickets(effort, drafts, options) {
       // The scan is deliberately not the cached one: the last check before the
-      // write has to see what another process has just created. Nothing is
-      // minted, so the id pattern's configuration cannot refuse this write.
-      return moved(() => serialized(() => create(storage, effort, drafts, options, walk)), false);
+      // write has to see what another process has just created.
+      return moved(() => serialized(() => create(storage, effort, drafts, options, walk)));
     },
 
     readMap(effort) {
@@ -308,10 +274,7 @@ export function createMarkdownDriver(
     },
 
     migrateEffort(effort, options) {
-      return moved(
-        () => serialized(() => migrate(storage, storageDir, minting, effort, options, walk)),
-        options.preview !== true,
-      );
+      return moved(() => serialized(() => migrate(storage, storageDir, effort, options, walk)));
     },
 
     close() {
@@ -335,59 +298,71 @@ export function createMarkdownDriver(
   }
 }
 
-function unreachable(): never {
-  throw new Error(`The default id pattern ${DEFAULT_ID_PATTERN} does not compile.`);
+/**
+ * What a Board says about a `frontier.yml` left over from 1.x, or undefined
+ * when there is nothing to say. The file configured the id pattern and nothing
+ * else, and nothing mints an id (ADR 0008), so it is never validated and can
+ * never refuse a write: one that still sets `id_pattern`, or cannot be parsed
+ * to find out, gets the same line. Nothing of its contents is echoed.
+ */
+function ignoredConfigWarning(storage: string, storageDir: string): string | undefined {
+  let contents: string;
+  try {
+    contents = readFileSync(join(storage, CONFIG_FILE), 'utf8');
+  } catch {
+    return undefined;
+  }
+
+  const document = parseDocument(contents);
+  const setsPattern = isMap(document.contents) && document.contents.has('id_pattern');
+  if (document.errors.length === 0 && !setsPattern) return undefined;
+
+  return (
+    `${storageDir}/${CONFIG_FILE} is ignored since FrontierMCP 2.0: no id is minted, so ` +
+    'id_pattern does nothing and no write depends on this file — it can be deleted'
+  );
 }
 
 async function migrate(
   storage: string,
   storageDir: string,
-  minting: MintingPlan,
   effort: string,
   options: MigrateOptions,
   walk: () => Promise<ScannedEffort[]>,
 ): Promise<MigrationReport> {
   const dir = effortDir(storage, effort);
-  if ((await readEffort(storage, effort)) === undefined) throw new NoSuchEffort(effort);
-
-  const entries = await readTicketFiles(dir, effort);
   const scanned = await walk();
+  const entries = scanned.find(entry => entry.effort.slug === effort)?.entries;
+  if (entries === undefined) throw new NoSuchEffort(effort);
 
-  // An id inferred from Foreign prose is preserved, so one another file already
-  // carries would be written into frontmatter as a duplicate. A duplicated name
-  // would be minted apart, and the Edges naming it handed to whichever claimant
-  // came last. Both get the refusal any write addressed to a duplicate gets; a
-  // preview is a read, so it reports the conflict beside the rest of the plan.
+  // An id inferred from prose is written into frontmatter, so one another file
+  // already carries would land as a duplicate, and a name two files share is
+  // one no Edge can mean. Both get the refusal any write addressed to a
+  // duplicate gets; a preview is a read, so it reports the conflict beside the
+  // rest of the plan.
   const { fileOf, names } = filesByTicket(scanned);
-  const conflicts = new Map<string, readonly string[]>();
-  for (const scannedEffort of scanned) {
-    if (scannedEffort.effort.slug !== effort) continue;
-    for (const { filename, ticket } of scannedEffort.entries) {
-      if (!ticket.foreign && ticket.id !== undefined) continue;
-      const claimants = names.claimants(ticket);
-      if (claimants.length < 2) continue;
-      const files = claimants.map(claimant => fileOf.get(claimant) ?? '');
-      if (options.preview !== true) {
-        throw new DuplicateId(ticket.id ?? fullNameOf(ticket), files, duplicateKindOf(claimants));
-      }
-      conflicts.set(filename, files);
+  const conflicts = new Map<string, { kind: 'id' | 'name'; files: readonly string[] }>();
+  for (const { filename, ticket } of entries) {
+    if (!ticket.foreign && ticket.id !== undefined) continue;
+    const claimants = names.claimants(ticket);
+    if (claimants.length < 2) continue;
+    const files = claimants.map(claimant => fileOf.get(claimant) ?? '');
+    const kind = duplicateKindOf(claimants);
+    if (options.preview !== true) {
+      throw new DuplicateId(ticket.id ?? fullNameOf(ticket), files, kind);
     }
+    conflicts.set(filename, { kind, files });
   }
   const issues = join(dir, ISSUES_DIR);
 
   return migrateEffortFiles({
-    storage,
-    minting,
     effort,
     issues,
     directory: [...storageDir.split(/[\\/]/), effort, ISSUES_DIR].filter(Boolean).join('/'),
     entries,
-    allTickets: scanned.flatMap(summariesOf),
+    names,
     preview: options.preview,
     conflicts,
-    // Allocation must not share a walk started before the guards — same reason
-    // createTickets builds its own rescan.
-    rescan: async () => (await walk()).flatMap(summariesOf),
     readContents: filename => readFile(join(issues, filename), 'utf8'),
   });
 }
@@ -803,7 +778,6 @@ const DUPLICATE_NAMES = {
 function duplicateWarning(
   duplicates: readonly DuplicateClaim[],
   wording: { readonly what: string; readonly fix: string },
-  colliding: { readonly pattern: string } | undefined,
 ): string {
   const sorted = duplicates.toSorted((a, b) => a.label.localeCompare(b.label));
   const withFiles = sorted
@@ -817,15 +791,9 @@ function duplicateWarning(
   let listed = withFiles.join('; ');
   if (named.length > 0) listed += `; also ${named.join(' ')}`;
   if (rest > 0) listed += ` and ${String(rest)} more`;
-  // T56's one-way cross-reference: the pattern is named only once a duplicate
-  // has actually happened, as its likely cause.
-  const cause =
-    colliding === undefined
-      ? ''
-      : `; the counted id pattern ${colliding.pattern} is the likely cause`;
   return (
     `${wording.what} (${String(duplicates.length)}): ` +
-    `${listed} — writes to them are refused; ${wording.fix}${cause}`
+    `${listed} — writes to them are refused; ${wording.fix}`
   );
 }
 

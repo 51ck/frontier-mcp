@@ -642,11 +642,18 @@ describe('migrate_effort on an Effort holding a duplicated name', () => {
 
     const preview = await frontier.call('migrate_effort', { effort: 'alpha', preview: true });
 
-    expect(preview).toContain('alpha: preview — would migrate 3');
     const conflict = `duplicate name, carried by ${FILES} — a real run refuses`;
-    expect(preview).toContain(`[01-cache.md]  First  mint  ${conflict}`);
-    expect(preview).toContain(`[02-cache.md]  Second  mint  ${conflict}`);
-    expect(preview).toContain('[dep]  Dependent  mint  blocked_by=cache');
+    expect(preview).toBe(
+      [
+        'alpha: preview — would migrate 0, unchanged 3',
+        '(nothing to migrate)',
+        `[01-cache.md]  First  ${conflict}`,
+        `[02-cache.md]  Second  ${conflict}`,
+        '',
+        '[01-cache.md]: <.scratch/alpha/issues/01-cache.md>',
+        '[02-cache.md]: <.scratch/alpha/issues/02-cache.md>',
+      ].join('\n'),
+    );
     expect(await readFile(join(root, FIRST), 'utf8')).toBe(before);
   });
 });

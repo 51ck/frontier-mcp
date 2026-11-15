@@ -179,26 +179,19 @@ describe('get_tickets on a fence with Unimported keys', () => {
     expect(await frontier.call('get_board', { effort: 'alpha' })).toContain(`  1/1 ${UNIMPORTED}`);
   });
 
-  it('keeps only the unimported entries once migrate_effort has minted an id', async () => {
+  it('is left alone by migrate_effort, which mints no id and keeps the stray keys', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
       [FILE]: fenced({ labels: 'bug', title: 'GitHub export' }),
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
+    const before = await readFile(join(root, FILE), 'utf8');
 
     const report = await frontier.call('migrate_effort', { effort: 'alpha', preview: false });
-    // The minted id leads its report line as a reference label, whatever shape
-    // the pattern gives it.
-    const id = report
-      .split('\n')
-      .find(line => line.includes('  GitHub export  '))
-      ?.split('  ')[0]
-      ?.slice(1, -1);
 
-    expect(id).toBeDefined();
-    expect(report).toContain('  GitHub export  mint  ');
-    expect(report).not.toContain('normalize');
-    const out = await frontier.call('get_tickets', { ids: [id ?? ''] });
+    expect(report).toBe('alpha: migrated 0, unchanged 1\n(nothing to migrate)');
+    expect(await readFile(join(root, FILE), 'utf8')).toBe(before);
+    const out = await frontier.call('get_tickets', { ids: ['foreign'] });
     expect(out).toContain('GitHub export');
     expect(out.endsWith(`${HEADING}\n\n\`\`\`yaml\nlabels: bug\n\`\`\``)).toBe(true);
   });

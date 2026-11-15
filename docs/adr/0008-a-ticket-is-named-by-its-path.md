@@ -1,8 +1,8 @@
 # A Ticket is named by its path, and nothing is minted
 
 Supersedes [ADR 0006](./0006-ids-are-minted-by-pattern-and-guarded-only-when-counted.md) for 2.0.
-Accepted on 2026-11-15 and not yet built: ADR 0006 describes what 1.x ships until the Tickets of the
-`ticket-names` Effort land.
+Accepted on 2026-11-15 and built on the `feat/ticket-names` branch for 2.0, where nothing mints an id
+any longer; ADR 0006 remains the record of what 1.x ships.
 
 A new Ticket's name is where it lives. `PROJ-123.token-cache` is the file
 `.scratch/PROJ-123/issues/token-cache.md`: the Effort slug, a dot, and the file's stem. The creator

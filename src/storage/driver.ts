@@ -86,9 +86,10 @@ export interface StorageDriver {
   listTickets(): Promise<readonly TicketSummary[]>;
 
   /**
-   * Problems with the workspace's own configuration, which no Ticket carries —
-   * a Board shows them with its other warnings. Reads keep working under any of
-   * them; every write refuses with {@link InvalidWorkspaceConfig}.
+   * What is wrong with the workspace as a whole rather than with one Ticket —
+   * duplicated ids and names, configuration the driver no longer reads — for a
+   * Board to show with its other warnings. None of them refuses a write by
+   * itself: a write addressed to a duplicate is refused where it is addressed.
    */
   workspaceWarnings(): readonly string[];
 
@@ -98,22 +99,6 @@ export interface StorageDriver {
    * empty or not. Never creates it: a read must leave a bare repository bare.
    */
   absentStorage(): string | undefined;
-
-  /**
-   * Whether `name` has the shape of an id this driver mints. Id shape is the
-   * driver's to define; the domain only promises ids are opaque strings.
-   */
-  isId(name: string): boolean;
-
-  /**
-   * The configured id pattern when ids minted independently on two branches
-   * can collide after a merge — a purely counted pattern, which a second branch
-   * counts to the same number — with where it is configured, for a reader to
-   * act on. Undefined when minted ids survive a merge.
-   */
-  mergeCollidingIdPattern():
-    | { readonly pattern: string; readonly configuredIn: string }
-    | undefined;
 
   /**
    * Refuses as a write addressed to `handle` would refuse before it reads the
@@ -211,9 +196,11 @@ export interface StorageDriver {
   ): Promise<SpecDocument>;
 
   /**
-   * Normalize every Foreign Ticket in one Effort and mint ids for Tickets that
-   * have none. Filenames never change. Preview writes nothing and names a
-   * Ticket it would mint by the name it has. Unrecognized files in the Effort directory are ignored.
+   * Normalize one Effort: give every Foreign Ticket schema frontmatter, and
+   * resolve the Edges that name a sibling by its position rather than its name.
+   * No Ticket's name changes, so a preview, which writes nothing, reports what
+   * a real run reports. A Ticket needing neither is left untouched.
+   * Unrecognized files in the Effort directory are ignored.
    */
   migrateEffort(effort: string, options: MigrateOptions): Promise<MigrationReport>;
 
@@ -430,16 +417,5 @@ export class NoFrontmatterToDrop extends Error {
       'Nothing was written: this Ticket has no parseable frontmatter, so it has no keys to drop.',
     );
     this.name = 'NoFrontmatterToDrop';
-  }
-}
-
-/** Thrown by every write while the workspace's configuration is broken. */
-export class InvalidWorkspaceConfig extends Error {
-  constructor(problem: string) {
-    super(
-      `Nothing was written: ${problem} The configuration is read once, so a fix takes effect ` +
-        'after the FrontierMCP server is restarted.',
-    );
-    this.name = 'InvalidWorkspaceConfig';
   }
 }

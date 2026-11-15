@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { cleanupFixtures, connectFrontier, makeFixtureTree } from './support/harness.ts';
-import { COUNTED, map, spec, ticket } from './support/fixtures.ts';
+import { map, spec, ticket } from './support/fixtures.ts';
 
 afterEach(cleanupFixtures);
 
@@ -261,8 +261,11 @@ describe('create_tickets', () => {
     expect(await issuesIn(root, 'alpha')).toEqual(SEEDED);
   });
 
-  it('emits no minting warning, whatever id pattern the workspace sets', async () => {
-    const root = await makeFixtureTree({ ...COUNTED, ...WORKSPACE });
+  it('carries no warning and writes no guard where a 1.x workspace still sets an id pattern', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/frontier.yml': 'id_pattern: T<N>\n',
+      ...WORKSPACE,
+    });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
     const text = await frontier.call('create_tickets', {

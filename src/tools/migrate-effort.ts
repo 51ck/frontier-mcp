@@ -12,10 +12,9 @@ export const migrateEffortInputSchema = z.object({
 });
 
 export const migrateEffortDescription =
-  'Normalize Foreign Tickets in an Effort: schema frontmatter, preserve existing ids, mint ' +
-  'ids for Tickets that have none, turn prose Edges into blocked_by. Filenames never change. ' +
-  'Preview writes nothing and names a Ticket it would mint by its name, not a predicted id. ' +
-  'Unrecognized files in the Effort directory are ignored.';
+  'Normalize an Effort: give Foreign Tickets schema frontmatter, turn prose Edges into ' +
+  'blocked_by, resolve sort-order Edges (01) to names. Names and filenames never change. ' +
+  'Preview writes nothing. Unrecognized files in the Effort directory are ignored.';
 
 /**
  * Every Ticket line is labelled reference-style and resolved once in a closing
@@ -24,14 +23,14 @@ export const migrateEffortDescription =
  * not knowable, the root the call resolved is.
  */
 export function renderMigration(report: MigrationReport): string {
-  const count = report.changes.length;
+  const count = report.changes.filter(change => change.normalized || change.edgesResolved).length;
   const verb = report.preview ? 'would migrate' : 'migrated';
-  const lines = [`${report.effort}: ${report.preview ? 'preview — ' : ''}${verb} ${String(count)}`];
+  const unchanged = report.unchanged > 0 ? `, unchanged ${String(report.unchanged)}` : '';
+  const lines = [
+    `${report.effort}: ${report.preview ? 'preview — ' : ''}${verb} ${String(count)}${unchanged}`,
+  ];
 
-  if (count === 0) {
-    lines.push('(nothing to migrate)');
-    return lines.join('\n');
-  }
+  if (count === 0) lines.push('(nothing to migrate)');
 
   const labels = labelsOf(report.changes);
   const defined = new Set(labels.values());
@@ -52,6 +51,15 @@ export function renderMigration(report: MigrationReport): string {
         'fix each with update_ticket blocked_by',
     );
   }
+  if (report.unresolvedSortOrders.length > 0) {
+    lines.push(
+      `> sort-order Edges kept as declared, no one other Ticket carries the prefix ` +
+        `(${String(report.unresolvedSortOrders.length)}): ${capped(report.unresolvedSortOrders)} — ` +
+        'they dangle; fix each with update_ticket blocked_by',
+    );
+  }
+
+  if (report.changes.length === 0) return lines.join('\n');
 
   lines.push('');
   for (const change of report.changes) {
@@ -75,18 +83,18 @@ function capped(items: readonly string[]): string {
 }
 
 /**
- * A Ticket's id, or its name before it has one. Two files a preview finds
- * carrying one id would share a label and the first definition would win, so
- * those are labelled by filename, which an Effort cannot repeat.
+ * A Ticket's name. Two files sharing one would share a label and the first
+ * definition would win, so those are labelled by filename, which an Effort
+ * cannot repeat.
  */
 function labelsOf(changes: readonly MigrationChange[]): Map<MigrationChange, string> {
-  const natural = changes.map(change => change.id ?? change.beforeName);
+  const natural = changes.map(change => change.name.toLowerCase());
   return new Map(
     changes.map((change, index) => {
-      const label = natural[index] ?? change.filename;
+      const label = natural[index] ?? '';
       return [
         change,
-        natural.indexOf(label) === natural.lastIndexOf(label) ? label : change.filename,
+        natural.indexOf(label) === natural.lastIndexOf(label) ? change.name : change.filename,
       ];
     }),
   );
@@ -99,13 +107,8 @@ function renderChange(
 ): string {
   const flags = [
     change.normalized ? 'normalize' : undefined,
-    change.minted ? 'mint' : undefined,
+    change.edgesResolved ? 'edges' : undefined,
   ].filter(part => part !== undefined);
-
-  const was =
-    change.minted && change.id !== undefined && change.beforeName !== change.id
-      ? `was ${change.beforeName}`
-      : undefined;
 
   const edges =
     change.blockedBy.length === 0
@@ -116,11 +119,10 @@ function renderChange(
     `[${label}]`,
     change.title,
     flags.length === 0 ? undefined : flags.join('+'),
-    was,
     edges,
-    change.duplicateFiles === undefined
+    change.duplicate === undefined
       ? undefined
-      : `duplicate ${change.id === undefined ? 'name' : 'id'}, carried by ${change.duplicateFiles.join(', ')} — a real run refuses`,
+      : `duplicate ${change.duplicate.kind}, carried by ${change.duplicate.files.join(', ')} — a real run refuses`,
   ]
     .filter(part => part !== undefined)
     .join('  ');

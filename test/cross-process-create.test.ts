@@ -124,11 +124,12 @@ describe('creation from separate processes', () => {
     expect(await readdir(join(workspace, '.scratch'))).toEqual(['alpha']);
   }, 60_000);
 
-  it('lets every session land its own names, with no guard file even under a counted pattern', async () => {
+  it('lets every session land its own names, taking no guard and leaving a 1.x one where it lies', async () => {
     workspace = await mkdtemp(join(tmpdir(), 'frontier-create-'));
     const issues = join(workspace, '.scratch/alpha/issues');
     await mkdir(issues, { recursive: true });
     await writeFile(join(workspace, '.scratch/frontier.yml'), 'id_pattern: T<N>\n', 'utf8');
+    await writeFile(join(workspace, '.scratch/.frontier-id-N-2.guard'), '4242\n', 'utf8');
     await writeFile(join(issues, SEED_FILE), SEED, 'utf8');
 
     const outcomes = await race('own', workspace, who => [`${who}-one`, `${who}-two`]);
@@ -141,6 +142,7 @@ describe('creation from separate processes', () => {
       [SEED_FILE, ...outcomes.flatMap(({ who }) => [`${who}-one.md`, `${who}-two.md`])].toSorted(),
     );
     expect((await readdir(join(workspace, '.scratch'))).toSorted()).toEqual([
+      '.frontier-id-N-2.guard',
       'alpha',
       'frontier.yml',
     ]);

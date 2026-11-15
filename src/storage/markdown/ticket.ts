@@ -1,4 +1,4 @@
-import { isMap, isScalar, parseDocument } from 'yaml';
+import { type Document, isAlias, isMap, isScalar, isSeq, parseDocument } from 'yaml';
 import type { Kind, Status, TicketSummary, UnimportedFrontmatter } from '../../domain.ts';
 import { STATUSES } from '../../domain.ts';
 import { parseProseBody } from './legacy.ts';
@@ -31,12 +31,17 @@ export function parseTicketSummary(
   file: TicketFile,
   revision: string,
 ): ParsedTicket {
-  const { fields } = splitFrontmatter(file.contents);
+  const { fields, raw } = splitFrontmatter(file.contents);
   const orderHint = readOrderHint(file.filename);
 
   if (fields === undefined) return parseUnfenced(effort, orderHint, file, revision);
 
-  const id = text(fields['id']);
+  let parsed: Document | undefined;
+  const fence = (): Document => (parsed ??= parseDocument(raw ?? ''));
+
+  const id = text(
+    asWritten(fields['id'], readAsOther(fields['id']) ? fence().get('id', true) : undefined, fence),
+  );
   const rawStatus = text(fields['status']);
   const mappedStatus = readStatus(rawStatus);
   const unrecognizedStatus =
@@ -54,7 +59,7 @@ export function parseTicketSummary(
     droppedReason: text(fields['dropped_reason']),
     claimedBy: text(fields['claimed_by']),
     claimedAt: text(fields['claimed_at']),
-    blockedBy: readEdgeList(fields['blocked_by']),
+    blockedBy: readEdgeList(fields['blocked_by'], fence),
     effort,
     orderHint,
     foreign: false,
@@ -218,10 +223,34 @@ function readStatus(value: string | undefined): Status | undefined {
   return STATUSES.find(status => status === value);
 }
 
-/** A `blocked_by` list. Anything that is not a list of scalars reads as no Edges. */
-function readEdgeList(value: unknown): readonly string[] {
+/**
+ * A `blocked_by` list. Anything that is not a list reads as no Edges. An entry
+ * YAML read as something other than a string is taken as written, by the rule
+ * an `id` is read by, so the two always agree.
+ */
+function readEdgeList(value: unknown, fence: () => Document): readonly string[] {
   if (!Array.isArray(value)) return [];
-  return value.map(entry => text(entry)).filter((entry): entry is string => entry !== undefined);
+  const list: unknown = value.some(readAsOther) ? fence().get('blocked_by', true) : undefined;
+  const nodes = isSeq(list) ? list.items : [];
+  return value
+    .map((entry, index) => text(asWritten(entry, nodes[index], fence)))
+    .filter((entry): entry is string => entry !== undefined);
+}
+
+function readAsOther(value: unknown): boolean {
+  return typeof value !== 'string' && value !== null && value !== undefined;
+}
+
+/**
+ * A name is text, so a value YAML read as a number or a boolean is taken as the
+ * text that was written: an unquoted `02` is the name `02`, not the number 2.
+ * An alias is followed to the scalar it stands for. The fence is parsed a
+ * second time only for such a value, which a fence of names never holds.
+ */
+function asWritten(value: unknown, node: unknown, fence: () => Document): unknown {
+  if (!readAsOther(value)) return value;
+  const target = isAlias(node) ? node.resolve(fence()) : node;
+  return isScalar(target) && readAsOther(target.value) ? (target.source ?? value) : value;
 }
 
 /** YAML scalars arrive as numbers and booleans too; only non-empty strings count. */

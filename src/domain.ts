@@ -246,39 +246,33 @@ export interface SpecDocument {
 
 /** How a migration call runs. Filenames never change (T69). */
 export interface MigrateOptions {
-  /**
-   * Report every change and write nothing. Takes no allocation guards and
-   * predicts no ids: a Ticket that would be minted keeps the name it has.
-   */
+  /** Report every change and write nothing. The report names what a real run names. */
   readonly preview: boolean;
 }
 
-/** One Ticket a migration would touch, or did. */
+/**
+ * One Ticket a migration would write, or did — or, in a preview, one listed
+ * only for its conflict, with neither `normalized` nor `edgesResolved` set.
+ */
 export interface MigrationChange {
-  /** The Ticket's name before the call — its id when it had one. */
-  readonly beforeName: string;
-  /**
-   * Id after migration — preserved or newly minted. Undefined in a preview of
-   * a Ticket that would be minted: which id is not knowable until the real run.
-   */
-  readonly id: string | undefined;
+  /** The Ticket's name, which migration never changes. */
+  readonly name: string;
   readonly title: string;
-  /** True when this call (or preview) assigns a fresh id. */
-  readonly minted: boolean;
-  /** True when the file was Foreign, so it gains schema frontmatter. */
+  /** True when the file had no parseable fence, so it gains schema frontmatter. */
   readonly normalized: boolean;
+  /** True when a bare sort-order Edge was rewritten to the name of the Ticket it meant. */
+  readonly edgesResolved: boolean;
   /** The Ticket's basename, unchanged by migration. */
   readonly filename: string;
-  /**
-   * Edges as they will be written after bare sort-order remapping. In a preview
-   * a sibling that would be minted appears by the name it has now.
-   */
+  /** Edges as they are written. */
   readonly blockedBy: readonly string[];
   /**
-   * Preview only: every Ticket file claiming this Ticket's id or name, this
-   * one included. A real run refuses with DuplicateId instead.
+   * Preview only: what this Ticket shares with another, and every Ticket file
+   * claiming it, this one included. A real run refuses with DuplicateId instead.
    */
-  readonly duplicateFiles: readonly string[] | undefined;
+  readonly duplicate:
+    | { readonly kind: 'id' | 'name'; readonly files: readonly string[] }
+    | undefined;
 }
 
 /** The result of migrating one Effort — enough for the tool to render a report. */
@@ -288,8 +282,15 @@ export interface MigrationReport {
   /** The Effort's Ticket directory relative to the workspace root, `/`-separated. */
   readonly directory: string;
   readonly changes: readonly MigrationChange[];
+  /** How many of the Effort's Tickets are not written, those listed only for a conflict included. */
+  readonly unchanged: number;
   /** Written Edges landing on another Effort's Ticket, as `T9@beta` — likelier a misparse than intent. */
   readonly crossEffortEdges: readonly string[];
+  /**
+   * Bare sort-order Edges (`01`) of the Effort left as declared: no one other
+   * Ticket's file carries the prefix under a name of its own.
+   */
+  readonly unresolvedSortOrders: readonly string[];
   /** Sub-slice references (`T1.4`) written as declared because their parent is not in this Effort. */
   readonly keptSubSlices: readonly string[];
 }

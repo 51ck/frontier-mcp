@@ -247,28 +247,21 @@ describe('a duplicate id', () => {
     );
   });
 
-  it('names a counted pattern as the likely cause, and only under one', async () => {
-    const files = {
-      '.scratch/alpha/map.md': map('Somewhere.'),
-      [A]: ticket('T5', 'First'),
-      [SAME]: ticket('T5', 'Again'),
-    };
-    const counted = await connectFrontier({
-      cwd: await makeFixtureTree({ ...files, '.scratch/frontier.yml': 'id_pattern: T<N>\n' }),
-      env: {},
-    });
-    const random = await connectFrontier({
+  it('names no id pattern as a cause, even where a 1.x workspace still configures a counted one', async () => {
+    const frontier = await connectFrontier({
       cwd: await makeFixtureTree({
-        ...files,
-        '.scratch/frontier.yml': 'id_pattern: T<N>-<b36{4}>\n',
+        '.scratch/frontier.yml': 'id_pattern: T<N>\n',
+        '.scratch/alpha/map.md': map('Somewhere.'),
+        [A]: ticket('T5', 'First'),
+        [SAME]: ticket('T5', 'Again'),
       }),
       env: {},
     });
 
-    expect(await counted.call('get_board', { effort: 'alpha' })).toContain(
-      'renumber all but one by hand; the counted id pattern T<N> is the likely cause',
-    );
-    expect(await random.call('get_board', { effort: 'alpha' })).not.toContain('likely cause');
+    const board = await frontier.call('get_board', { effort: 'alpha' });
+
+    expect(board).toMatch(/renumber all but one by hand$/m);
+    expect(board).not.toMatch(/likely cause|counted/);
   });
 
   it('keeps a Ticket blocked by a duplicated id off the Frontier until every claimant resolves', async () => {
@@ -306,7 +299,6 @@ describe('a duplicate id', () => {
   it('migrate_effort preview reports an inferred duplicate beside the rest of the plan, writing nothing', async () => {
     const root = await makeFixtureTree({
       '.git/HEAD': '',
-      '.scratch/frontier.yml': 'id_pattern: T<N>\n',
       '.scratch/alpha/map.md': map('Somewhere.'),
       '.scratch/beta/map.md': map('Elsewhere.'),
       '.scratch/alpha/issues/01-foreign.md': '# T5 — Foreign claimant\n\nStatus: open\n\nBody.\n',
@@ -321,11 +313,10 @@ describe('a duplicate id', () => {
 
     expect(preview).toContain('preview — would migrate 2');
     expect(preview).toContain(
-      'duplicate id, carried by alpha/issues/01-foreign.md, beta/issues/01-T5-second.md — ' +
-        'a real run refuses',
+      '[T5]  Foreign claimant  normalize  duplicate id, carried by ' +
+        'alpha/issues/01-foreign.md, beta/issues/01-T5-second.md — a real run refuses',
     );
-    expect(preview).toContain('[plain]  Untitled work  normalize+mint');
-    expect(preview).not.toContain('T6');
+    expect(preview).toContain('[plain]  Untitled work  normalize\n');
     expect(await readFile(foreign, 'utf8')).toBe(before);
     expect(await frontier.callExpectingError('migrate_effort', { effort: 'alpha' })).toContain(
       'Nothing was written: T5 is carried by 2 Ticket files',

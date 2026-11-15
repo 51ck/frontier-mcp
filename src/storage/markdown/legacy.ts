@@ -36,7 +36,7 @@ const STRIKETHROUGH = /~~[\s\S]*?~~/g;
  * Whole markdown links, label and target both, so a path never contributes a
  * false id. Verified against every Edge line in the fixtures: real
  * references are always written outside their link, so nothing is lost — and a
- * label like `[../T99/issues/01.md]` would otherwise mint an Edge to T99.
+ * label like `[../T99/issues/01.md]` would otherwise yield an Edge to T99.
  */
 const MARKDOWN_LINK = /\[[^\]]*\]\([^)]*\)/g;
 
@@ -130,8 +130,8 @@ function readHeading(contents: string): { id: string | undefined; title: string 
   const withId = HEADING_ID.exec(heading);
   if (withId?.[1] !== undefined) return { id: withId[1], title: (withId[2] ?? '').trim() };
 
-  // `# 01 — Title`: the number is this Effort's sort order, never an id. A
-  // per-Effort `01` is not unique repo-wide, so minting one is migration's job.
+  // `# 01 — Title`: the number is this Effort's sort order, never an id — a
+  // per-Effort `01` is not unique repo-wide. The file's stem names the Ticket.
   const withOrder = HEADING_ORDER.exec(heading);
   if (withOrder?.[1] !== undefined) return { id: undefined, title: withOrder[1].trim() };
 
