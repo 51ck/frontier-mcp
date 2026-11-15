@@ -215,7 +215,7 @@ function asWritten(draft: TicketDraft, effort: string): TicketSummary {
     effort,
     orderHint: undefined,
     foreign: false,
-    foreignFenced: false,
+    hasUnimportedKeys: false,
     unrecognizedStatus: undefined,
     collapsedRefs: [],
     keptSubSlices: [],

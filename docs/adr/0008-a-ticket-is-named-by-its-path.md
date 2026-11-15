@@ -102,9 +102,9 @@ stems that reduce to one name.
 warning, not a refusal.
 
 [ADR 0007](./0007-conversion-is-lazy-and-foreign-is-a-conformance-predicate.md)'s Foreign predicate
-keys on a missing `id`, which under this ADR describes every new Ticket. It has to be restated before
-the read path is built; that is a decision Ticket of the `ticket-names` Effort and is not settled
-here.
+keyed on a missing `id`, which under this ADR describes every new Ticket. It was amended the same
+day: Foreign now means only a file with no parseable fence, and a key outside the schema is an
+Unimported key on any Ticket, with or without an `id`.
 
 This is a breaking change to `create_tickets` and to what a created file looks like, so it ships as
 2.0.

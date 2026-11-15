@@ -72,20 +72,18 @@ export interface TicketSummary {
    */
   readonly orderHint: number | undefined;
   /**
-   * A Ticket whose file does not conform to the schema: no frontmatter fence, a
-   * fence that does not parse, or a fence that parses but carries no `id` and at
-   * least one key outside the schema. Conformance is evaluated on every read,
-   * never provenance. Its title, status, and Edges are inferences an agent
-   * should distrust. A fence with an `id` is never Foreign, whatever else it
-   * holds; a status that will not map is flagged by `unrecognizedStatus` instead.
+   * A Ticket whose file has no parseable fence: no frontmatter, or a fence whose
+   * YAML is not a mapping. Evaluated on every read, never provenance. Its title,
+   * status, and Edges are inferred from prose, which an agent should distrust. A
+   * fence that parses is never Foreign, whatever it holds; a status that will not
+   * map is flagged by `unrecognizedStatus` instead.
    */
   readonly foreign: boolean;
   /**
-   * Foreign by its fence — one that parses, with no `id` and a key outside the
-   * schema — rather than by having none. Its fields were read from that fence,
-   * not inferred from prose. Never true unless {@link foreign} is.
+   * Whether the fence carries a key outside the schema. Known from the scan, so
+   * a Board can count these; the keys themselves travel only on {@link Ticket}.
    */
-  readonly foreignFenced: boolean;
+  readonly hasUnimportedKeys: boolean;
   /** The raw status text of a Ticket whose value did not map, fenced or prose. */
   readonly unrecognizedStatus: string | undefined;
   /** Prose sub-slice references (`T38.1`) coarsened to a Ticket of the same Effort. */
@@ -116,11 +114,11 @@ export interface UnimportedFrontmatter {
   /** The top-level keys outside the schema, in file order. */
   readonly keys: readonly string[];
   /**
-   * The file's own YAML for them, never re-serialized: a Foreign Ticket's
-   * whole fence, otherwise only the unimported entries.
+   * The file's own YAML for them, never re-serialized: only the unimported
+   * entries, or the whole fence when one of them cannot be cut out cleanly.
    */
   readonly yaml: string;
-  /** Whether {@link yaml} is the whole fence, as it is for a Foreign Ticket. */
+  /** Whether {@link yaml} is the whole fence rather than the entries alone. */
   readonly whole: boolean;
 }
 
@@ -267,7 +265,7 @@ export interface MigrationChange {
   readonly title: string;
   /** True when this call (or preview) assigns a fresh id. */
   readonly minted: boolean;
-  /** True when the file was Foreign: a fenceless one gains schema frontmatter, a fenced one an id. */
+  /** True when the file was Foreign, so it gains schema frontmatter. */
   readonly normalized: boolean;
   /** The Ticket's basename, unchanged by migration. */
   readonly filename: string;

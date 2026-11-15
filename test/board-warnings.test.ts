@@ -131,7 +131,7 @@ describe('lifecycle Tickets missing their field (T85)', () => {
     expect(await frontier.call('get_board', { effort: 'alpha' })).not.toContain('warnings:');
   });
 
-  it('counts a foreign-fenced Ticket, whose Status was read from its fence', async () => {
+  it('counts a Ticket holding Unimported keys, whose Status was read from its fence', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
       '.scratch/alpha/issues/01-a.md':

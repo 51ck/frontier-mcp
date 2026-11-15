@@ -57,8 +57,8 @@ export function parseTicketSummary(
     blockedBy: readEdgeList(fields['blocked_by']),
     effort,
     orderHint,
-    foreign: isForeignFence(fields),
-    foreignFenced: isForeignFence(fields),
+    foreign: false,
+    hasUnimportedKeys: Object.keys(fields).some(key => !SCHEMA_KEYS.has(key)),
     unrecognizedStatus,
     collapsedRefs: [],
     keptSubSlices: [],
@@ -124,8 +124,7 @@ export function ticketBody(contents: string): string {
 
 /**
  * The frontmatter keys this schema does not import, and the file's own text for
- * them. A foreign fence is shown whole, byte for byte; a fence with an id shows
- * only its unimported entries, each sliced from the source rather than
+ * them: only the unimported entries, each sliced from the source rather than
  * re-serialized. Undefined for a conforming Ticket and for a fenceless file.
  */
 export function unimportedFrontmatter(contents: string): UnimportedFrontmatter | undefined {
@@ -133,7 +132,6 @@ export function unimportedFrontmatter(contents: string): UnimportedFrontmatter |
   if (fields === undefined || raw === undefined) return undefined;
   const keys = Object.keys(fields).filter(key => !SCHEMA_KEYS.has(key));
   if (keys.length === 0) return undefined;
-  if (isForeignFence(fields)) return { keys, yaml: raw, whole: true };
   const entries = unimportedEntries(raw);
   return entries === undefined
     ? { keys, yaml: raw, whole: true }
@@ -187,7 +185,7 @@ function parseUnfenced(
     effort,
     orderHint,
     foreign: true,
-    foreignFenced: false,
+    hasUnimportedKeys: false,
     unrecognizedStatus: inferred.unrecognizedStatus,
     collapsedRefs: [],
     keptSubSlices: [],
@@ -214,12 +212,6 @@ function readOrderHint(filename: string): number | undefined {
 
 function readKind(value: unknown): Kind {
   return text(value) === 'decision' ? 'decision' : 'build';
-}
-
-/** No id and at least one key outside {@link SCHEMA_KEYS} — a foreign export, not our schema. */
-function isForeignFence(fields: Record<string, unknown>): boolean {
-  if (text(fields['id']) !== undefined) return false;
-  return Object.keys(fields).some(key => !SCHEMA_KEYS.has(key));
 }
 
 function readStatus(value: string | undefined): Status | undefined {

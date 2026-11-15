@@ -276,7 +276,7 @@ describe("the markdown driver's storage directory", () => {
             effort,
             orderHint: undefined,
             foreign: false,
-            foreignFenced: false,
+            hasUnimportedKeys: false,
             unrecognizedStatus: undefined,
             collapsedRefs: [],
             keptSubSlices: [],

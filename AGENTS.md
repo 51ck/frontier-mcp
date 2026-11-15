@@ -165,10 +165,10 @@ Design decisions settled and binding until an ADR revises them:
 - **Derive, don't store, what tickets already know.** The Map's Decisions-so-far renders from resolved
   tickets, one named by its file included, under its bare name. The frontier is computed. Neither is written to disk as state. See
   [ADR 0002](./docs/adr/0002-map-decisions-derived-from-tickets.md).
-- **Lenient on read, strict on write.** Foreign files — no fence, a fence that does not parse, or a fence with no
-  `id` and a key outside the schema — parse best-effort and are flagged Foreign. A write normalizes
-  one with no parseable fence; a foreign fence is governed by its own rendering rule below. Reads
-  never mutate files. See
+- **Lenient on read, strict on write.** Foreign files — no fence, or a fence whose YAML does not
+  parse as a mapping — parse best-effort from prose and are flagged Foreign. Any write normalizes
+  one. A fence that parses is never Foreign; a key in it outside the schema is an Unimported key,
+  governed by its own rendering rule below. Reads never mutate files. See
   [ADR 0007](./docs/adr/0007-conversion-is-lazy-and-foreign-is-a-conformance-predicate.md).
 - **A write never reformats what it did not touch.** Frontmatter round-trips through the `yaml`
   package's document API, not a frontmatter library that re-serializes the whole block. See
@@ -370,10 +370,12 @@ Rendering rules that are load-bearing, not cosmetic:
   saying so. An Edge to a duplicated id is satisfied only when every claimant is resolved, and cycle
   checks follow every claimant's Edges: a duplicate never enlarges the Frontier. A Ticket whose own
   id is duplicated is never takeable, because every write to it is refused.
-- **A Foreign Ticket is counted by where its fields came from** (T104). One with no parseable
-  fence keeps `are Foreign — … inferred`; a foreign-fenced one is counted apart, as fields that
-  `came from frontmatter that was not imported`. The distinction crosses the seam as
-  `TicketSummary.foreignFenced`.
+- **Foreign and Unimported are counted apart, each in one grouped line.** A Ticket with no
+  parseable fence is counted in `are Foreign — … inferred`. A Ticket whose fence holds a key
+  outside the schema, with or without an `id`, is counted in `N/M Tickets hold Unimported keys`,
+  which names `get_tickets` and `update_ticket drop_keys` and lists no Ticket. Neither line shows
+  at a count of zero. The second crosses the seam as `TicketSummary.hasUnimportedKeys`, set from
+  the frontmatter the scan already parses.
 - **A lifecycle Status missing its field is counted, per Status** (T85): `N/M resolved Tickets
   carry no answer_gist`, likewise `dropped` / `dropped_reason` and `claimed` / `claimed_by` and `claimed_at`. M is
   that Status's count; no Tickets are listed. A Ticket with no parseable fence is left out of all of them,
@@ -401,11 +403,11 @@ Rendering rules that are load-bearing, not cosmetic:
   The `<effort>#<order>` handle is neither produced nor accepted.
 - **Unimported keys are shown until an agent drops them.** `get_tickets` appends a Ticket's frontmatter keys
   outside the schema (`Ticket.unimported`, body path only) under `## Unimported frontmatter` as a
-  `yaml` block whose backtick delimiter outruns any run inside it. A foreign fence (no `id`) shows
-  whole, byte for byte; a Ticket with an `id` shows only its unimported entries, each sliced from the
-  file's own text. Conforming Tickets gain nothing. No ordinary write removes them: a comment or
-  claim leaves a fence foreign, and `migrate_effort` mints the id but keeps the stray keys, which
-  then show as entries. Only `update_ticket` `drop_keys` removes one (T103), cutting each named
+  `yaml` block whose backtick delimiter outruns any run inside it. Every Ticket shows only its
+  unimported entries, each sliced from the file's own text, whether or not it carries an `id`; the
+  whole fence shows only when an entry cannot be cut cleanly (a non-scalar or explicit key).
+  Conforming Tickets gain nothing. No ordinary write removes them: a comment, a claim and
+  `migrate_effort` all keep the stray keys. Only `update_ticket` `drop_keys` removes one (T103), cutting each named
   entry out of the fence's text — block scalars, nested maps and sequences whole, a comment on its
   line with it, an own-line comment above it kept — so a drop alone leaves the rest byte-identical.
   A schema key (`SchemaKeyNotDroppable`), an absent key (`NoSuchKey`) or a Ticket with no parseable
@@ -414,10 +416,9 @@ Rendering rules that are load-bearing, not cosmetic:
   survive with the values they had — an alias left without its anchor, a flow mapping sharing the
   entry's line, or an alias falling back to an earlier anchor of the same name would land a fence
   that no longer parses, or one whose `status` quietly changed. A fence left with no key gets the schema block a fenceless
-  file gets, never an empty fence. It is allowed on an
-  id-less foreign fence: dropping its last unimported key ends the Foreign predicate, so the Ticket
-  becomes a schema fence with no id — not Foreign, a Ticket named by its file like any other, and
-  no id is minted. There is no `no id` Board warning. The schema key list is single-sourced in `src/storage/markdown/schema.ts`.
+  file gets, never an empty fence. Dropping a Ticket's
+  last Unimported key takes it out of the Board's Unimported count; no id is minted. There is no
+  `no id` Board warning. The schema key list is single-sourced in `src/storage/markdown/schema.ts`.
 - **A missing storage directory explains itself; an empty one does not** (T105). Only when
   `.scratch/` does not exist, `list_efforts` returns four lines: the root line suffixed
   `(resolved by <source>)`, `no tracker here`, a `start one` line naming real `create_tickets` /
@@ -485,8 +486,8 @@ Write rules, equally load-bearing:
   name Edge to a Ticket the run mints is rewritten to that id, so it keeps resolving. The migration report, preview and real, ends with grouped
   lines for sub-slices kept as declared (with the `update_ticket blocked_by` fix) and for written
   Edges that land on another Effort (`T9@beta`), each naming ten and counting the rest.
-- **A write normalizes the Foreign file it touches when that file has no parseable fence**, and keeps
-  the prose it inferred from verbatim. A foreign-fenced file keeps its fence, per the rendering rule.
+- **A write normalizes the Foreign file it touches**, and keeps the prose it inferred from
+  verbatim. A fence that parses is kept, Unimported keys included, per the rendering rule.
 - **Claims are flagged when stale, never auto-released.** 24h; use `release` to drop a claim explicitly.
 - **A batch creation is all or none.** Every name and Edge is checked before anything is written,
   above the seam and again by the driver on a fresh read, so one refused name or a cycle leaves the

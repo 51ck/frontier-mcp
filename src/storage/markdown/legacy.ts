@@ -7,9 +7,7 @@ import type { Kind, Status } from '../../domain.ts';
  * flagged Foreign: an agent needs to know which values to distrust.
  *
  * The file is named for the one unstructured prose shape it parses, not for
- * Foreign. A Foreign Ticket can also carry a fence that parses but does not
- * conform, and that one never reaches this parser, so `foreign.ts` would claim
- * a generality this module does not have.
+ * Foreign, which is a predicate on the fence rather than on this prose.
  *
  * The shapes here are the ones the real repos actually contain, not the ones a
  * schema would have liked. Reads never write, so a file parsed badly is only

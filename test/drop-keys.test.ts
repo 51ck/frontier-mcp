@@ -266,17 +266,19 @@ describe('drop_keys refuses a cut that would damage the fence', () => {
   });
 });
 
-describe('drop_keys on a foreign fence', () => {
+describe('drop_keys on a fence with no id', () => {
   const FOREIGN = '.scratch/alpha/issues/01-foreign.md';
   const fence = 'title: GitHub export\nlabels: bug\nstatus: open';
 
-  it('makes the Ticket a schema fence with no id: no longer Foreign, a Ticket named by its file', async () => {
+  it('clears the Ticket from the Unimported count when its last key goes', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
       [FOREIGN]: file(fence, 'Body.\n'),
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
-    expect(await frontier.call('get_board', { effort: 'alpha' })).toContain('foreign fence');
+    expect(await frontier.call('get_board', { effort: 'alpha' })).toContain(
+      '1/1 Tickets hold Unimported keys',
+    );
 
     await frontier.call('update_ticket', { id: 'foreign', drop_keys: ['labels'] });
 
@@ -284,8 +286,8 @@ describe('drop_keys on a foreign fence', () => {
       file('title: GitHub export\nstatus: open', 'Body.\n'),
     );
     const board = await frontier.call('get_board', { effort: 'alpha' });
-    expect(board).not.toContain('foreign fence');
-    expect(board).not.toContain('no id');
+    expect(board).not.toContain('Unimported');
+    expect(board).not.toContain('warnings:');
     expect(board).toContain('> foreign  GitHub export  build/open');
     expect(await frontier.call('get_tickets', { ids: ['foreign'] })).not.toContain(
       '## Unimported frontmatter',
@@ -306,8 +308,7 @@ describe('drop_keys on a foreign fence', () => {
     expect(written).toMatch(/^---\ntitle: /);
     const board = await frontier.call('get_board', { effort: 'alpha' });
     expect(board).not.toContain('Foreign');
-    expect(board).not.toContain('foreign fence');
-    expect(board).not.toContain('no id');
+    expect(board).not.toContain('Unimported');
     expect(board).toContain('> foreign  ');
   });
 });
