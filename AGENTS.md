@@ -466,6 +466,12 @@ Write rules, equally load-bearing:
 - **A cycle is refused on both write paths**, creation and Edge update, and only when it runs through
   the node being written. A cycle already in the workspace is somebody's hand edit; refusing it here
   would make an unrelated Effort unwritable, and the Board already reports the damage it does.
+- **A caller's Effort slug is one directory name, or the call is refused.** Empty, `.`, `..`, a
+  leading dot, `/` or `\`, or any control character fails with `InvalidEffortSlug` before a path
+  is built, on reads as much as writes — the slug is joined under the storage directory, so
+  `../../x` wrote outside the workspace. The markdown driver's `effortDir` is the one check, and
+  every path built from a caller's slug goes through it; `get_board` looks a slug up among scanned
+  Efforts and builds none. Nothing else is restricted: spaces, dots inside, and non-ASCII stay legal.
 - **A dangling Edge is never refused.** It is a Board warning, and pointing at a Ticket not yet
   written is how a breakdown gets built up. An Edge naming an undeclared *temporary key* is refused,
   because that is a typo rather than a forward reference.
