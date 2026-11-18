@@ -136,6 +136,10 @@ references a call accepts and the hand-written file conventions are in
 **Existing Tickets need no action.** Every id a file already carries keeps resolving, as an Edge and
 as tool input, and no existing file is renamed or rewritten. There is no migration step.
 
+One case needs a hand: two files of one Effort with no `id` whose names differ only in the `NN-`
+prefix, such as `01-notes.md` and `02-notes.md`. Both are now called `notes`. The Board lists them
+under `duplicate names`, and every write to either is refused until one file is renamed.
+
 What breaks in 2.0:
 
 - **`create_tickets` takes `name` and refuses `key`.** Every Ticket in the call needs a `name`, and

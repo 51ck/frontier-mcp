@@ -173,7 +173,12 @@ export async function stage(path: string, contents: string): Promise<string> {
   const temporary = join(dirname(path), `.frontier-${String(process.pid)}-${String(sequence)}.tmp`);
 
   try {
-    await writeFile(temporary, contents, 'utf8');
+    // A create hard-links its staged file to the Ticket, so a staged file left
+    // by a process that died mid-create shares an inode with a live Ticket. A
+    // later process reusing the pid and sequence must not write through it:
+    // drop the stale name, and refuse rather than truncate if one reappears.
+    await unlink(temporary).catch(() => {});
+    await writeFile(temporary, contents, { encoding: 'utf8', flag: 'wx' });
     return temporary;
   } catch (error) {
     await unstage(temporary);

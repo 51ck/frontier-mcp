@@ -164,6 +164,14 @@ function checkNames(
     if (earlier !== undefined) refuse(`repeats the name of Ticket ${String(earlier + 1)}`);
     seen.set(folded, index);
 
+    // Another Effort's dotted stem can already answer to this full name:
+    // `a/issues/b.foo.md` and a new `foo` in `a.b` are both `a.b.foo`.
+    const full = `${effort}.${draft.name}`.toLowerCase();
+    const twin = existing.find(ticket => fullNameOf(ticket).toLowerCase() === full);
+    if (twin !== undefined && (twin.effort !== effort || twin.id !== undefined)) {
+      refuse(`would share the full name ${fullNameOf(twin)} with a Ticket of ${twin.effort}`);
+    }
+
     const [taken] = names.edge(draft.name, effort);
     if (taken === undefined) return;
     refuse(

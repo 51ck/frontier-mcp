@@ -319,6 +319,17 @@ export class InvalidEffortSlug extends Error {
   }
 }
 
+export class EffortSpelledDifferently extends Error {
+  constructor(slug: string, existing: string) {
+    super(
+      `No Effort '${slug}', but there is '${existing}', which differs only by case. Names ` +
+        `compare without regard to case, so a second Effort beside it would duplicate its ` +
+        `Tickets' names. Pass '${existing}'. Nothing was created.`,
+    );
+    this.name = 'EffortSpelledDifferently';
+  }
+}
+
 export class NoSuchEffort extends Error {
   constructor(slug: string) {
     super(`No Effort '${slug}' in this workspace. Pass create to start it.`);

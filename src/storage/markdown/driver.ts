@@ -26,6 +26,7 @@ import { compareByOrderHint } from '../../board-order.ts';
 import type { TicketEdit } from '../../domain.ts';
 import { duplicateKindOf, fullNameOf, indexNames } from '../../names.ts';
 import {
+  EffortSpelledDifferently,
   InvalidEffortSlug,
   NoSuchEffort,
   NoSuchMap,
@@ -375,6 +376,17 @@ async function create(
   walk: () => Promise<ScannedEffort[]>,
 ): Promise<readonly TicketSummary[]> {
   const dir = effortDir(storage, effort);
+
+  // A case-insensitive filesystem would open the existing directory under the
+  // caller's spelling, and every in-Effort rule above the seam, which looks the
+  // slug up exactly, would be skipped. On a case-sensitive one a second Effort
+  // would land beside the first with the same folded full names.
+  const slugs = (await walk()).map(scanned => scanned.effort.slug);
+  if (!slugs.includes(effort)) {
+    const twin = slugs.find(slug => slug.toLowerCase() === effort.toLowerCase());
+    if (twin !== undefined) throw new EffortSpelledDifferently(effort, twin);
+  }
+
   const missing = (await readEffort(storage, effort)) === undefined;
   if (missing && !options.createEffort) throw new NoSuchEffort(effort);
 

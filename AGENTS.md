@@ -500,7 +500,12 @@ Write rules, equally load-bearing:
   and digits, a letter first, at most 24 characters — and the reserved words: `lock`, the YAML
   words, the Windows device names. A name already a Ticket of the Effort by the read path's
   derivation (`cache` against `05-cache.md`), equal to an id anywhere, or repeated in the call is
-  refused, case ignored; each refusal names the entry and the rule.
+  refused, case ignored; each refusal names the entry and the rule. So is one whose full name a
+  Ticket of another Effort already has (`foo` in `a.b` beside `a/issues/b.foo.md`).
+- **`create_tickets` refuses an Effort that differs from an existing one only by case**, with
+  `EffortSpelledDifferently` naming the spelling on disk, in the driver before anything is staged.
+  A case-insensitive filesystem would open the existing directory while every rule keyed on the
+  slug was skipped. `edit_map` and `spec` do not check this.
 - **The exclusive create sits on the Ticket file.** Each file is staged, then hard-linked into
   place: a link refuses an existing target where a rename would replace it, and publishes the file
   whole. Two processes creating one name leave one file and one `TicketAlreadyExists`, and no guard
@@ -509,6 +514,10 @@ Write rules, equally load-bearing:
   while its name is free (`cache.md` carrying an id), and finding that at the link would show a
   reader the files linked before it. Links are taken one at a time in name order and stop at the
   first one lost, so two batches sharing several names cannot each win one and both give up.
+- **A staged file never opens an existing path.** `stage` unlinks its temporary name, then creates
+  it exclusively. A create that died between its link and its cleanup leaves a staged name sharing
+  an inode with a live Ticket, and a later process reusing the pid and sequence would otherwise
+  write through it.
 - **A batch that loses a link takes back only files that are still its own.** Before unlinking, it
   compares the target's device and inode with the staged file it still holds. Any write to a Ticket
   renames a new file over the path, so a mismatch is another session's write — a claim taken the
