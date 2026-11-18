@@ -74,6 +74,7 @@ agent's. Design work happens now because it is free; construction waits on the m
 
 <!-- GENERATED: overwritten on every mutation through the server. Do not hand-edit. -->
 - [T29 — Is the scan cost worth sharing one driver across processes](issues/01-T29-is-the-scan-cost-worth-sharing-one-driver-across.md) — Partly, and small: no shared driver and no external engine; per-file invalidation is filed as T106 and parked until a real repo shows re-scan cost. ADR 0004 and 0006 guards unchanged.
+- [T59 — One process, many workspaces — what per-call root commits us to](issues/02-T59-one-process-many-workspaces-what-per-call-root-c.md) — Per-call root stays; SEP-2577 re-verified (deprecated, not removed, 'suggested' migration). The registry stays unbounded: an idle driver holds no fd and about no heap. On stdio root stays unconstrained; any other transport must confine it. Two defects found and to be filed: the registry is not keyed on the real path, and a watcher that fails goes silently stale.
 <!-- /GENERATED -->
 
 ## Not yet specified
