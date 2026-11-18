@@ -1,12 +1,15 @@
-import { isMap, isScalar, parseDocument } from 'yaml';
+import { type Document, isAlias, isMap, isScalar, isSeq, parseDocument } from 'yaml';
 import type { Kind, Status, TicketSummary, UnimportedFrontmatter } from '../../domain.ts';
 import { STATUSES } from '../../domain.ts';
 import { parseProseBody } from './legacy.ts';
 import { splitFrontmatter } from './frontmatter.ts';
 import { SCHEMA_KEYS } from './schema.ts';
 
-/** `<NN>-<rest>.md` — `NN` carries sort order and nothing else. */
-const FILENAME_ORDER = /^(\d+)/;
+/**
+ * `<NN>-<rest>.md` — `NN` is a hint for Board order and nothing else. Digits
+ * then a hyphen, the shape {@link nameFromFilename} strips: `2fa.md` has none.
+ */
+const FILENAME_ORDER = /^(\d+)-/;
 
 export interface TicketFile {
   readonly filename: string;
@@ -26,15 +29,19 @@ export interface TicketFile {
 export function parseTicketSummary(
   effort: string,
   file: TicketFile,
-  fallbackOrder: number,
   revision: string,
 ): ParsedTicket {
-  const { fields } = splitFrontmatter(file.contents);
-  const order = readOrder(file.filename) ?? fallbackOrder;
+  const { fields, raw } = splitFrontmatter(file.contents);
+  const orderHint = readOrderHint(file.filename);
 
-  if (fields === undefined) return parseUnfenced(effort, order, file.contents, revision);
+  if (fields === undefined) return parseUnfenced(effort, orderHint, file, revision);
 
-  const id = text(fields['id']);
+  let parsed: Document | undefined;
+  const fence = (): Document => (parsed ??= parseDocument(raw ?? ''));
+
+  const id = text(
+    asWritten(fields['id'], readAsOther(fields['id']) ? fence().get('id', true) : undefined, fence),
+  );
   const rawStatus = text(fields['status']);
   const mappedStatus = readStatus(rawStatus);
   const unrecognizedStatus =
@@ -42,7 +49,7 @@ export function parseTicketSummary(
 
   const ticket: TicketSummary = {
     id,
-    handle: handleFor(id, effort, order),
+    name: id ?? nameFromFilename(file.filename),
     title: text(fields['title']) ?? '(untitled)',
     kind: readKind(fields['kind']),
     type: text(fields['type']),
@@ -52,11 +59,11 @@ export function parseTicketSummary(
     droppedReason: text(fields['dropped_reason']),
     claimedBy: text(fields['claimed_by']),
     claimedAt: text(fields['claimed_at']),
-    blockedBy: readEdgeList(fields['blocked_by']),
+    blockedBy: readEdgeList(fields['blocked_by'], fence),
     effort,
-    order,
-    foreign: isForeignFence(fields),
-    foreignFenced: isForeignFence(fields),
+    orderHint,
+    foreign: false,
+    hasUnimportedKeys: Object.keys(fields).some(key => !SCHEMA_KEYS.has(key)),
     unrecognizedStatus,
     collapsedRefs: [],
     keptSubSlices: [],
@@ -122,8 +129,7 @@ export function ticketBody(contents: string): string {
 
 /**
  * The frontmatter keys this schema does not import, and the file's own text for
- * them. A foreign fence is shown whole, byte for byte; a fence with an id shows
- * only its unimported entries, each sliced from the source rather than
+ * them: only the unimported entries, each sliced from the source rather than
  * re-serialized. Undefined for a conforming Ticket and for a fenceless file.
  */
 export function unimportedFrontmatter(contents: string): UnimportedFrontmatter | undefined {
@@ -131,7 +137,6 @@ export function unimportedFrontmatter(contents: string): UnimportedFrontmatter |
   if (fields === undefined || raw === undefined) return undefined;
   const keys = Object.keys(fields).filter(key => !SCHEMA_KEYS.has(key));
   if (keys.length === 0) return undefined;
-  if (isForeignFence(fields)) return { keys, yaml: raw, whole: true };
   const entries = unimportedEntries(raw);
   return entries === undefined
     ? { keys, yaml: raw, whole: true }
@@ -162,15 +167,15 @@ function unimportedEntries(raw: string): string | undefined {
 
 function parseUnfenced(
   effort: string,
-  order: number,
-  contents: string,
+  orderHint: number | undefined,
+  file: TicketFile,
   revision: string,
 ): ParsedTicket {
-  const inferred = parseProseBody(contents);
+  const inferred = parseProseBody(file.contents);
 
   const ticket: TicketSummary = {
     id: inferred.id,
-    handle: handleFor(inferred.id, effort, order),
+    name: inferred.id ?? nameFromFilename(file.filename),
     title: inferred.title,
     kind: inferred.kind,
     type: inferred.type,
@@ -183,9 +188,9 @@ function parseUnfenced(
     claimedAt: undefined,
     blockedBy: inferred.blockedBy,
     effort,
-    order,
+    orderHint,
     foreign: true,
-    foreignFenced: false,
+    hasUnimportedKeys: false,
     unrecognizedStatus: inferred.unrecognizedStatus,
     collapsedRefs: [],
     keptSubSlices: [],
@@ -195,17 +200,17 @@ function parseUnfenced(
 }
 
 /**
- * A Ticket with no id still has to be nameable, or a whole Effort of Foreign Tickets
- * has no route to its own bodies. `<effort>#<order>` is that fallback — an
- * address, deliberately not an id: it is not repo-stable and never appears as
- * an Edge.
+ * A Ticket with no id is named by its file: the stem, less a leading `<digits>-`,
+ * which is an order hint and never identity. Lenient — any stem is a name, and one
+ * that is nothing but the prefix is kept whole rather than left empty.
  */
-function handleFor(id: string | undefined, effort: string, order: number): string {
-  return id ?? `${effort}#${String(order)}`;
+function nameFromFilename(filename: string): string {
+  const stem = filename.replace(/\.md$/, '');
+  return stem.replace(/^\d+-/, '') || stem;
 }
 
-/** `<NN>-...` gives sort order. A file with no numeric prefix has none of its own. */
-function readOrder(filename: string): number | undefined {
+/** `<NN>-...` gives the hint. A file with no numeric prefix has none. */
+function readOrderHint(filename: string): number | undefined {
   const match = FILENAME_ORDER.exec(filename);
   return match?.[1] === undefined ? undefined : Number(match[1]);
 }
@@ -214,20 +219,38 @@ function readKind(value: unknown): Kind {
   return text(value) === 'decision' ? 'decision' : 'build';
 }
 
-/** No id and at least one key outside {@link SCHEMA_KEYS} — a foreign export, not our schema. */
-function isForeignFence(fields: Record<string, unknown>): boolean {
-  if (text(fields['id']) !== undefined) return false;
-  return Object.keys(fields).some(key => !SCHEMA_KEYS.has(key));
-}
-
 function readStatus(value: string | undefined): Status | undefined {
   return STATUSES.find(status => status === value);
 }
 
-/** A `blocked_by` list. Anything that is not a list of scalars reads as no Edges. */
-function readEdgeList(value: unknown): readonly string[] {
+/**
+ * A `blocked_by` list. Anything that is not a list reads as no Edges. An entry
+ * YAML read as something other than a string is taken as written, by the rule
+ * an `id` is read by, so the two always agree.
+ */
+function readEdgeList(value: unknown, fence: () => Document): readonly string[] {
   if (!Array.isArray(value)) return [];
-  return value.map(entry => text(entry)).filter((entry): entry is string => entry !== undefined);
+  const list: unknown = value.some(readAsOther) ? fence().get('blocked_by', true) : undefined;
+  const nodes = isSeq(list) ? list.items : [];
+  return value
+    .map((entry, index) => text(asWritten(entry, nodes[index], fence)))
+    .filter((entry): entry is string => entry !== undefined);
+}
+
+function readAsOther(value: unknown): boolean {
+  return typeof value !== 'string' && value !== null && value !== undefined;
+}
+
+/**
+ * A name is text, so a value YAML read as a number or a boolean is taken as the
+ * text that was written: an unquoted `02` is the name `02`, not the number 2.
+ * An alias is followed to the scalar it stands for. The fence is parsed a
+ * second time only for such a value, which a fence of names never holds.
+ */
+function asWritten(value: unknown, node: unknown, fence: () => Document): unknown {
+  if (!readAsOther(value)) return value;
+  const target = isAlias(node) ? node.resolve(fence()) : node;
+  return isScalar(target) && readAsOther(target.value) ? (target.source ?? value) : value;
 }
 
 /** YAML scalars arrive as numbers and booleans too; only non-empty strings count. */

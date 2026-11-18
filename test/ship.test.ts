@@ -79,17 +79,20 @@ describe('the shipped surface', () => {
     }
   });
 
-  it("names no concrete id shape in create_tickets' key description", async () => {
-    // Id shape is the driver's, set by frontier.yml; a schema naming one is wrong
-    // under every other pattern (T55).
+  it('requires a name on every create_tickets entry and offers no key', async () => {
     const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
     const { client } = await connectFrontier({ cwd: root, env: {} });
 
     const { tools } = await client.listTools();
     const create = tools.find(tool => tool.name === 'create_tickets');
-    const schema = JSON.stringify(create?.inputSchema);
-    expect(schema).toContain('temporary name');
-    expect(schema).not.toContain('T<n>');
+    expect(create?.inputSchema.properties?.['tickets']).toMatchObject({
+      items: {
+        required: ['name', 'title'],
+        // Present only so a call still passing it is refused by name rather than stripped.
+        properties: { key: { not: {} } },
+      },
+    });
+    expect(JSON.stringify(create)).not.toMatch(/temporary|mint/i);
   });
 
   it('lists the tracker configuration document as an MCP resource, not a tool', async () => {
@@ -134,7 +137,7 @@ describe('the shipped surface', () => {
     expect(text).toMatch(/fallback|without Frontier/i);
   });
 
-  it('serves a document that forbids working out the next id by hand', async () => {
+  it('serves a document that says a Ticket is named, and that nothing allocates an id', async () => {
     const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
     const { client } = await connectFrontier({ cwd: root, env: {} });
 
@@ -145,10 +148,14 @@ describe('the shipped surface', () => {
     // on substance rather than on the sentences as written — this file re-wraps
     // whenever a line grows, and a rewording that still states the rule must not
     // turn this red. Observed in the field: an agent with the server loaded
-    // scanned for the highest T<n> itself, the naive `max + 1` ADR 0005 measured.
-    expect(text).toMatch(/ids\s+come\s+from\s+`create_tickets`/i);
+    // scanned for the highest T<n> itself. Nothing counts any longer, so the
+    // document has to say that outright and say what names a Ticket instead.
+    expect(text).toMatch(/nothing\s+allocates\s+an\s+id/i);
     expect(text).toMatch(/never[\s\S]{0,40}\bscan/i);
-    expect(text).toMatch(/ADR 0006/);
+    expect(text).toMatch(/never[\s\S]{0,40}`id:`/i);
+    expect(text).toMatch(/`<effort>\.<name>`/);
+    expect(text).toMatch(/ADR\s+0008/);
+    expect(text).not.toMatch(/ADR\s+0006/);
   });
 
   // A revision, not a package version: release-it bumps package.json after this
@@ -168,7 +175,6 @@ describe('the tracker configuration document', () => {
    * types this, and the server accepts it as a first-class Ticket.
    */
   const HAND_WRITTEN = `---
-id: T1
 title: Handwritten per tracker doc
 kind: build
 status: open
@@ -176,7 +182,7 @@ triage: ready-for-agent
 blocked_by: []
 ---
 
-# T1 — Handwritten per tracker doc
+# Handwritten per tracker doc
 
 Written by following the tracker configuration document only.
 `;
@@ -185,18 +191,19 @@ Written by following the tracker configuration document only.
     const doc = shippedTrackerDoc();
 
     // The doc names the fields a hand-written Ticket must carry.
-    expect(doc).toContain('id: T');
+    expect(doc).toContain('`<name>.md`');
+    expect(doc).toContain('title: ');
     expect(doc).toContain('status: open');
     expect(doc).toContain('blocked_by');
 
     const root = await makeFixtureTree({
       '.git/HEAD': 'ref: refs/heads/main\n',
-      '.scratch/hand/issues/01-T1-handwritten.md': HAND_WRITTEN,
+      '.scratch/hand/issues/hand-written.md': HAND_WRITTEN,
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
     const board = await frontier.call('get_board', { effort: 'hand' });
-    expect(board).toContain('T1  Handwritten per tracker doc');
+    expect(board).toContain('hand-written  Handwritten per tracker doc');
     // A Ticket the parser had to infer would be flagged Foreign — this one
     // carries real frontmatter, so it must not be.
     expect(board).not.toContain('foreign');

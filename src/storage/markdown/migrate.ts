@@ -1,153 +1,124 @@
 import { join } from 'node:path';
 
 import type { MigrationChange, MigrationReport, TicketSummary } from '../../domain.ts';
-import { withIdReservations, type MintingPlan, type Rescan } from './create.ts';
+import type { Names } from '../../names.ts';
 import { normalizeTicket, type Defaults } from './serialize.ts';
 import { writeAtomically } from './write.ts';
 
-export interface TicketFileEntry {
+interface TicketFileEntry {
   readonly filename: string;
   readonly ticket: TicketSummary;
 }
 
 export interface MigrateFilesRequest {
-  readonly storage: string;
-  readonly minting: MintingPlan;
   readonly effort: string;
   readonly issues: string;
   /** `issues` relative to the workspace root, for the report. */
   readonly directory: string;
+  /** The Effort's Tickets, as scanned with the rest of the workspace. */
   readonly entries: readonly TicketFileEntry[];
-  /** Every Ticket in the workspace as scanned, to tell which Effort a written Edge lands on. */
-  readonly allTickets: readonly TicketSummary[];
+  /** The index over that same scan, so an Edge resolves here as it does on a Board. */
+  readonly names: Names;
   readonly preview: boolean;
-  /** Preview only: preserved ids already carried elsewhere, with every claimant file. */
-  readonly conflicts: ReadonlyMap<string, readonly string[]>;
-  readonly rescan: Rescan;
+  /** Preview only, by filename: what a Ticket shares with another, and every file claiming it. */
+  readonly conflicts: ReadonlyMap<string, NonNullable<MigrationChange['duplicate']>>;
   readonly readContents: (filename: string) => Promise<string>;
 }
 
 interface PlannedFile {
   readonly filename: string;
+  /** False for a Ticket reported only for its conflict. */
+  readonly write: boolean;
   readonly defaults: Defaults;
   readonly change: MigrationChange;
   readonly keptSubSlices: readonly string[];
 }
 
 /**
- * Normalize Foreign Tickets in one Effort and mint ids for those without.
- * Filenames never change: another Effort's prose may link them by path.
+ * Normalize one Effort at once. A file with no parseable fence gains schema
+ * frontmatter, exactly as a write to it would give it, and a bare sort-order
+ * Edge (`Blocked by: 01`) becomes the name of the Ticket whose filename carries
+ * that prefix — the one Edge only migration can resolve, since the prefix is a
+ * fact about a file and never crosses the seam.
  *
- * A real run mints through `withIdReservations`, so the pattern decides the
- * strategy — a `<N>` pattern holds its guards until every file is on disk, a
- * random one draws against a fresh scan (T62). A preview takes no guards and
- * predicts no ids: an unminted Ticket is named by its handle, everywhere it
- * appears, so two previews of unchanged files are identical.
- *
- * Bare sort-order Edges (`Blocked by: 01`) are rewritten to the id the target
- * Ticket carries after this call — preserved or newly minted — so migration
- * does not leave a Board full of unresolvable `01` references.
+ * Nothing is minted and no file is renamed (ADR 0008): every Ticket keeps the
+ * name it is read by, so a preview and a real run plan the same thing and
+ * another Effort's Edge into this one resolves afterwards as it did before. A
+ * Ticket needing neither change is left alone, byte for byte.
  */
 export async function migrateEffortFiles(request: MigrateFilesRequest): Promise<MigrationReport> {
   const { effort, entries, preview, directory } = request;
-  const candidates = entries.filter(entry => entry.ticket.foreign || entry.ticket.id === undefined);
+  const plan = planChanges(request);
 
-  if (candidates.length === 0) {
-    return { effort, preview, directory, changes: [], crossEffortEdges: [], keptSubSlices: [] };
-  }
+  if (!preview) await applyPlan(request, plan);
 
-  const needMint = candidates.filter(entry => entry.ticket.id === undefined).length;
-
-  if (preview) {
-    const plan = planChanges(candidates, undefined, entries, request.conflicts);
-    return {
-      effort,
-      preview: true,
-      directory,
-      changes: plan.map(file => file.change),
-      ...edgeNotes(plan, request),
-    };
-  }
-
-  return withIdReservations(
-    request.minting,
-    request.storage,
-    needMint,
-    request.rescan,
-    async minted => {
-      const plan = planChanges(candidates, minted, entries);
-      await applyPlan(request, plan);
-      return {
-        effort,
-        preview: false,
-        directory,
-        changes: plan.map(file => file.change),
-        ...edgeNotes(plan, request),
-      };
-    },
-  );
+  return {
+    effort,
+    preview,
+    directory,
+    changes: plan.map(file => file.change),
+    unchanged: entries.length - plan.filter(file => file.write).length,
+    ...edgeNotes(plan, request),
+  };
 }
 
-/** `minted` undefined is a preview: unminted Tickets are named by handle. */
-function planChanges(
-  candidates: readonly TicketFileEntry[],
-  minted: readonly string[] | undefined,
-  entries: readonly TicketFileEntry[],
-  conflicts: ReadonlyMap<string, readonly string[]> = new Map(),
-): readonly PlannedFile[] {
-  let mintAt = 0;
-  const nameByOrder = new Map<number, string>();
+function planChanges(request: MigrateFilesRequest): readonly PlannedFile[] {
+  const { effort, entries, names, conflicts } = request;
 
-  // Every Ticket in the Effort contributes to Edge remapping — a blocker that
-  // already had an id must still be findable by its sort order.
-  for (const entry of entries) {
-    if (entry.ticket.id !== undefined) nameByOrder.set(entry.ticket.order, entry.ticket.id);
+  const byOrder = new Map<number, TicketSummary[]>();
+  for (const { ticket } of entries) {
+    if (ticket.orderHint === undefined) continue;
+    const carrying = byOrder.get(ticket.orderHint);
+    if (carrying === undefined) byOrder.set(ticket.orderHint, [ticket]);
+    else carrying.push(ticket);
   }
 
-  const assigned = new Map<string, string | undefined>();
-  for (const entry of candidates) {
-    if (entry.ticket.id !== undefined) {
-      assigned.set(entry.ticket.handle, entry.ticket.id);
-      continue;
-    }
-    if (minted === undefined) {
-      assigned.set(entry.ticket.handle, undefined);
-      nameByOrder.set(entry.ticket.order, entry.ticket.handle);
-      continue;
-    }
-    const id = minted[mintAt++];
-    if (id === undefined) throw new Error('Reserved fewer ids than Tickets needing one.');
-    assigned.set(entry.ticket.handle, id);
-    nameByOrder.set(entry.ticket.order, id);
-  }
+  // Only an Edge that resolves to nothing is a sort order: digits that name a
+  // Ticket already are that Ticket's name. A prefix two files carry, a target
+  // whose name is not its alone, or the Ticket's own prefix — which would
+  // write an Edge to itself — says nothing usable and is left to dangle.
+  const resolved = (edge: string, from: TicketSummary): string => {
+    if (!isUnresolvedSortOrder(edge, request)) return edge;
+    const carrying = byOrder.get(Number(edge)) ?? [];
+    const [target] = carrying;
+    if (target === undefined || carrying.length > 1 || target === from) return edge;
+    const named = names.edge(target.name, effort);
+    return named.length === 1 && named[0] === target ? target.name : edge;
+  };
 
-  return candidates.map(entry => {
-    const id = assigned.get(entry.ticket.handle);
-    const blockedBy = remapEdges(entry.ticket.blockedBy, nameByOrder);
+  return entries.flatMap(({ filename, ticket }): PlannedFile[] => {
+    const mapped = ticket.blockedBy.map(edge => resolved(edge, ticket));
+    const edgesResolved = mapped.some((edge, index) => edge !== ticket.blockedBy[index]);
+    const blockedBy = [...new Set(mapped)];
+    const write = ticket.foreign || edgesResolved;
+    const duplicate = conflicts.get(filename);
+    if (!write && duplicate === undefined) return [];
 
-    return {
-      filename: entry.filename,
-      keptSubSlices: entry.ticket.keptSubSlices,
-      defaults: {
-        id: id ?? entry.ticket.handle,
-        title: entry.ticket.title,
-        kind: entry.ticket.kind,
-        type: entry.ticket.type,
-        status: entry.ticket.status,
-        triage: entry.ticket.triage,
-        blockedBy,
+    return [
+      {
+        filename,
+        write,
+        keptSubSlices: ticket.keptSubSlices,
+        defaults: {
+          id: ticket.id,
+          title: ticket.title,
+          kind: ticket.kind,
+          type: ticket.type,
+          status: ticket.status,
+          triage: ticket.triage,
+          blockedBy,
+        },
+        change: {
+          name: ticket.name,
+          title: ticket.title,
+          normalized: ticket.foreign,
+          edgesResolved,
+          filename,
+          blockedBy,
+          duplicate,
+        },
       },
-      change: {
-        beforeHandle: entry.ticket.handle,
-        id,
-        title: entry.ticket.title,
-        minted: entry.ticket.id === undefined,
-        normalized: entry.ticket.foreign,
-        filename: entry.filename,
-        blockedBy,
-        duplicateFiles: entry.ticket.id === undefined ? undefined : conflicts.get(entry.ticket.id),
-      },
-    };
+    ];
   });
 }
 
@@ -156,14 +127,16 @@ async function applyPlan(
   plan: readonly PlannedFile[],
 ): Promise<void> {
   const prepared = await Promise.all(
-    plan.map(async file => ({
-      filename: file.filename,
-      contents: normalizeTicket(await request.readContents(file.filename), file.defaults),
-    })),
+    plan
+      .filter(file => file.write)
+      .map(async file => ({
+        filename: file.filename,
+        contents: normalizeTicket(await request.readContents(file.filename), file.defaults),
+      })),
   );
 
-  // Settled, not raced: the caller releases its `<N>` guards when this returns
-  // or throws, and they must stay held until every write has finished (T62).
+  // Settled, not raced: a rejection must not leave sibling writes running
+  // after the call has already reported its failure.
   const written = await Promise.allSettled(
     prepared.map(file => writeAtomically(join(request.issues, file.filename), file.contents)),
   );
@@ -171,38 +144,45 @@ async function applyPlan(
   if (failed !== undefined) throw failed.reason;
 }
 
-/**
- * A bare sort-order Edge becomes the id of the Ticket at that order. Real ids
- * and anything else pass through unchanged — dangling Edges stay Board warnings.
- */
-function remapEdges(edges: readonly string[], idByOrder: ReadonlyMap<number, string>): string[] {
-  return edges.map(edge => {
-    if (!/^\d+$/.test(edge)) return edge;
-    return idByOrder.get(Number(edge)) ?? edge;
-  });
-}
-
 /** Grouped, never per Ticket: what a reader must check by hand after this call. */
 function edgeNotes(
   plan: readonly PlannedFile[],
   request: MigrateFilesRequest,
-): Pick<MigrationReport, 'crossEffortEdges' | 'keptSubSlices'> {
-  const effortOf = new Map<string, string>();
-  for (const ticket of request.allTickets) {
-    if (ticket.id !== undefined && ticket.effort !== request.effort) {
-      effortOf.set(ticket.id, ticket.effort);
-    }
-  }
-  const local = new Set(plan.map(file => file.change.id));
+): Pick<MigrationReport, 'crossEffortEdges' | 'keptSubSlices' | 'unresolvedSortOrders'> {
+  // An id is the one reference that crosses Efforts without saying so; a full
+  // name written out is its author's intent and is not second-guessed.
   const cross = new Set<string>();
   for (const file of plan) {
     for (const edge of file.change.blockedBy) {
-      const foreign = effortOf.get(edge);
-      if (foreign !== undefined && !local.has(edge)) cross.add(`${edge}@${foreign}`);
+      const [target] = request.names.edge(edge, request.effort);
+      if (target === undefined || target.effort === request.effort) continue;
+      if (target.id?.toLowerCase() === edge.toLowerCase()) {
+        cross.add(`${target.id}@${target.effort}`);
+      }
     }
   }
   // What the scan kept, not a pattern over what is written: a `T7.2` copied
   // from a fence was never a prose sub-slice.
   const kept = new Set(plan.flatMap(file => file.keptSubSlices));
-  return { crossEffortEdges: [...cross].toSorted(), keptSubSlices: [...kept].toSorted() };
+
+  // Over the whole Effort, not the plan: a Ticket whose only sort-order Edge
+  // could not be resolved is not written, and is exactly the one to name.
+  const rewritten = new Map(plan.map(file => [file.filename, file.change.blockedBy]));
+  const unresolved = new Set(
+    request.entries.flatMap(({ filename, ticket }) =>
+      (rewritten.get(filename) ?? ticket.blockedBy).filter(edge =>
+        isUnresolvedSortOrder(edge, request),
+      ),
+    ),
+  );
+
+  return {
+    crossEffortEdges: [...cross].toSorted(),
+    keptSubSlices: [...kept].toSorted(),
+    unresolvedSortOrders: [...unresolved].toSorted(),
+  };
+}
+
+function isUnresolvedSortOrder(edge: string, request: MigrateFilesRequest): boolean {
+  return /^\d+$/.test(edge) && request.names.edge(edge, request.effort).length === 0;
 }

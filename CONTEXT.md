@@ -57,9 +57,16 @@ thereafter. Opaque document bytes across the storage seam.
 _Avoid_: PRD, design doc, requirements
 
 **Ticket**:
-One markdown file under an Effort's `issues/`, one unit of work or one question. Identified by a
-stable `id` of the form `T<n>`, unique across the whole repo and never by its filename.
+One markdown file under an Effort's `issues/`, one unit of work or one question. Identified by its
+Name.
 _Avoid_: issue, task, card, story
+
+**Name**:
+What identifies a Ticket: `<effort>.<name>`, the Effort's slug and the file's stem, written bare
+inside its own Effort. Chosen by whoever creates the Ticket, one to three words for what it is, and
+never changed. A Ticket whose frontmatter carries an `id` is named by that id instead, unique across
+the whole repo.
+_Avoid_: handle, key, slug (an Effort has a slug), minting or allocating one
 
 **Kind**:
 Which of the two shapes a ticket is. `build` — a tracer-bullet slice, from `/to-tickets`. `decision` —
@@ -76,8 +83,8 @@ separate field from Status — only `/triage` writes it.
 _Avoid_: status, label
 
 **Edge**:
-A `blocked_by` entry: one Ticket declaring another must finish first. Always a plain Ticket id,
-resolved repo-wide — an Edge across Efforts looks no different from a local one.
+A `blocked_by` entry: one Ticket declaring another must finish first. It holds the other Ticket's
+Name — bare within the Effort, `<effort>.<name>` across Efforts, or its id.
 _Avoid_: dependency, link, relation
 
 **Frontier**:
@@ -97,7 +104,8 @@ first write through the server.
 _Avoid_: unmigrated, old-format
 
 **Unimported keys**:
-Frontmatter keys outside the schema, which the server reads past and never writes. Shown by
-`get_tickets` for as long as a ticket carries them, whether or not it has an id; removed only when
-an agent names them.
-_Avoid_: foreign keys (Foreign is about a ticket not yet adopted, not about its keys), extra fields
+Frontmatter keys outside the schema, which the server reads past and never writes. Counted on the
+Board and shown by `get_tickets` for as long as a ticket carries them; removed only when an agent
+names them.
+_Avoid_: foreign keys (Foreign is a file with no parseable frontmatter, not a fact about keys),
+extra fields

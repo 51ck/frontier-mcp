@@ -36,7 +36,11 @@ const CALLS: ReadonlyArray<readonly [name: string, tool: string, args: Record<st
   ['edit_map read', 'edit_map', {}],
   ['spec read', 'spec', {}],
   ['migrate_effort preview', 'migrate_effort', { preview: true }],
-  ['create_tickets create', 'create_tickets', { create: true, tickets: [{ title: 'Escapee' }] }],
+  [
+    'create_tickets create',
+    'create_tickets',
+    { create: true, tickets: [{ name: 'escapee', title: 'Escapee' }] },
+  ],
   ['edit_map create', 'edit_map', { create: true }],
   ['edit_map create with a section', 'edit_map', { create: true, destination: 'Out.' }],
   ['spec create', 'spec', { create: true, content: '# Out\n' }],
@@ -84,7 +88,7 @@ describe('an Effort slug that is one directory name', () => {
       await frontier.call('create_tickets', {
         effort: slug,
         create: true,
-        tickets: [{ title: 'Kept' }],
+        tickets: [{ name: 'kept', title: 'Kept' }],
       });
       expect(await readdir(join(dir, 'issues'))).toHaveLength(1);
 

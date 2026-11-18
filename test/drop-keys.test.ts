@@ -248,7 +248,7 @@ describe('drop_keys refuses a cut that would damage the fence', () => {
     const before = await read();
 
     const error = await frontier.callExpectingError('update_ticket', {
-      id: 'alpha#1',
+      id: 'T1-one',
       drop_keys: ['z'],
     });
 
@@ -266,27 +266,30 @@ describe('drop_keys refuses a cut that would damage the fence', () => {
   });
 });
 
-describe('drop_keys on a foreign fence', () => {
+describe('drop_keys on a fence with no id', () => {
   const FOREIGN = '.scratch/alpha/issues/01-foreign.md';
   const fence = 'title: GitHub export\nlabels: bug\nstatus: open';
 
-  it('makes the Ticket a schema fence with no id: no longer Foreign, still named no id', async () => {
+  it('clears the Ticket from the Unimported count when its last key goes', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
       [FOREIGN]: file(fence, 'Body.\n'),
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
-    expect(await frontier.call('get_board', { effort: 'alpha' })).toContain('foreign fence');
+    expect(await frontier.call('get_board', { effort: 'alpha' })).toContain(
+      '1/1 Tickets hold Unimported keys',
+    );
 
-    await frontier.call('update_ticket', { id: 'alpha#1', drop_keys: ['labels'] });
+    await frontier.call('update_ticket', { id: 'foreign', drop_keys: ['labels'] });
 
     expect(await readFile(join(root, FOREIGN), 'utf8')).toBe(
       file('title: GitHub export\nstatus: open', 'Body.\n'),
     );
     const board = await frontier.call('get_board', { effort: 'alpha' });
-    expect(board).not.toContain('foreign fence');
-    expect(board).toContain('no id (1)');
-    expect(await frontier.call('get_tickets', { ids: ['alpha#1'] })).not.toContain(
+    expect(board).not.toContain('Unimported');
+    expect(board).not.toContain('warnings:');
+    expect(board).toContain('> foreign  GitHub export  build/open');
+    expect(await frontier.call('get_tickets', { ids: ['foreign'] })).not.toContain(
       '## Unimported frontmatter',
     );
   });
@@ -297,15 +300,15 @@ describe('drop_keys on a foreign fence', () => {
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    await frontier.call('update_ticket', { id: 'alpha#1', drop_keys: ['labels'] });
-    await frontier.call('update_ticket', { id: 'alpha#1', comment: 'Still fine.' });
+    await frontier.call('update_ticket', { id: 'foreign', drop_keys: ['labels'] });
+    await frontier.call('update_ticket', { id: 'foreign', comment: 'Still fine.' });
 
     const written = await readFile(join(root, FOREIGN), 'utf8');
     expect(written).not.toContain('null');
     expect(written).toMatch(/^---\ntitle: /);
     const board = await frontier.call('get_board', { effort: 'alpha' });
     expect(board).not.toContain('Foreign');
-    expect(board).not.toContain('foreign fence');
-    expect(board).toContain('no id (1)');
+    expect(board).not.toContain('Unimported');
+    expect(board).toContain('> foreign  ');
   });
 });

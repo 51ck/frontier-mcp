@@ -7,7 +7,7 @@ stop re-parsing prose to learn what is open, blocked, or takeable.
 
 **Pre-1.0: the API can change in a breaking way on any release.** The tool surface is fixed at eight
 tools, but their arguments, results, and the on-disk conventions under `.scratch/` are still being
-settled. The Ticket id format is settled as a configurable pattern (see below). Semver is honoured within `0.x` as best it can be, and the
+settled. Semver is honoured within `0.x` as best it can be, and the
 `CHANGELOG.md` records every break, but a `0.x` bump is not a promise of compatibility. Pin an exact
 version (see below) and read the changelog before moving the pin. From `v1.0.0` on, breaking changes
 wait for a major.
@@ -104,27 +104,67 @@ clients, updates, recovery, and removal.
 2. Read the tracker configuration document once: fetch MCP resource `frontier://tracker-doc`, or read
    [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md) in a repo that vendors it.
 3. Call `list_efforts` to see whether `.scratch/` exists yet.
-4. Call `get_board` on an Effort to see the Frontier, then `get_tickets` only for the ids you work.
+4. Call `get_board` on an Effort to see the Frontier, then `get_tickets` only for the Tickets you work.
 
 A repository with no `.scratch/` directory is not an error. Create the first Effort with
 `create_tickets`, `edit_map`, or `spec` and `create: true`.
 
-## Ticket ids
+## Ticket names
 
-New Ticket ids are random by default and configurable through `id_pattern` in
-`.scratch/frontier.yml`. Existing `T<n>` ids keep resolving as Edges; under a pattern other than the
-default they are outside its namespace and do not count toward `<N>`.
+A Ticket is named by its path: `<effort>.<name>`, the name being its file's stem, so
+`.scratch/auth/issues/token-cache.md` is `auth.token-cache`. Whoever creates a Ticket chooses the
+name — one to three words for what it is — and Edges use it: bare inside the Effort, in full across
+Efforts.
 
-```yaml
-id_pattern: T<N>-<b36{4}>
+```json
+{
+  "effort": "auth",
+  "tickets": [
+    { "name": "token-cache", "title": "Cache the access token" },
+    { "name": "refresh-flow", "title": "Refresh an expired token", "blocked_by": ["token-cache"] }
+  ]
+}
 ```
 
-A pattern with `<N>` counts upward instead of drawing at random. A purely counted one such as
-`T<N>` hands the same id to two branches that create Tickets in parallel; mixing in a random part,
-as above, keeps them apart. The server reads the file once at startup, so restart it after a
-change. An invalid file is reported on the Board and blocks writes until fixed. The tokens,
-legality rules and hand-minting steps are in
-[`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md).
+A Ticket whose frontmatter carries an `id` is named by that id instead. The naming rules, the
+references a call accepts and the hand-written file conventions are in
+[`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md); the reasoning is in
+[ADR 0008](docs/adr/0008-a-ticket-is-named-by-its-path.md).
+
+## Upgrading from 1.x
+
+**Existing Tickets need no action.** Every id a file already carries keeps resolving, as an Edge and
+as tool input, and no existing file is renamed or rewritten. There is no migration step.
+
+One case needs a hand: two files of one Effort with no `id` whose names differ only in the `NN-`
+prefix, such as `01-notes.md` and `02-notes.md`. Both are now called `notes`. The Board lists them
+under `duplicate names`, and every write to either is refused until one file is renamed.
+
+What breaks in 2.0:
+
+- **`create_tickets` takes `name` and refuses `key`.** Every Ticket in the call needs a `name`, and
+  siblings in one call name each other by it.
+- **A created Ticket is `issues/<name>.md`** with no `id` field and no `NN-` sort-order prefix.
+  Anything that read an id out of a new file or its filename finds none.
+- **Nothing mints an id.** `id_pattern` in `.scratch/frontier.yml` is ignored; a file that still
+  sets it draws one Board warning and can be deleted.
+- **`<effort>#<order>` is gone**, and so is the Board's `no id` warning. A Ticket with no `id` is
+  addressed by its name.
+- **`migrate_effort` mints no ids.** It gives a file with no parseable frontmatter the schema block
+  and rewrites bare sort-order Edges (`01`) to names.
+- **Foreign means only a file with no parseable frontmatter.** A fenced Ticket holding keys outside
+  the schema is counted on the Board as holding Unimported keys, and `update_ticket` `drop_keys`
+  removes them.
+- **A Board lists blockers above the Tickets they block.** An existing `NN-` prefix only breaks
+  ties.
+- **An Edge that looks like a slip is refused** rather than left dangling: a near miss of an
+  existing name, a bare name only another Effort has, or the Board's `T9@beta` form.
+- **Two branches adding the same name conflict in git** (add/add). Rename one side's file before
+  merging.
+- **Creating a Ticket needs a filesystem with hard links.**
+
+An Effort slug that would step outside `.scratch/` is refused, as it has been since 1.0.1. A vendored
+copy of the tracker document should be replaced with revision 8.
 
 ## Override the workspace
 

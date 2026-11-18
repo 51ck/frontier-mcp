@@ -4,10 +4,10 @@ import type { Kind, TicketEdit, TicketSummary } from '../domain.ts';
 import { STATUSES, TRIAGE_ROLES } from '../domain.ts';
 import type { TriageRole } from '../domain.ts';
 import { cycleThrough, renderCycle, type EdgesOf } from '../edges.ts';
-import { claimantsById, edgesOfClaimants } from '../frontier.ts';
+import { fullNameOf, indexNames } from '../names.ts';
 
 export const updateTicketInputSchema = z.object({
-  id: z.string().describe('Ticket id, or the <effort>#<order> handle of a Ticket with no id.'),
+  id: z.string().describe('Ticket id or name; <effort>.<name> when several Efforts have the name.'),
   claim: z
     .object({ by: z.string().min(1).describe('Who is taking it.') })
     .optional()
@@ -47,8 +47,8 @@ export const updateTicketInputSchema = z.object({
     .array(z.string().min(1))
     .optional()
     .describe(
-      'Replace the Edges outright, each a plain Ticket id resolved repo-wide. An empty list ' +
-        'clears them. A cycle is refused.',
+      'Replace the Edges outright, each a Ticket id, a name in this Effort, or ' +
+        '<effort>.<name>. An empty list clears them. A cycle is refused.',
     ),
   comment: z
     .string()
@@ -110,8 +110,8 @@ export interface UpdateRequest {
  * model or the Edge graph does not allow. Validation lives here rather than in
  * the driver because it is a rule about the domain, not about storage.
  *
- * `all` is every Ticket in the workspace, because Edges resolve repo-wide and a
- * cycle can run through an Effort this call never names.
+ * `all` is every Ticket in the workspace, because an Edge can lead into another
+ * Effort and a cycle can run through one this call never names.
  */
 export function editFor(
   ticket: TicketSummary,
@@ -227,27 +227,26 @@ function identityFor(ticket: TicketSummary, request: UpdateRequest): TicketEdit 
 }
 
 /**
- * The new Edge list, refused if it closes a cycle. This is the same check
- * `create_tickets` runs and the easier of the two ways to close a loop — a
- * breakdown published in one call is at least written down in one place, where
- * an Edge added later is not.
+ * The new Edge list as it is stored, refused if it closes a cycle. This is the
+ * same check `create_tickets` runs and the easier of the two ways to close a
+ * loop — a breakdown published in one call is at least written down in one
+ * place, where an Edge added later is not.
  *
- * A dangling Edge is not refused: it is a Board warning, and pointing at a
- * Ticket that has not been written yet is how a breakdown gets built up.
+ * An Edge that resolves to nothing dangles, a Board warning, unless it reads as
+ * a slip of a name that exists. One the Ticket already carried is never judged.
  */
 function edgesFor(
   ticket: TicketSummary,
   all: readonly TicketSummary[],
   request: UpdateRequest,
 ): readonly string[] {
-  const blockedBy = request.blocked_by ?? [];
-  // Nothing can name an id-less Ticket, so no path leads back to it.
-  if (ticket.id === undefined) return blockedBy;
+  const names = indexNames(all);
+  const blockedBy = names.stored(request.blocked_by ?? [], ticket, ticket.blockedBy);
+  const self = names.nodeOf(ticket);
+  const proposed = blockedBy.map(edge => names.node(edge, ticket.effort));
+  const edgesOf: EdgesOf = node => (node === self ? proposed : names.edgesFrom(node));
 
-  const byId = claimantsById(all);
-  const edgesOf: EdgesOf = id => (id === ticket.id ? blockedBy : edgesOfClaimants(byId, id));
-
-  const cycle = cycleThrough(ticket.id, edgesOf);
+  const cycle = cycleThrough(self, edgesOf);
   if (cycle !== undefined) {
     throw new Error(
       `Those Edges would close a cycle: ${renderCycle(cycle)}. Nothing in a cycle is ever ` +
@@ -266,13 +265,15 @@ function edgesFor(
 function claimEdit(ticket: TicketSummary, by: string, now: string): TicketEdit {
   if (ticket.claimedBy !== undefined && ticket.claimedBy !== by) {
     throw new Error(
-      `${ticket.handle} is already claimed by ${ticket.claimedBy}` +
+      `${fullNameOf(ticket)} is already claimed by ${ticket.claimedBy}` +
         `${ticket.claimedAt === undefined ? '' : ` since ${ticket.claimedAt}`}. ` +
         'Claims are never auto-released; use release or take it up with the holder.',
     );
   }
   if (ticket.status === 'resolved' || ticket.status === 'dropped') {
-    throw new Error(`${ticket.handle} is already ${ticket.status}, so there is nothing to claim.`);
+    throw new Error(
+      `${fullNameOf(ticket)} is already ${ticket.status}, so there is nothing to claim.`,
+    );
   }
 
   return { status: 'claimed', claimedBy: by, claimedAt: now };
@@ -285,7 +286,7 @@ function claimEdit(ticket: TicketSummary, by: string, now: string): TicketEdit {
 function reopenEdit(ticket: TicketSummary, reason: string): TicketEdit {
   if (ticket.status !== 'resolved' && ticket.status !== 'dropped') {
     throw new Error(
-      `${ticket.handle} is ${ticket.status}, so it cannot be reopened — only resolved or ` +
+      `${fullNameOf(ticket)} is ${ticket.status}, so it cannot be reopened — only resolved or ` +
         'dropped Tickets can.',
     );
   }
@@ -312,7 +313,7 @@ function reopenEdit(ticket: TicketSummary, reason: string): TicketEdit {
 function releaseEdit(ticket: TicketSummary): TicketEdit {
   if (ticket.status !== 'claimed') {
     throw new Error(
-      `${ticket.handle} is ${ticket.status}, so its claim cannot be released — only claimed ` +
+      `${fullNameOf(ticket)} is ${ticket.status}, so its claim cannot be released — only claimed ` +
         'Tickets can.',
     );
   }
@@ -329,7 +330,7 @@ export function renderUpdate(ticket: TicketSummary, warnings: readonly string[] 
     ticket.droppedReason === undefined ? undefined : `dropped_reason=${ticket.droppedReason}`,
   ].filter(field => field !== undefined);
 
-  const body = `${ticket.handle} updated\n${fields.join('  ')}`;
+  const body = `${fullNameOf(ticket)} updated\n${fields.join('  ')}`;
   if (warnings.length === 0) return body;
   return `${body}\nwarnings:\n${warnings.map(warning => `- ${warning}`).join('\n')}`;
 }

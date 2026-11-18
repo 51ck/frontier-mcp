@@ -2,6 +2,10 @@
 
 Status: ready-for-agent
 
+How a Ticket is named, created and referenced is decided by
+[ADR 0008](../../docs/adr/0008-a-ticket-is-named-by-its-path.md); the passages on it below state that
+contract.
+
 ## Problem Statement
 
 Work in these repos is tracked as markdown under `.scratch/` — one directory per Effort, a Map or a
@@ -122,18 +126,18 @@ honours. The skills themselves are never forked.
 
 30. As an agent, I want to create a whole set of Tickets in one call, so that publishing a breakdown is
     one operation rather than a file-writing loop.
-31. As an agent, I want to declare Edges between Tickets that do not exist yet, using my own temporary
-    keys, so that I do not have to create Tickets and then wire them in a second pass.
-32. As an agent, I want the server to assign ids and filename numbers, so that numbering is consistent
-    whether Tickets arrive in dependency order or one at a time as fog clears.
-33. As a developer, I want Ticket ids to be visibly ids — prefixed, not bare numbers — so that an id in
-    a commit message is never mistaken for a sort position.
-34. As a developer, I want ids unique across the whole repo, so that a bare id in prose, a commit
-    message, or a conversation resolves without naming its Effort.
-35. As an agent, I want to reference a Ticket in another Effort as a blocker by its plain id, so that a
-    cross-Effort dependency needs no compound reference form.
-36. As a developer, I want two parallel sessions creating Tickets at the same moment to never collide
-    on an id, so that concurrent work does not corrupt identity.
+31. As an agent, I want to declare Edges between Tickets that do not exist yet, by the names I give
+    them in the same call, so that I do not have to create Tickets and then wire them in a second pass.
+32. As an agent, I want to name each Ticket for what it is, so that its name reads the same in a
+    Board, a branch, and a commit message.
+33. As a developer, I want a Ticket's name to be its file's, so that nothing has to be allocated and a
+    hand-written Ticket has a name the moment it exists.
+34. As a developer, I want the ids my Tickets already carry to resolve forever, so that a bare id in
+    prose, a commit message, or a conversation stays true.
+35. As an agent, I want to reference a Ticket in another Effort as a blocker by `<effort>.<name>`, so
+    that a cross-Effort dependency is one string.
+36. As a developer, I want two parallel sessions creating the same name at the same moment to leave
+    one Ticket and one refusal, so that concurrent work does not corrupt identity.
 37. As an agent, I want to create an Effort by writing to it, guarded by an explicit flag, so that
     starting work is one call and a mistyped slug is not one.
 38. As an agent, I want a cycle in the Edge graph rejected at the moment I write it, so that the
@@ -180,8 +184,8 @@ honours. The skills themselves are never forked.
     to files I care about.
 56. As a developer, I want migration to preserve ids my Tickets already carry, so that references
     written in prose and commit messages keep resolving.
-57. As a developer, I want migration to mint ids for Tickets that have none, so that every Ticket in
-    the repo is uniquely addressable.
+57. As a developer, I want migration to turn bare sort-order Edges into names, so that every Edge in
+    the Effort resolves.
 58. As a developer, I want migration to leave my filenames alone by default, so that the relative links
     my Maps and Tickets are full of do not break.
 59. As a developer, I want renaming files to the new convention available as an opt-in, so that I can
@@ -252,23 +256,26 @@ Writes are atomic — write to a temporary file, rename over the target. Every r
 an optimistic check against the file's modification time and size as read, and fails loudly on
 mismatch. No lock files.
 
-### Identity and numbering
+### Identity
 
-A Ticket id is `T<n>` — visibly an id, so it is never mistaken for a sort position. `<n>` comes from a
-**repo-global** counter, so ids are unique across every Effort in the workspace and a bare `T47`
-resolves without naming its Effort. This matches what sobrina already does by hand.
+A Ticket is named by its path: `<effort>.<name>`, the name being its file's stem with any leading
+`<digits>-` removed. Nothing is minted and nothing counts. A Ticket whose frontmatter carries an `id`
+is named by that id instead, unique across every Effort, and existing ids resolve forever.
 
-The consequence is that Edges are plain ids. There is no `<effort>/<id>` compound form; `get_board`
-annotates a blocker that lives in another Effort with its owning Effort so it stays followable.
+The creator chooses the name: one to three hyphen-joined words of lowercase letters and digits,
+starting with a letter, at most 24 characters. A name already taken in the Effort, equal to an
+existing id, or reserved is refused.
 
-The counter is **derived, not stored** — `max(existing ids) + 1` from the scan, consistent with the
-rest of the design. Allocation is made safe against parallel sessions by creating the Ticket file with
-an exclusive-create flag: on collision, bump and retry. The filesystem provides the mutual exclusion,
-so there is no counter file to drift and no lock to go stale.
+An Edge resolves nearest first: `<effort>.<name>`, then a name within the Ticket's own Effort, then an
+id anywhere. `get_board` renders a blocker that lives in another Effort so it stays followable.
 
-New Ticket files are named `<NN>-T<n>-<slug>.md`. `NN` remains sort order only and may be rewritten;
-`T<n>` never changes. Frontmatter is the authority — when the filename and the frontmatter disagree,
-the file is renamed, never the field.
+Creation is made safe against parallel sessions by an exclusive create on the Ticket file itself: two
+sessions creating one name leave one file and one refusal. The filesystem provides the mutual
+exclusion, so there is no counter to drift and no lock to go stale.
+
+New Ticket files are named `<name>.md`, with no sort-order prefix; a prefix on an existing file is a
+hint for Board order, which otherwise comes from the Edges. Frontmatter is the authority, and no file
+is renamed.
 
 ### Schema
 
@@ -278,13 +285,13 @@ Ticket frontmatter:
 
 | Field | Notes |
 | --- | --- |
-| `id` | `T<n>`, unique repo-wide, never reused, never changed. Arbitrary pre-existing strings are preserved through migration. |
+| `id` | Only on a Ticket that already carries one: unique repo-wide, never changed, read forever. No tool writes a new one. |
 | `title` | |
 | `kind` | `build` or `decision`. |
 | `type` | `research` / `prototype` / `grilling` / `task`. Only when `kind: decision`. |
 | `status` | `open` / `claimed` / `resolved` / `dropped`. |
 | `triage` | A triage role. Separate field from `status`; only `/triage` writes it. |
-| `blocked_by` | List of Edges, each a plain Ticket id, resolved repo-wide. |
+| `blocked_by` | List of Edges, each a name within the Effort, `<effort>.<name>`, or an existing id. |
 | `claimed_by` | Required when `status: claimed`. |
 | `claimed_at` | Timestamp, set with `claimed_by`. |
 | `answer_gist` | Required when `status: resolved`, on **every** kind — a build Ticket's one line of what landed is what makes a Board of finished work readable. |
@@ -324,13 +331,13 @@ entire purpose is token cost.
 | Tool | Contract |
 | --- | --- |
 | `list_efforts` | Efforts in the workspace, with Ticket counts, header kinds, and Frontier size. |
-| `get_board` | The Effort's Destination, then one summary line per Ticket — id, title, kind, status, Edges — with the Frontier marked, foreign blockers annotated with their Effort, and a warnings block for broken Edges and Legacy Tickets. No bodies, ever. |
-| `get_tickets` | Full bodies for a list of ids. |
-| `create_tickets` | A whole set in one call. Edges reference caller-chosen temporary keys; the server assigns ids and filename numbers and resolves the keys atomically. This removes wayfinder's mandated create-then-wire second pass. |
+| `get_board` | The Effort's Destination, then one summary line per Ticket — name, title, kind, status, Edges — with the Frontier marked, foreign blockers annotated with their Effort, and a warnings block for broken Edges and Legacy Tickets. No bodies, ever. |
+| `get_tickets` | Full bodies for a list of Tickets, by name or id. |
+| `create_tickets` | A whole set in one call, all written or none. The caller gives each Ticket its `name`, and Edges may name a sibling from the same call. This removes wayfinder's mandated create-then-wire second pass. |
 | `update_ticket` | One mutator taking any of status, triage, claim, answer, comment, criteria, title, Edges. Claiming is compare-and-set and fails if another holder exists. Content is stored verbatim — nothing is injected, including `/triage`'s mandatory comment disclaimer, which is the skill's business to write. |
 | `edit_map` | A section operation on a Map: set Destination, set Notes, add or graduate a fog patch, rule something out of scope. |
 | `spec` | Get or put a Spec as a whole document. |
-| `migrate_effort` | Normalize Legacy Tickets in an Effort. Preview mode writes nothing. Filename rewriting is opt-in. |
+| `migrate_effort` | Normalize Legacy Tickets in an Effort and rewrite bare sort-order Edges to names. Preview mode writes nothing. Names and filenames never change. |
 
 `create_tickets`, `spec`, and `edit_map` will create an Effort that does not exist, but only when the
 call passes an explicit `create` flag — so starting work is one call while a mistyped slug is not.
@@ -347,14 +354,12 @@ file it touches. `migrate_effort` does the whole Effort at once for those who wa
 deliberately.
 
 Ids that already exist are preserved verbatim — sobrina's `T31` survives, along with every prose and
-commit-message reference to it. Tickets identified only by their filename number get a fresh id minted
-from the global counter, because a per-Effort `01` is not unique repo-wide and would break bare-id
-resolution.
+commit-message reference to it. A Ticket with no id keeps the name its file gives it; migration mints
+nothing, and rewrites a bare sort-order Edge such as `01` to the name of the Ticket whose file carries
+that prefix.
 
-Filenames are **not** rewritten by default. The 159 existing files are linked to by relative markdown
-links throughout the Maps and Tickets, and the filename is cosmetic anyway — a legacy name costs
-nothing once the frontmatter is right. Renaming to `<NN>-T<n>-<slug>.md` is available as an opt-in flag
-for someone who wants tidiness and accepts the link churn.
+Filenames are **never** rewritten. The 159 existing files are linked to by relative markdown links
+throughout the Maps and Tickets, and a Ticket with no id is named by its file.
 
 Unrecognized files in an Effort directory are ignored, never an error.
 
@@ -385,7 +390,7 @@ Tickets carrying long answers. Those 159 files are the actual input, and hand-wr
 more polite than the real thing. The token claims in this spec are measurements against those same
 files and should be re-measured as assertions, not restated.
 
-**Concurrency needs real concurrency.** Id allocation and the compare-and-set claim are the two places
+**Concurrency needs real concurrency.** Ticket creation and the compare-and-set claim are the two places
 parallel sessions can corrupt state, and both are defended by primitives the filesystem provides.
 Exercise them with genuinely concurrent calls, not sequential ones — a sequential test of an
 exclusive-create retry proves nothing.

@@ -734,23 +734,24 @@ async function runSession(): Promise<void> {
 // ----------------------------------------------------------- the report
 
 /**
- * Current driver create, including guard scans, validation, staging and readback.
- * Each call gets a fresh clone so neither the Ticket count nor abandoned guards
- * accumulate. Copying and cleanup are outside the timer and prime the OS cache.
+ * Current driver create, including its scan, validation, staging and readback.
+ * Each call gets a fresh clone so the Ticket count does not accumulate. Copying
+ * and cleanup are outside the timer and prime the OS cache.
  * The independent scan uses the unchanged base fixture and a fresh driver.
  * Alternating which timer goes first reduces systematic ordering bias.
  */
 async function measureCreates(fixture: Fixture, batchSize: number) {
   const samples: Array<{ scanMs: number; createMs: number }> = [];
+  const effort = fixture.name.startsWith('real') ? 'frontier-v1' : 'bench-1';
   const batch = planBatch(
     Array.from({ length: batchSize }, (_, index) => ({
+      name: `bench-create-${String(index)}`,
       title: `Benchmark creation ${String(index)}`,
       body: prose(TARGET_TICKET_BYTES, index),
     })),
     [],
-    () => false,
+    effort,
   );
-  const effort = fixture.name.startsWith('real') ? 'frontier-v1' : 'bench-1';
 
   for (let i = 0; i < SCAN_WARMUPS + fixture.iterations; i += 1) {
     const trial = await mkdtemp(join(tmpdir(), 'frontier-create-trial-'));
@@ -767,7 +768,7 @@ async function measureCreates(fixture: Fixture, batchSize: number) {
         createMs = await timed(async () => {
           const created = await writer.createTickets(effort, batch.drafts, {
             createEffort: false,
-            validate: batch.validate,
+            settle: batch.settle,
           });
           if (created.length !== batchSize) throw new Error('Incomplete benchmark batch.');
         });
@@ -803,8 +804,8 @@ async function measureCreates(fixture: Fixture, batchSize: number) {
     warmupsDiscarded: SCAN_WARMUPS,
     scan,
     create,
-    // Arithmetic only: neither this difference nor paired differences time a
-    // random-id implementation or isolate the scan occurring under a guard.
+    // Arithmetic only: neither this difference nor paired differences time
+    // another creation strategy or isolate the scan inside the create.
     differenceOfMediansMs: create.median - scan.median,
     samples,
   };

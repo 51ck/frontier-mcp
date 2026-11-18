@@ -30,19 +30,17 @@ export interface CreateOptions {
    */
   readonly createEffort: boolean;
   /**
-   * Called with the ids about to be written, in draft order, and the workspace
-   * as it looks under those reservations. Runs before anything lands, so
-   * throwing abandons the batch and nothing is created — not the Tickets, and
-   * not the Effort either.
+   * Called with the workspace as the driver reads it immediately before
+   * writing; the drafts it returns are the ones written, in place of those
+   * passed. Throwing abandons the batch and nothing is created — not the
+   * Tickets, and not the Effort either.
    *
-   * It exists for the rules that cannot be checked until the ids are real. A
-   * cycle is the one that matters: a Ticket already on disk may declare an Edge
-   * on an id nobody has minted yet, which the Board reports as dangling — and
-   * minting exactly that id is the moment it becomes a loop. Nothing above the
-   * seam can see that coming, because nothing above the seam knows what the
-   * next id will be.
+   * It exists because the rules above the seam were first applied to a scan
+   * that may be stale: a name taken since, a dangling Edge that the new name
+   * would close into a loop, or what an Edge's stored form now resolves to, is
+   * only visible here.
    */
-  readonly validate?: (ids: readonly string[], tickets: readonly TicketSummary[]) => void;
+  readonly settle?: (tickets: readonly TicketSummary[]) => readonly TicketDraft[];
 }
 
 /**
@@ -80,17 +78,18 @@ export interface StorageDriver {
   listEfforts(): Promise<readonly Effort[]>;
 
   /**
-   * Every Ticket in the workspace without its body, ordered by Effort then by
-   * sort order. Ids resolve repo-wide, so callers that need one Effort filter
+   * Every Ticket in the workspace without its body, ordered by Effort, then by
+   * filename prefix where there is one, then by name. Ids resolve repo-wide, so callers that need one Effort filter
    * this rather than asking for a subset — at these volumes the whole set is the
    * cheap answer, and it stays cheap only because no body rides along.
    */
   listTickets(): Promise<readonly TicketSummary[]>;
 
   /**
-   * Problems with the workspace's own configuration, which no Ticket carries —
-   * a Board shows them with its other warnings. Reads keep working under any of
-   * them; every write refuses with {@link InvalidWorkspaceConfig}.
+   * What is wrong with the workspace as a whole rather than with one Ticket —
+   * duplicated ids and names, configuration the driver no longer reads — for a
+   * Board to show with its other warnings. None of them refuses a write by
+   * itself: a write addressed to a duplicate is refused where it is addressed.
    */
   workspaceWarnings(): readonly string[];
 
@@ -102,33 +101,19 @@ export interface StorageDriver {
   absentStorage(): string | undefined;
 
   /**
-   * Whether `name` has the shape of an id this driver mints. Id shape is the
-   * driver's to define; the domain only promises ids are opaque strings.
-   */
-  isId(name: string): boolean;
-
-  /**
-   * The configured id pattern when ids minted independently on two branches
-   * can collide after a merge — a purely counted pattern, which a second branch
-   * counts to the same number — with where it is configured, for a reader to
-   * act on. Undefined when minted ids survive a merge.
-   */
-  mergeCollidingIdPattern():
-    | { readonly pattern: string; readonly configuredIn: string }
-    | undefined;
-
-  /**
    * Refuses as a write addressed to `handle` would refuse before it reads the
-   * Ticket — {@link DuplicateId} when more than one Ticket answers to it — and
-   * never writes. Lets a caller put that refusal ahead of its own rules.
+   * Ticket — {@link DuplicateId} when more than one Ticket answers to it,
+   * `AmbiguousName` for a bare name several Efforts have — and never
+   * writes. Lets a caller put that refusal ahead of its own rules.
    */
   assertAddressable(handle: string): Promise<void>;
 
   /**
-   * The named Tickets with their bodies, addressed by id or by the
-   * `<effort>#<order>` handle an id-less Ticket answers to. A name the
-   * workspace does not hold is simply absent: which names were asked for is the
-   * caller's knowledge, not the driver's.
+   * The named Tickets with their bodies, each addressed as `Names.input`
+   * resolves it: an id, a full `<effort>.<name>`, or a bare name one Effort
+   * alone has. A name the workspace does not hold is simply absent: which names
+   * were asked for is the caller's knowledge, not the driver's. A bare name
+   * several Efforts have throws `AmbiguousName`.
    *
    * Separate from {@link listTickets} because a body is the one field almost
    * nothing reads — Boards, the Frontier and Edge resolution all work from
@@ -148,24 +133,32 @@ export interface StorageDriver {
    * Resolving or dropping also refreshes the Map's derived blocks. That refresh
    * is best-effort: a failure after the Ticket write still returns success, with
    * a warning that Decisions-so-far / dropped Out-of-scope may be stale.
+   *
+   * `settle`, when given, is called with the workspace as the driver reads it
+   * immediately before writing, and the edit it returns is the one applied in
+   * place of `edit`. It is for an edit that depends on Tickets other than this
+   * one — its Edges — which `expectedRevision` does not guard. Throwing
+   * abandons the write.
    */
   updateTicket(
     handle: string,
     edit: TicketEdit,
     expectedRevision: string,
+    settle?: (tickets: readonly TicketSummary[]) => TicketEdit,
   ): Promise<TicketWriteResult>;
 
   /**
    * Create a whole set of Tickets in one Effort and return them as written, in
    * the order asked for.
    *
-   * The batch is the unit for a reason: the driver mints every id, resolves
-   * every {@link TicketDraft.key} an Edge names into the id it was given, and
-   * either creates all of them or none. Splitting this into a create call and a
-   * wire-them-up call is the second pass this exists to delete.
+   * The batch is the unit for a reason: sibling drafts name each other in their
+   * Edges, and either all of them are created or none. Splitting this into a
+   * create call and a wire-them-up call is the second pass this exists to delete.
    *
-   * Ids are unique across the whole workspace, and stay unique when two sessions
-   * in separate processes create at the same instant.
+   * Each Ticket is stored under its {@link TicketDraft.name} and given no id. A
+   * name is created exclusively, so of two sessions in separate processes
+   * creating one name in one Effort at the same instant exactly one succeeds
+   * and the other gets {@link TicketAlreadyExists}.
    */
   createTickets(
     effort: string,
@@ -203,9 +196,11 @@ export interface StorageDriver {
   ): Promise<SpecDocument>;
 
   /**
-   * Normalize every Foreign Ticket in one Effort and mint ids for Tickets that
-   * have none. Filenames never change. Preview writes nothing and names a
-   * Ticket it would mint by its handle. Unrecognized files in the Effort directory are ignored.
+   * Normalize one Effort: give every Foreign Ticket schema frontmatter, and
+   * resolve the Edges that name a sibling by its position rather than its name.
+   * No Ticket's name changes, so a preview, which writes nothing, reports what
+   * a real run reports. A Ticket needing neither is left untouched.
+   * Unrecognized files in the Effort directory are ignored.
    */
   migrateEffort(effort: string, options: MigrateOptions): Promise<MigrationReport>;
 
@@ -253,34 +248,66 @@ export class NoSuchTicket extends Error {
 }
 
 /**
- * Thrown when a write is addressed to an id more than one Ticket carries. Which
- * of them the caller means cannot be told, and picking one is how a duplicate
- * becomes two Tickets with diverged content. Nothing renumbers either one: a
- * new id cannot reach the commit messages and PR bodies already naming the old.
+ * Thrown when a write is addressed to an id more than one Ticket carries, or to
+ * a name more than one file of an Effort reduces to. Which of them the caller
+ * means cannot be told, and picking one is how a duplicate becomes two Tickets
+ * with diverged content. Nothing renumbers or renames either one: a new id
+ * cannot reach the commit messages and PR bodies already naming the old.
  */
 export class DuplicateId extends Error {
-  constructor(id: string, files: readonly string[]) {
+  constructor(id: string, files: readonly string[], kind: 'id' | 'name' = 'id') {
     super(
       `Nothing was written: ${id} is carried by ${String(files.length)} Ticket files — ` +
-        `${files.join(', ')} — so which one is meant cannot be told. Give all but one a new ` +
-        'id by hand; FrontierMCP never renumbers.',
+        `${files.join(', ')} — so which one is meant cannot be told. ` +
+        (kind === 'id'
+          ? 'Give all but one a new id by hand; FrontierMCP never renumbers.'
+          : 'Rename all but one file by hand; FrontierMCP never renames one.'),
     );
     this.name = 'DuplicateId';
   }
 }
 
 /** Thrown when a creation names an Effort that does not exist and may not be made. */
-export class NoSuchEffort extends Error {
-  constructor(slug: string) {
-    super(`No Effort '${slug}' in this workspace. Pass create to start it.`);
-    this.name = 'NoSuchEffort';
+export class TicketAlreadyExists extends Error {
+  constructor(effort: string, name: string) {
+    super(
+      `${effort}.${name} could not be created: a file already holds its path, written by ` +
+        'another session or under another name. Nothing was created.',
+    );
+    this.name = 'TicketAlreadyExists';
   }
 }
 
 /**
- * Thrown when a caller's Effort slug is not one directory name. A slug is joined
- * into a path, so one that climbs or nests would read and write outside the
- * Effort it claims to name — outside the workspace altogether, for `..`.
+ * Thrown when a refused batch could not take back everything it had written,
+ * because another session changed one of its Tickets in the meantime. Removing
+ * that file would destroy the other session's write, so it stays.
+ */
+export class BatchNotUndone extends Error {
+  constructor(cause: Error, remaining: readonly string[]) {
+    const [verb, pronoun] = remaining.length === 1 ? ['remains', 'it'] : ['remain', 'them'];
+    super(
+      `${cause.message.replace(/ Nothing was created\.$/, '')} The batch was not fully undone: ` +
+        `${remaining.join(', ')} ${verb} on disk, because another session changed ${pronoun} ` +
+        'after this call created it. Every other Ticket of the batch was removed.',
+    );
+    this.name = 'BatchNotUndone';
+  }
+}
+
+/** Thrown when the storage cannot hold a new Ticket the way creation needs it held. */
+export class TicketStorageUnusable extends Error {
+  constructor(problem: string) {
+    super(`${problem} Nothing was created.`);
+    this.name = 'TicketStorageUnusable';
+  }
+}
+
+/**
+ * Thrown when an Effort slug from a caller could not be one directory name
+ * inside the storage directory. Checked before any path is built from it: a
+ * slug that climbs or nests would read and write outside the Effort it claims
+ * to name — outside the workspace altogether, for `..`.
  */
 export class InvalidEffortSlug extends Error {
   constructor(slug: string) {
@@ -289,6 +316,24 @@ export class InvalidEffortSlug extends Error {
         'not starting with a dot, and holding no path separator or control character.',
     );
     this.name = 'InvalidEffortSlug';
+  }
+}
+
+export class EffortSpelledDifferently extends Error {
+  constructor(slug: string, existing: string) {
+    super(
+      `No Effort '${slug}', but there is '${existing}', which differs only by case. Names ` +
+        `compare without regard to case, so a second Effort beside it would duplicate its ` +
+        `Tickets' names. Pass '${existing}'. Nothing was created.`,
+    );
+    this.name = 'EffortSpelledDifferently';
+  }
+}
+
+export class NoSuchEffort extends Error {
+  constructor(slug: string) {
+    super(`No Effort '${slug}' in this workspace. Pass create to start it.`);
+    this.name = 'NoSuchEffort';
   }
 }
 
@@ -383,16 +428,5 @@ export class NoFrontmatterToDrop extends Error {
       'Nothing was written: this Ticket has no parseable frontmatter, so it has no keys to drop.',
     );
     this.name = 'NoFrontmatterToDrop';
-  }
-}
-
-/** Thrown by every write while the workspace's configuration is broken. */
-export class InvalidWorkspaceConfig extends Error {
-  constructor(problem: string) {
-    super(
-      `Nothing was written: ${problem} The configuration is read once, so a fix takes effect ` +
-        'after the FrontierMCP server is restarted.',
-    );
-    this.name = 'InvalidWorkspaceConfig';
   }
 }

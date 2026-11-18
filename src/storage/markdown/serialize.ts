@@ -29,25 +29,16 @@ export interface Defaults {
 }
 
 /**
- * Normalize a Ticket file to schema frontmatter. A Foreign file with no fence
- * gets a full block from {@link defaults}; a file that already has frontmatter
- * keeps key order and only gains a missing id plus an updated Edge list (so a
- * bare sort-order Edge can become the id migration just minted). Body prose is
- * kept verbatim either way.
+ * Normalize a Ticket file for migration. A file with no parseable fence gets a
+ * full block from {@link defaults}; a file that already has frontmatter keeps
+ * its keys and their order and only has its Edge list replaced, which is where
+ * a bare sort-order Edge becomes a name. Body prose is kept verbatim either way.
  */
 export function normalizeTicket(contents: string, defaults: Defaults): string {
   const split = splitFrontmatter(contents);
-  if (!split.hasFence) return applyEdit(contents, {}, defaults);
-
-  const document = existingDocument(split.raw);
+  const document = split.hasFence ? existingDocument(split.raw) : undefined;
   if (document === undefined) return applyEdit(contents, {}, defaults);
 
-  if (defaults.id !== undefined) {
-    const existing = document.get('id');
-    if (existing === undefined || existing === null || String(existing).trim() === '') {
-      document.set('id', defaults.id);
-    }
-  }
   setEdges(document, defaults.blockedBy);
 
   const body = split.body.replace(/^\s+/, '').replace(/\n+$/, '');

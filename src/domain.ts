@@ -21,8 +21,7 @@ export type Status = 'open' | 'claimed' | 'resolved' | 'dropped';
 /**
  * The bare id inside a pasted `<id>@<effort>`, or undefined for any other name.
  * A Board renders a foreign blocker as `T9@beta` and the obvious next call pastes
- * it back; the `@<effort>` half is decoration, never input. A `#` on either side
- * is a handle, which is a different address.
+ * it back; the `@<effort>` half is decoration, never input.
  */
 export function bareIdOf(name: string): string | undefined {
   return /^([^@#]+)@[^@#]+$/.exec(name)?.[1];
@@ -37,15 +36,15 @@ export const STATUSES: readonly Status[] = ['open', 'claimed', 'resolved', 'drop
 export interface TicketSummary {
   /**
    * Opaque, unique repo-wide, never reused or changed. Its shape is the storage
-   * driver's to define. Absent on a Foreign Ticket that carries no id.
+   * driver's to define. Absent on a Ticket named by where it lives instead.
    */
   readonly id: string | undefined;
   /**
-   * How to name this Ticket in a call. The id when it has one; otherwise
-   * `<effort>#<order>`, which is the only handle an id-less Ticket has
-   * until migration mints it a real one.
+   * What this Ticket is called. The id when it has one, which is global;
+   * otherwise a name the driver derives from where the Ticket is stored, which
+   * is local to its Effort and written `<effort>.<name>` from outside it.
    */
-  readonly handle: string;
+  readonly name: string;
   readonly title: string;
   readonly kind: Kind;
   /** `research` / `prototype` / `grilling` / `task`. Only when `kind` is `decision`. */
@@ -60,27 +59,31 @@ export interface TicketSummary {
   /** Who holds the claim, and when they took it. Set together. */
   readonly claimedBy: string | undefined;
   readonly claimedAt: string | undefined;
-  /** Edges: the Tickets that must finish first, as plain ids resolved repo-wide. */
+  /**
+   * Edges: the Tickets that must finish first, as stored. Each is a name in this
+   * Effort, a full `<effort>.<name>`, or an id resolved repo-wide.
+   */
   readonly blockedBy: readonly string[];
   /** The slug of the Effort that owns this Ticket. */
   readonly effort: string;
-  /** Sort order within its Effort. Order only — never identity. */
-  readonly order: number;
   /**
-   * A Ticket whose file does not conform to the schema: no frontmatter fence, a
-   * fence that does not parse, or a fence that parses but carries no `id` and at
-   * least one key outside the schema. Conformance is evaluated on every read,
-   * never provenance. Its title, status, and Edges are inferences an agent
-   * should distrust. A fence with an `id` is never Foreign, whatever else it
-   * holds; a status that will not map is flagged by `unrecognizedStatus` instead.
+   * The numeric prefix of its filename, where the file has one. A hint that
+   * breaks ties in Board order, never identity; a file the server wrote has none.
+   */
+  readonly orderHint: number | undefined;
+  /**
+   * A Ticket whose file has no parseable fence: no frontmatter, or a fence whose
+   * YAML is not a mapping. Evaluated on every read, never provenance. Its title,
+   * status, and Edges are inferred from prose, which an agent should distrust. A
+   * fence that parses is never Foreign, whatever it holds; a status that will not
+   * map is flagged by `unrecognizedStatus` instead.
    */
   readonly foreign: boolean;
   /**
-   * Foreign by its fence — one that parses, with no `id` and a key outside the
-   * schema — rather than by having none. Its fields were read from that fence,
-   * not inferred from prose. Never true unless {@link foreign} is.
+   * Whether the fence carries a key outside the schema. Known from the scan, so
+   * a Board can count these; the keys themselves travel only on {@link Ticket}.
    */
-  readonly foreignFenced: boolean;
+  readonly hasUnimportedKeys: boolean;
   /** The raw status text of a Ticket whose value did not map, fenced or prose. */
   readonly unrecognizedStatus: string | undefined;
   /** Prose sub-slice references (`T38.1`) coarsened to a Ticket of the same Effort. */
@@ -111,11 +114,11 @@ export interface UnimportedFrontmatter {
   /** The top-level keys outside the schema, in file order. */
   readonly keys: readonly string[];
   /**
-   * The file's own YAML for them, never re-serialized: a Foreign Ticket's
-   * whole fence, otherwise only the unimported entries.
+   * The file's own YAML for them, never re-serialized: only the unimported
+   * entries, or the whole fence when one of them cannot be cut out cleanly.
    */
   readonly yaml: string;
-  /** Whether {@link yaml} is the whole fence, as it is for a Foreign Ticket. */
+  /** Whether {@link yaml} is the whole fence rather than the entries alone. */
   readonly whole: boolean;
 }
 
@@ -172,24 +175,19 @@ export interface TicketEdit {
 }
 
 /**
- * A Ticket asked for but not yet minted an id.
+ * A Ticket asked for and not yet written.
  *
- * `key` is the caller's own temporary name for this draft, and exists only for
- * the length of the call: sibling drafts declare Edges on it before any id
- * exists, which is what removes the create-then-wire second pass. It is never
- * stored, and never appears in a file.
+ * `name` is the caller's choice and becomes the Ticket's identity within its
+ * Effort: sibling drafts declare Edges on it in the same call, and it is where
+ * the driver stores the Ticket (ADR 0008).
  */
 export interface TicketDraft {
-  /**
-   * The caller's temporary name. Never something the driver would accept as an
-   * id — such a key could not be told apart from the real one an Edge might mean.
-   */
-  readonly key: string | undefined;
+  readonly name: string;
   readonly title: string;
   readonly kind: Kind;
   readonly type: string | undefined;
   readonly triage: TriageRole | undefined;
-  /** Edges, each either a real Ticket id or a sibling draft's {@link key}. */
+  /** Edges, as {@link TicketSummary.blockedBy} stores them. A sibling draft is named by its {@link name}. */
   readonly blockedBy: readonly string[];
   /** The prose, written verbatim. A draft with none produces a Ticket with none. */
   readonly body: string | undefined;
@@ -248,39 +246,33 @@ export interface SpecDocument {
 
 /** How a migration call runs. Filenames never change (T69). */
 export interface MigrateOptions {
-  /**
-   * Report every change and write nothing. Takes no allocation guards and
-   * predicts no ids: a Ticket that would be minted is named by its handle.
-   */
+  /** Report every change and write nothing. The report names what a real run names. */
   readonly preview: boolean;
 }
 
-/** One Ticket a migration would touch, or did. */
+/**
+ * One Ticket a migration would write, or did — or, in a preview, one listed
+ * only for its conflict, with neither `normalized` nor `edgesResolved` set.
+ */
 export interface MigrationChange {
-  /** Handle before the call — the id when it had one, else `<effort>#<order>`. */
-  readonly beforeHandle: string;
-  /**
-   * Id after migration — preserved or newly minted. Undefined in a preview of
-   * a Ticket that would be minted: which id is not knowable until the real run.
-   */
-  readonly id: string | undefined;
+  /** The Ticket's name, which migration never changes. */
+  readonly name: string;
   readonly title: string;
-  /** True when this call (or preview) assigns a fresh id. */
-  readonly minted: boolean;
-  /** True when the file was Foreign: a fenceless one gains schema frontmatter, a fenced one an id. */
+  /** True when the file had no parseable fence, so it gains schema frontmatter. */
   readonly normalized: boolean;
+  /** True when a bare sort-order Edge was rewritten to the name of the Ticket it meant. */
+  readonly edgesResolved: boolean;
   /** The Ticket's basename, unchanged by migration. */
   readonly filename: string;
-  /**
-   * Edges as they will be written after bare sort-order remapping. In a preview
-   * a sibling that would be minted appears as its handle.
-   */
+  /** Edges as they are written. */
   readonly blockedBy: readonly string[];
   /**
-   * Preview only: every Ticket file already carrying this preserved id, this
-   * one included. A real run refuses with DuplicateId instead.
+   * Preview only: what this Ticket shares with another, and every Ticket file
+   * claiming it, this one included. A real run refuses with DuplicateId instead.
    */
-  readonly duplicateFiles: readonly string[] | undefined;
+  readonly duplicate:
+    | { readonly kind: 'id' | 'name'; readonly files: readonly string[] }
+    | undefined;
 }
 
 /** The result of migrating one Effort — enough for the tool to render a report. */
@@ -290,8 +282,15 @@ export interface MigrationReport {
   /** The Effort's Ticket directory relative to the workspace root, `/`-separated. */
   readonly directory: string;
   readonly changes: readonly MigrationChange[];
+  /** How many of the Effort's Tickets are not written, those listed only for a conflict included. */
+  readonly unchanged: number;
   /** Written Edges landing on another Effort's Ticket, as `T9@beta` — likelier a misparse than intent. */
   readonly crossEffortEdges: readonly string[];
+  /**
+   * Bare sort-order Edges (`01`) of the Effort left as declared: no one other
+   * Ticket's file carries the prefix under a name of its own.
+   */
+  readonly unresolvedSortOrders: readonly string[];
   /** Sub-slice references (`T1.4`) written as declared because their parent is not in this Effort. */
   readonly keptSubSlices: readonly string[];
 }

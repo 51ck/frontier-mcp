@@ -7,9 +7,7 @@ import type { Kind, Status } from '../../domain.ts';
  * flagged Foreign: an agent needs to know which values to distrust.
  *
  * The file is named for the one unstructured prose shape it parses, not for
- * Foreign. A Foreign Ticket can also carry a fence that parses but does not
- * conform, and that one never reaches this parser, so `foreign.ts` would claim
- * a generality this module does not have.
+ * Foreign, which is a predicate on the fence rather than on this prose.
  *
  * The shapes here are the ones the real repos actually contain, not the ones a
  * schema would have liked. Reads never write, so a file parsed badly is only
@@ -38,7 +36,7 @@ const STRIKETHROUGH = /~~[\s\S]*?~~/g;
  * Whole markdown links, label and target both, so a path never contributes a
  * false id. Verified against every Edge line in the fixtures: real
  * references are always written outside their link, so nothing is lost — and a
- * label like `[../T99/issues/01.md]` would otherwise mint an Edge to T99.
+ * label like `[../T99/issues/01.md]` would otherwise yield an Edge to T99.
  */
 const MARKDOWN_LINK = /\[[^\]]*\]\([^)]*\)/g;
 
@@ -132,8 +130,8 @@ function readHeading(contents: string): { id: string | undefined; title: string 
   const withId = HEADING_ID.exec(heading);
   if (withId?.[1] !== undefined) return { id: withId[1], title: (withId[2] ?? '').trim() };
 
-  // `# 01 — Title`: the number is this Effort's sort order, never an id. A
-  // per-Effort `01` is not unique repo-wide, so minting one is migration's job.
+  // `# 01 — Title`: the number is this Effort's sort order, never an id — a
+  // per-Effort `01` is not unique repo-wide. The file's stem names the Ticket.
   const withOrder = HEADING_ORDER.exec(heading);
   if (withOrder?.[1] !== undefined) return { id: undefined, title: withOrder[1].trim() };
 

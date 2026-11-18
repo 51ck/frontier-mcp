@@ -6,6 +6,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 
 import type { TicketSummary } from './domain.ts';
 import { frontierOf } from './frontier.ts';
+import { indexNames } from './names.ts';
 import { createDriverRegistry } from './driver-registry.ts';
 import { createMarkdownDriver } from './storage/markdown/driver.ts';
 import type { StorageDriver, TicketWriteResult } from './storage/driver.ts';
@@ -241,27 +242,22 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       const workspace = resolveWorkspace(root, context);
       const driver = registry.forWorkspace(workspace);
 
-      // Every reference resolves before anything is written, so a refusal —
-      // an unknown key, a cycle — leaves the workspace exactly as it was. The
-      // one rule that needs real ids runs under the driver's reservations,
-      // still before any file lands.
-      const { drafts, validate } = planBatch(tickets, await driver.listTickets(), name =>
-        driver.isId(name),
-      );
+      // Every name and reference is settled before anything is written, so a
+      // refusal — a taken name, a cycle — leaves the workspace exactly as it
+      // was. The driver runs the same rules again on a fresh read.
+      const { drafts, settle } = planBatch(tickets, await driver.listTickets(), effort);
       const created = await driver.createTickets(effort, drafts, {
         createEffort: create === true,
-        validate,
+        settle,
       });
+
+      // The files have landed: a scan that fails now must not turn a completed
+      // creation into a reported failure, so the result goes out without Edges.
+      const names = await driver.listTickets().then(indexNames, () => undefined);
 
       return {
         content: [
-          {
-            type: 'text',
-            text: withWorkspace(
-              workspace,
-              renderCreated(effort, created, driver.mergeCollidingIdPattern()),
-            ),
-          },
+          { type: 'text', text: withWorkspace(workspace, renderCreated(effort, created, names)) },
         ],
       };
     },
@@ -318,26 +314,35 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
         kind,
         type,
       };
-      const find = (from: readonly TicketSummary[]): TicketSummary => {
-        const ticket = from.find(entry => entry.id === id || entry.handle === id);
+      const find = (from: readonly TicketSummary[]): readonly [TicketSummary, number, string] => {
+        const names = indexNames(from);
+        const claimants = names.input(id);
+        const [ticket] = claimants;
         if (ticket === undefined) throw new NoSuchTicket(id, workspace);
-        return ticket;
+        return [ticket, claimants.length, names.addressOf(ticket)];
       };
 
-      const ticket = find(tickets);
+      const [ticket, claimants, address] = find(tickets);
       // Two claimants: the driver refuses with the files named, which only it
       // knows, so ask it before any rule judges the first claimant. Asking
       // writes nothing, so a duplicate already fixed by hand is never rewritten.
-      if (tickets.filter(entry => entry.id === id).length > 1) {
-        await driver.assertAddressable(id);
-      }
+      if (claimants > 1) await driver.assertAddressable(id);
+
+      // Edges are settled against other Tickets, which the revision does not
+      // guard, so the driver settles them again on the read it writes from.
+      const at = now();
+      const settle =
+        blocked_by === undefined
+          ? undefined
+          : (fresh: readonly TicketSummary[]) => editFor(find(fresh)[0], fresh, request, at);
 
       let written: TicketWriteResult;
       try {
         written = await driver.updateTicket(
-          ticket.handle,
-          editFor(ticket, tickets, request, now()),
+          address,
+          editFor(ticket, tickets, request, at),
           ticket.revision,
+          settle,
         );
       } catch (error) {
         if (!(error instanceof RevisionMismatch)) throw error;
@@ -348,7 +353,7 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
         // retried — a mismatch may equally be somebody's hand edit, and
         // overwriting that is exactly what the check exists to prevent.
         const fresh = await driver.listTickets();
-        editFor(find(fresh), fresh, request, now());
+        editFor(find(fresh)[0], fresh, request, now());
         throw error;
       }
 

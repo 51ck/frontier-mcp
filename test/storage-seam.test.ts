@@ -33,17 +33,11 @@ function fixedDriver(
       workspaceWarnings() {
         return [];
       },
-      isId() {
-        return false;
-      },
-      mergeCollidingIdPattern() {
-        return undefined;
-      },
       async assertAddressable() {},
       async readTickets(handles) {
         const wanted = new Set(handles);
         return tickets.filter(
-          entry => wanted.has(entry.handle) || (entry.id !== undefined && wanted.has(entry.id)),
+          entry => wanted.has(entry.name) || (entry.id !== undefined && wanted.has(entry.id)),
         );
       },
       updateTicket() {
@@ -141,13 +135,7 @@ describe('the storage driver seam', () => {
       workspaceWarnings() {
         return [];
       },
-      isId() {
-        return false;
-      },
       absentStorage() {
-        return undefined;
-      },
-      mergeCollidingIdPattern() {
         return undefined;
       },
       async assertAddressable() {},
@@ -243,5 +231,65 @@ describe("the markdown driver's storage directory", () => {
     const board = await frontier.call('get_board', { effort: 'alpha' });
     expect(board).toContain('Somewhere else entirely.');
     expect(board).toContain('Filed under another name');
+  });
+
+  it('reports a creation that landed even when the scan after it fails', async () => {
+    const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
+    const base = fixedDriver([]).createDriver();
+    let landed = false;
+    const frontier = await connectFrontier({
+      cwd: root,
+      env: {},
+      createDriver: () => ({
+        ...base,
+        async listTickets() {
+          if (landed) throw new Error('scan blew up');
+          return [];
+        },
+        async createTickets(effort, drafts) {
+          landed = true;
+          return drafts.map(draft => ({
+            id: undefined,
+            name: draft.name,
+            title: draft.title,
+            kind: draft.kind,
+            type: draft.type,
+            status: 'open' as const,
+            triage: draft.triage,
+            answerGist: undefined,
+            droppedReason: undefined,
+            claimedBy: undefined,
+            claimedAt: undefined,
+            blockedBy: draft.blockedBy,
+            effort,
+            orderHint: undefined,
+            foreign: false,
+            hasUnimportedKeys: false,
+            unrecognizedStatus: undefined,
+            collapsedRefs: [],
+            keptSubSlices: [],
+            revision: '',
+          }));
+        },
+      }),
+    });
+
+    const text = await frontier.call('create_tickets', {
+      effort: 'alpha',
+      tickets: [
+        { name: 'parse', title: 'Parse the frontmatter' },
+        { name: 'render', title: 'Render the Board', blocked_by: ['parse'] },
+      ],
+    });
+
+    expect(text).toBe(
+      [
+        `root: ${root}`,
+        'alpha: 2 created',
+        'alpha.parse  Parse the frontmatter',
+        'alpha.render  Render the Board',
+        'note: every Ticket was created; their Edges could not be read back to render.',
+      ].join('\n'),
+    );
   });
 });

@@ -1,12 +1,12 @@
 # Issue tracker — FrontierMCP and file fallback
 
-Tracker doc revision 7. To check a vendored copy, compare this number with the one in the
+Tracker doc revision 8. To check a vendored copy, compare this number with the one in the
 `frontier://tracker-doc` resource of the server you run; a lower number, or no revision line, is
 stale.
 
 Use **FrontierMCP** as the issue tracker. Its canonical storage is markdown under `.scratch/`.
 Vocabulary is defined in the project's `CONTEXT.md` when present — Effort, Board, Header doc, Map,
-Spec, Ticket, Edge, Frontier, Handle, Temporary key.
+Spec, Ticket, Name, Edge, Frontier.
 
 When **FrontierMCP** (server name `frontier`) is loaded in your session, use the tools below. They
 own the schema, compute the graph, and answer orientation questions for a fraction of the token cost
@@ -34,8 +34,8 @@ session.** Moving to another worktree mid-session does not retarget it: pass `ro
 reports no Efforts — that is the worktree being served correctly, not the tracker going missing.
 
 **Every call that writes opens with `root: <path>`**, naming the repository it just changed. Read it
-— a Ticket id is unique within a repository, not across them, so `T10 updated` looks the same whichever repository answered, and
-this line is the only part of the result that tells you. Reads do not carry it, and neither do the
+— a Ticket's name is unique within a repository, not across them, so `T10 updated` looks the same
+whichever repository answered, and this line is the only part of the result that tells you. Reads do not carry it, and neither do the
 read paths of write-capable tools: `edit_map` with no section fields, `spec` with no `content`, and
 `migrate_effort` with `preview`.
 
@@ -50,18 +50,18 @@ Eight tools permanently. Optional arguments extend an existing tool; there is no
 | --- | --- |
 | `list_efforts` | Orient — list Efforts with Ticket counts, header doc kinds, and Frontier size. A repository with no `.scratch/` at all gets `no tracker here`, the marker that located the root, and a `start one` line to copy; an empty `.scratch/` still reads `(no efforts)`. |
 | `get_board` | See the whole Effort cheaply — Destination, one summary line per Ticket, Frontier marked. Never returns bodies. |
-| `get_tickets` | Fetch full bodies for specific ids after the Board tells you which Tickets matter. |
-| `create_tickets` | Publish a breakdown in one call. Declare Edges with temporary keys; the server assigns ids and numbers. |
+| `get_tickets` | Fetch full bodies for specific Tickets, by name or id, after the Board tells you which matter. |
+| `create_tickets` | Publish a breakdown in one call. You give each Ticket its `name`; Edges may name a sibling from the same call. All are written or none. |
 | `update_ticket` | Claim, resolve, drop, reopen, release, set title/kind/type, set triage, replace Edges, comment, tick acceptance criteria, or `drop_keys` to delete Unimported frontmatter keys. One Ticket per call. |
 | `edit_map` | Edit Map sections — Destination, Notes, fog, Out of scope. Decisions-so-far regenerates from resolved Tickets. |
 | `spec` | Read or write a Spec as a whole document. |
-| `migrate_effort` | Normalize Foreign Tickets — those whose file does not conform to the schema — in an Effort. Filenames never change. Preview writes nothing and names a Ticket it would mint by its handle (`<effort>#<order>`), not a predicted id. |
+| `migrate_effort` | Normalize an Effort: give Foreign Tickets — files with no parseable frontmatter — the schema block, and rewrite bare sort-order Edges (`01`) to names. Names and filenames never change. Preview writes nothing. |
 
 ### Typical agent flow
 
 1. `list_efforts` — pick an Effort.
 2. `get_board` on that Effort — read the Frontier (`>` marker).
-3. `get_tickets` on the ids you will work — read bodies only for those Tickets.
+3. `get_tickets` on the Tickets you will work — read bodies only for those.
 4. `update_ticket` with `claim` before starting work.
 5. `update_ticket` with `resolve` or `drop` when done; `reopen` when a closed Ticket needs another pass; `release` when a claim should be dropped without closing; tick criteria and comment as you go.
 6. `create_tickets` when a skill publishes a new breakdown; `edit_map` / `spec` for header docs.
@@ -82,19 +82,47 @@ Eight tools permanently. Optional arguments extend an existing tool; there is no
 | write or read the Spec | `spec` |
 | normalize foreign files | `migrate_effort` |
 
-Two Ticket files carrying one id are listed in each Board's warnings, with claimant files for the
-first few, and every write addressed to that id is refused. Fix it by hand, giving all but one a new id; the server never
-renumbers. Under a pattern whose only variable token is `<N>`, every `create_tickets` result carries
-a standing warning that the pattern collides across branches — it describes the configuration, not
-that call; the remedy is a mixed pattern such as `T<N>-<b36{4}>`. When a Ticket's frontmatter carries
-keys outside the schema, `get_tickets` appends them as a fenced `yaml` block under `## Unimported
-frontmatter` — the whole fence for a Ticket with no `id`, only the unimported entries otherwise. The
-read leaves the file unchanged, and no ordinary write removes them: pass `update_ticket` `drop_keys`
-with the names to delete. A schema key or a key the fence does not carry fails the call and writes
-nothing; the rest of the fence stays byte-identical. Dropping the last one from a Ticket with no `id`
-leaves it no longer Foreign, still listed under the Board's `no id` warning. A Board counts `resolved` Tickets
-with no `answer_gist`, `dropped` with no `dropped_reason` and `claimed` with no `claimed_by` or `claimed_at` in its
-warnings, so set the field with the Status.
+### Names and references
+
+A Ticket is named by its path: `<effort>.<name>`, the name being its file's stem. One whose
+frontmatter carries `id:` is named by that id instead, repo-wide: existing ids keep working with no
+action. Never add an `id` to a Ticket, and never remove one.
+
+**Choose a name** for each Ticket in `create_tickets`. Say what the Ticket *is* — `token-cache`,
+`retry-policy`, `login-form` — in one to three words. Not a sentence, not a verb phrase about the
+code (`fix-parser`), not a number. Lowercase letters and digits joined by hyphens, a letter first,
+at most 24 characters, no dot. Refused: a name the Effort already has, one equal to an existing id,
+and the reserved `lock`, `true`, `false`, `null`, `yes`, `no`, `on`, `off` and Windows device names
+(`con`, `nul`, `com1`). A name never changes; the title may.
+
+**Reference a Ticket** by its bare name inside its own Effort (a sibling of the same `create_tickets`
+call included), by `<effort>.<name>` across Efforts, or by an existing id anywhere. `blocked_by`,
+`get_tickets` and `update_ticket` all take these, case ignored. Where a call names no Effort, a bare
+name also works while only one Ticket has it; otherwise `AmbiguousName` lists the candidates — pass
+one in full.
+
+An Edge that resolves to nothing dangles — the Board shows `name?` and counts it — so a breakdown
+can point at a Ticket not yet written. Three kinds are refused instead, writing nothing:
+
+- `ProbableTypo` — a near miss of a name that exists, which the message gives. Write that name, or
+  create the new Ticket first if the new name was meant.
+- `NameInAnotherEffort` — a bare name only another Effort has. Write it in full.
+- `BoardFormAsEdge` — `T9@beta` is how a Board shows an Edge into another Effort. Write `T9`.
+
+**Two branches that chose the same name** both add `issues/<name>.md`, and git stops the merge with
+an add/add conflict. Rename one side's file before merging and fix the Edges naming it; if both are
+the same work, keep one. The server takes no part.
+
+Two files carrying one `id`, or two of one Effort whose stems give one name (`cache.md` beside
+`05-cache.md`), are a Board warning, and every write addressed to them is refused. Fix it by hand:
+rename a file, or give all but one a new id.
+
+When a Ticket's frontmatter carries keys outside the schema, the Board counts it and `get_tickets`
+appends those entries as a fenced `yaml` block under `## Unimported frontmatter`. No ordinary write
+removes them: pass `update_ticket` `drop_keys` with the names to delete. A schema key or a key the
+fence does not carry fails the call and writes nothing; the rest of the fence stays byte-identical.
+A Board counts `resolved` Tickets with no `answer_gist`, `dropped` with no `dropped_reason` and
+`claimed` with no `claimed_by` or `claimed_at` in its warnings, so set the field with the Status.
 
 Claims are compare-and-set — a parallel session that already holds the Ticket wins. Writes carry the
 `revision` from the last read; a mismatch is refused, never retried over the caller's edit.
@@ -104,57 +132,36 @@ Claims are compare-and-set — a parallel session that already holds the Ticket 
 These conventions are canonical whether FrontierMCP is loaded or not. FrontierMCP reads and writes
 the same files; a session without the server still produces valid Tickets by following this section.
 
-**Canonical is not licence to allocate ids by hand.** When FrontierMCP is loaded, ids come from
-`create_tickets`, and you never scan for one: the server mints every id it is present for. It knows
-the repo's id pattern, and under a pattern containing `<N>` it counts under a guard
-(`.scratch/.frontier-id-N-<n>.guard`, keyed on the counter value) that a file written straight to
-disk cannot take — ADR 0006 in the frontier-mcp repository. Hand-writing while the server is loaded
-bypasses the mint whatever the pattern.
+**Nothing allocates an id.** A new Ticket's name is its file's, chosen by whoever writes it — ADR
+0008 in the frontier-mcp repository. Never scan for a next number and never write an `id:` field.
+When FrontierMCP is loaded, still create through `create_tickets`: it checks each name and Edge,
+which a file written straight to disk skips.
 
 ### Layout
 
 - One Effort per directory: `.scratch/<effort-slug>/`.
-- `.scratch/frontier.yml`, beside the Effort directories, is the one other file FrontierMCP reads.
-  Its one key, `id_pattern`, shapes Ticket ids. The server reads it once at start; restart a running
-  server after editing it.
+- An Effort slug is one directory name: no path separator, no leading dot.
 - The header doc is `spec.md` (from `/to-spec`) or `map.md` (from `/wayfinder`). An Effort charted as a
   Map may later gain a Spec — that is wayfinder's handoff, not a mistake.
 - Tickets are one file per Ticket under `.scratch/<effort-slug>/issues/` — never a single combined
   tickets file.
-- Ticket filenames are `<NN>-<id>-<slug>.md`. `NN` is sort order only and may be rewritten. The id
-  is the identity and never changes.
-- **Ticket ids are unique across the whole repo**, so a bare id resolves anywhere in it, including
-  in commit messages. With FrontierMCP loaded, `create_tickets` assigns them. Only when the server is
-  absent, mint one by hand:
-  1. Read `id_pattern` from `.scratch/frontier.yml`. No file or no key means `T<b36{6}>`.
-  2. Check the pattern is legal: it begins with a literal letter or underscore; literals are only
-     `A-Z a-z 0-9 . _ -`; the tokens are `<N>`, `<b36{n}>` and `<b16{n}>` with n from 1 to 64, and
-     `<effort>` is refused; at most one `<N>`; at least one `<N>` or random token; a minted id is at
-     most 64 characters, counting `<N>` as one. If the file is not valid YAML, is not a mapping,
-     `id_pattern` is not a string, or the pattern breaks a rule, **do not mint** — fix the file first.
-     Never fall back to the default: an id minted in a format nobody asked for is permanent.
-  3. Render it. Every `<b36{n}>` is exactly n characters from `0-9a-z`, every `<b16{n}>` exactly n
-     from `0-9a-f`, lowercase always. `<N>` is decimal with no leading zeros. Anything outside `<>`
-     is literal.
-  4. **No `<N>` in the pattern:** draw the random tokens. Do not scan for a highest id.
-  5. **`<N>` in the pattern:** scan every `.scratch/*/issues/` for the highest `<N>` among ids that
-     match the whole pattern and add one; under a mixed pattern, count first, then draw the random
-     part. A hand-writer cannot take the server's guard, so if any session might be minting at the
-     same time you can both reach the same number unseen.
-  6. Check the id is not already in use anywhere in `.scratch/`.
+- A Ticket file is `<name>.md`, and its stem is the Ticket's name, under the rules in
+  [Names and references](#names-and-references). A leading `<digits>-` is read as a Board-order hint
+  and is not part of the name: `05-cache.md` is `cache`. Write no prefix on a new file.
+- A file carrying `id:` is named by that id whatever its filename. Rename a Ticket file only to
+  settle the branch conflict above: Edges and prose name it.
 - Formal metadata goes in YAML frontmatter. Prose stays prose.
 
 ### Ticket frontmatter
 
 ```yaml
 ---
-id: T12                     # shaped by id_pattern; repo-unique, never reused or changed
-title: Parse tickets without frontmatter
+title: Parse tickets without frontmatter   # no id: the filename is the name
 kind: build                 # build | decision
 type: research              # decision only: research | prototype | grilling | task
 status: open                # open | claimed | resolved | dropped
 triage: ready-for-agent     # see triage-labels.md
-blocked_by: [T9, T11]       # plain ids, resolved repo-wide
+blocked_by: [fence-split, auth.token-cache, T9]  # name here, <effort>.<name>, or an existing id
 claimed_by:                 # required when status: claimed
 claimed_at:                 # timestamp, set with claimed_by
 answer_gist:                # required when status: resolved — one line, every kind
@@ -183,8 +190,8 @@ Used by `/wayfinder`. The **Map** is a file with one **child** file per Ticket.
   Out of scope.
 - **Child ticket**: a file under `issues/` with the question in the body, `kind: decision`, and a
   `type:` recording which wayfinder type it is.
-- **Blocking**: the `blocked_by` list. A Ticket is unblocked when every id it lists is `resolved`.
-- **Frontier**: Tickets that are `open`, unblocked, and unclaimed; lowest `NN` first.
+- **Blocking**: the `blocked_by` list. A Ticket is unblocked when every Ticket it lists is `resolved`.
+- **Frontier**: Tickets that are `open`, unblocked, and unclaimed. A Board lists blockers first.
 - **Claim**: set `status: claimed` with `claimed_by` and `claimed_at`, and save, before any work.
 - **Resolve**: append the answer under `## Answer`, set `status: resolved` and a one-line
   `answer_gist`, then add the pointer line to the Map's Decisions-so-far.
@@ -196,9 +203,10 @@ When FrontierMCP is loaded, prefer the MCP calls in the table above over hand-ed
 ### Hand publish (no FrontierMCP)
 
 **Everything below holds only while FrontierMCP is absent from the session.** With the server
-loaded, `create_tickets` publishes the breakdown and is the only thing that may allocate an id;
-hand-writing the file bypasses the mint, per the File conventions preamble.
+loaded, `create_tickets` publishes the breakdown, per the File conventions preamble.
 
 When a skill says "publish to the issue tracker" and FrontierMCP is not loaded, create
-`.scratch/<effort-slug>/issues/<NN>-<id>-<slug>.md` (creating directories as needed), mint the id
-as the Layout steps above describe, and write frontmatter matching the template above.
+`.scratch/<effort-slug>/issues/<name>.md` (creating directories as needed) with frontmatter matching
+the template above. Choose the name as under [Names and references](#names-and-references), and
+check it is free yourself: no file in `issues/` has that stem, case and any `<digits>-` prefix
+ignored, and no Ticket carries it as an `id`.

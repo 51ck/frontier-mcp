@@ -72,7 +72,7 @@ describe('a write does not reformat what it did not touch', () => {
     const broken = ['---', 'id: T1', 'title: [unclosed', '---', '', 'Body prose.', ''].join('\n');
     const { frontier, read } = await withFile(broken);
 
-    await frontier.call('update_ticket', { id: 'alpha#1', claim: { by: 'agent-7' } });
+    await frontier.call('update_ticket', { id: 'T1-work', claim: { by: 'agent-7' } });
 
     const onDisk = await read();
     // A malformed fence is normalized, not shovelled into the body.

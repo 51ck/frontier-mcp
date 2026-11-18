@@ -1,6 +1,8 @@
 import { mkdir, readdir, readFile } from 'node:fs/promises';
-import { statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { isMap, parseDocument } from 'yaml';
 
 import type {
   Effort,
@@ -20,10 +22,12 @@ import type {
   StorageDriver,
   TicketWriteResult,
 } from '../driver.ts';
+import { compareByOrderHint } from '../../board-order.ts';
 import type { TicketEdit } from '../../domain.ts';
+import { duplicateKindOf, fullNameOf, indexNames } from '../../names.ts';
 import {
+  EffortSpelledDifferently,
   InvalidEffortSlug,
-  InvalidWorkspaceConfig,
   NoSuchEffort,
   NoSuchMap,
   NoSuchSpec,
@@ -31,14 +35,7 @@ import {
   NoSuchTicket,
   RevisionMismatch,
 } from '../driver.ts';
-import { createTicketFiles, mintingPlan, type MintingPlan } from './create.ts';
-import {
-  CONFIG_FILE,
-  compileIdPattern,
-  DEFAULT_ID_PATTERN,
-  idMatcher,
-  loadIdPattern,
-} from './id-pattern.ts';
+import { createTicketFiles } from './create.ts';
 import { migrateEffortFiles } from './migrate.ts';
 import { applyEdit, type Defaults } from './serialize.ts';
 import {
@@ -74,7 +71,7 @@ import { watchStorage, type StorageWatcher } from './watcher.ts';
  *   ├── map.md            # Header doc — wayfinder
  *   ├── spec.md           # Header doc — to-spec
  *   └── issues/
- *       └── NN-slug.md    # Tickets
+ *       └── <name>.md     # Tickets; an older file may carry an `NN-` prefix
  *
  * Anything else in an Effort directory is ignored, never an error.
  */
@@ -82,6 +79,8 @@ const DEFAULT_STORAGE_DIR = '.scratch';
 const ISSUES_DIR = 'issues';
 const MAP_FILE = 'map.md';
 const SPEC_FILE = 'spec.md';
+/** 1.x read `id_pattern` from it. Its contents decide nothing now; it only earns a warning. */
+const CONFIG_FILE = 'frontier.yml';
 const HEADER_DOCS: ReadonlyArray<readonly [HeaderDoc, string]> = [
   ['map', MAP_FILE],
   ['spec', SPEC_FILE],
@@ -135,25 +134,14 @@ export function createMarkdownDriver(
   }: MarkdownDriverOptions = {},
 ): StorageDriver {
   const storage = join(root, storageDir);
-  // Compiled once and not watched (T54); a broken one warns on read and refuses
-  // writes. T66 matches ids against it.
-  const idPattern = loadIdPattern(storage, storageDir);
-  // Under a broken pattern every write is refused before it mints, so the
-  // default here only ever feeds reads, pre-write checks and a migrate_effort
-  // preview, which then behave as an unconfigured repo does.
-  const effectivePattern =
-    idPattern.pattern ?? compileIdPattern(DEFAULT_ID_PATTERN).pattern ?? unreachable();
-  const minting = mintingPlan(effectivePattern);
-  const matchesId = idMatcher(effectivePattern);
-  const colliding = effectivePattern.survivesMerge
-    ? undefined
-    : { pattern: effectivePattern.source, configuredIn: `${storageDir}/${CONFIG_FILE}` };
+  // Read once and not watched: the answer changes only when a person deletes the file.
+  const ignoredConfig = ignoredConfigWarning(storage, storageDir);
   let writes: Promise<unknown> = Promise.resolve();
   // Set only when the cached scan completes, so a Board's duplicate warning
   // describes the scan its lines were built from. The fresh walks behind
   // readTickets, create and migrate never touch it. Kept beside the cache rather
   // than in it because workspaceWarnings is synchronous.
-  let duplicates: ReadonlyMap<string, readonly string[]> = new Map();
+  let duplicates: DuplicateClaims = { ids: [], names: [] };
 
   const walk = async (): Promise<ScannedEffort[]> => {
     // A repo that has never used the tracker is a supported starting state,
@@ -204,9 +192,7 @@ export function createMarkdownDriver(
    * A write moves the workspace on whether or not it succeeded partway, so the
    * next read rebuilds rather than trusting a scan taken before it.
    */
-  const moved = async <T>(operation: () => Promise<T>, writing = true): Promise<T> => {
-    if (writing && idPattern.problem !== undefined)
-      throw new InvalidWorkspaceConfig(idPattern.problem);
+  const moved = async <T>(operation: () => Promise<T>): Promise<T> => {
     try {
       return await operation();
     } finally {
@@ -228,27 +214,16 @@ export function createMarkdownDriver(
       return (await scan()).flatMap(entry => summariesOf(entry));
     },
 
-    isId(name) {
-      return matchesId.test(name);
-    },
-
-    mergeCollidingIdPattern() {
-      return colliding;
-    },
-
     absentStorage() {
       return isAbsent(storage) ? `${storageDir}/` : undefined;
     },
 
     workspaceWarnings() {
-      const warnings =
-        idPattern.problem === undefined
-          ? []
-          : [
-              `${idPattern.problem} Writes are refused until it is fixed and the FrontierMCP ` +
-                'server is restarted.',
-            ];
-      if (duplicates.size > 0) warnings.push(duplicateWarning(duplicates, colliding));
+      const warnings = ignoredConfig === undefined ? [] : [ignoredConfig];
+      if (duplicates.ids.length > 0) warnings.push(duplicateWarning(duplicates.ids, DUPLICATE_IDS));
+      if (duplicates.names.length > 0) {
+        warnings.push(duplicateWarning(duplicates.names, DUPLICATE_NAMES));
+      }
       return warnings;
     },
 
@@ -265,15 +240,18 @@ export function createMarkdownDriver(
       return readBodies(storage, await walk(), handles);
     },
 
-    updateTicket(handle, edit, expectedRevision) {
-      return moved(() => serialized(() => write(storage, handle, edit, expectedRevision)));
+    updateTicket(handle, edit, expectedRevision, settle) {
+      const settled =
+        settle === undefined
+          ? undefined
+          : async () => settle((await walk()).flatMap(entry => summariesOf(entry)));
+      return moved(() => serialized(() => write(storage, handle, edit, expectedRevision, settled)));
     },
 
     createTickets(effort, drafts, options) {
-      // The scan is deliberately not the cached one: allocation re-reads under
-      // its own guards, and a walk started before them would defeat the check
-      // it exists to make.
-      return moved(() => serialized(() => create(storage, minting, effort, drafts, options, walk)));
+      // The scan is deliberately not the cached one: the last check before the
+      // write has to see what another process has just created.
+      return moved(() => serialized(() => create(storage, effort, drafts, options, walk)));
     },
 
     readMap(effort) {
@@ -297,10 +275,7 @@ export function createMarkdownDriver(
     },
 
     migrateEffort(effort, options) {
-      return moved(
-        () => serialized(() => migrate(storage, storageDir, minting, effort, options, walk)),
-        options.preview !== true,
-      );
+      return moved(() => serialized(() => migrate(storage, storageDir, effort, options, walk)));
     },
 
     close() {
@@ -325,110 +300,127 @@ export function createMarkdownDriver(
 }
 
 /**
- * The directory of an Effort a caller named. Every path built from a caller's
- * slug comes through here, so a slug that is not one directory name is refused
- * before it can address anything outside its own Effort. Slugs read off disk by
- * the scan are directory names already and do not pass through.
+ * What a Board says about a `frontier.yml` left over from 1.x, or undefined
+ * when there is nothing to say. The file configured the id pattern and nothing
+ * else, and nothing mints an id (ADR 0008), so it is never validated and can
+ * never refuse a write: one that still sets `id_pattern`, or cannot be parsed
+ * to find out, gets the same line. Nothing of its contents is echoed.
  */
-function effortDir(storage: string, slug: string): string {
-  if (slug === '' || slug.startsWith('.') || /[/\\\p{Cc}]/u.test(slug)) {
-    throw new InvalidEffortSlug(slug);
+function ignoredConfigWarning(storage: string, storageDir: string): string | undefined {
+  let contents: string;
+  try {
+    contents = readFileSync(join(storage, CONFIG_FILE), 'utf8');
+  } catch {
+    return undefined;
   }
-  return join(storage, slug);
-}
 
-function unreachable(): never {
-  throw new Error(`The default id pattern ${DEFAULT_ID_PATTERN} does not compile.`);
+  const document = parseDocument(contents);
+  const setsPattern = isMap(document.contents) && document.contents.has('id_pattern');
+  if (document.errors.length === 0 && !setsPattern) return undefined;
+
+  return (
+    `${storageDir}/${CONFIG_FILE} is ignored since FrontierMCP 2.0: no id is minted, so ` +
+    'id_pattern does nothing and no write depends on this file — it can be deleted'
+  );
 }
 
 async function migrate(
   storage: string,
   storageDir: string,
-  minting: MintingPlan,
   effort: string,
   options: MigrateOptions,
   walk: () => Promise<ScannedEffort[]>,
 ): Promise<MigrationReport> {
   const dir = effortDir(storage, effort);
-  if ((await readEffort(storage, effort)) === undefined) throw new NoSuchEffort(effort);
-
-  const entries = await readTicketFiles(dir, effort);
   const scanned = await walk();
+  const entries = scanned.find(entry => entry.effort.slug === effort)?.entries;
+  if (entries === undefined) throw new NoSuchEffort(effort);
 
-  // An id inferred from Foreign prose is preserved, so one another file already
-  // carries would be written into frontmatter as a duplicate — the same refusal
-  // as any write addressed to that id. A preview is a read, so it reports the
-  // conflict beside the rest of the plan instead.
-  const claims = duplicateClaims(scanned);
-  const conflicts = new Map<string, readonly string[]>();
-  for (const { ticket } of entries) {
-    if (!ticket.foreign || ticket.id === undefined) continue;
-    const files = claims.get(ticket.id);
-    if (files === undefined) continue;
-    if (options.preview !== true) throw new DuplicateId(ticket.id, files);
-    conflicts.set(ticket.id, files);
+  // An id inferred from prose is written into frontmatter, so one another file
+  // already carries would land as a duplicate, and a name two files share is
+  // one no Edge can mean. Both get the refusal any write addressed to a
+  // duplicate gets; a preview is a read, so it reports the conflict beside the
+  // rest of the plan.
+  const { fileOf, names } = filesByTicket(scanned);
+  const conflicts = new Map<string, { kind: 'id' | 'name'; files: readonly string[] }>();
+  for (const { filename, ticket } of entries) {
+    if (!ticket.foreign && ticket.id !== undefined) continue;
+    const claimants = names.claimants(ticket);
+    if (claimants.length < 2) continue;
+    const files = claimants.map(claimant => fileOf.get(claimant) ?? '');
+    const kind = duplicateKindOf(claimants);
+    if (options.preview !== true) {
+      throw new DuplicateId(ticket.id ?? fullNameOf(ticket), files, kind);
+    }
+    conflicts.set(filename, { kind, files });
   }
   const issues = join(dir, ISSUES_DIR);
 
   return migrateEffortFiles({
-    storage,
-    minting,
     effort,
     issues,
     directory: [...storageDir.split(/[\\/]/), effort, ISSUES_DIR].filter(Boolean).join('/'),
     entries,
-    allTickets: scanned.flatMap(summariesOf),
+    names,
     preview: options.preview,
     conflicts,
-    // Allocation must not share a walk started before the guards — same reason
-    // createTickets builds its own rescan.
-    rescan: async () => (await walk()).flatMap(summariesOf),
     readContents: filename => readFile(join(issues, filename), 'utf8'),
   });
 }
 
 async function create(
   storage: string,
-  minting: MintingPlan,
   effort: string,
   drafts: readonly TicketDraft[],
   options: CreateOptions,
   walk: () => Promise<ScannedEffort[]>,
 ): Promise<readonly TicketSummary[]> {
   const dir = effortDir(storage, effort);
+
+  // A case-insensitive filesystem would open the existing directory under the
+  // caller's spelling, and every in-Effort rule above the seam, which looks the
+  // slug up exactly, would be skipped. On a case-sensitive one a second Effort
+  // would land beside the first with the same folded full names.
+  const slugs = (await walk()).map(scanned => scanned.effort.slug);
+  if (!slugs.includes(effort)) {
+    const twin = slugs.find(slug => slug.toLowerCase() === effort.toLowerCase());
+    if (twin !== undefined) throw new EffortSpelledDifferently(effort, twin);
+  }
+
   const missing = (await readEffort(storage, effort)) === undefined;
   if (missing && !options.createEffort) throw new NoSuchEffort(effort);
 
   // The directory is made inside, after validation — an Effort created here and
   // then refused would show up in list_efforts as an empty one nobody asked for.
-  const filenames = await createTicketFiles({
-    storage,
-    minting,
+  const files = await createTicketFiles({
     effort,
     dir,
     issues: join(dir, ISSUES_DIR),
-    drafts,
     rescan: async () => (await walk()).flatMap(summariesOf),
-    validate: options.validate ?? (() => {}),
+    settle: options.settle ?? (() => drafts),
     createEffort: missing,
   });
 
-  const written = await readTicketFiles(dir, effort);
+  // The files have landed, so from here the call has succeeded. A read-back
+  // that fails, or misses a file another session has already replaced, falls
+  // back to the text that was written rather than reporting a failure.
+  const written = await readTicketFiles(dir, effort).catch(() => []);
   const byFilename = new Map(written.map(entry => [entry.filename, entry.ticket]));
 
-  return filenames.map(filename => {
-    const ticket = byFilename.get(filename);
-    if (ticket === undefined)
-      throw new Error(`${filename} was written but could not be read back.`);
-    return ticket;
+  return files.map(({ filename, contents }) => {
+    const read = byFilename.get(filename);
+    if (read !== undefined) return read;
+    const [asWritten] = resolveSubSlices([parseTicketSummary(effort, { filename, contents }, '')]);
+    return asWritten as TicketSummary;
   });
 }
 
 async function write(
   storage: string,
   handle: string,
-  edit: TicketEdit,
+  requested: TicketEdit,
   expectedRevision: string,
+  settled: (() => Promise<TicketEdit>) | undefined,
 ): Promise<TicketWriteResult> {
   const located = await locate(storage, handle);
   if (located === undefined) throw new NoSuchTicket(handle);
@@ -440,6 +432,7 @@ async function write(
   // against the file as it is right now, immediately before the write.
   if ((await currentRevision(path)) !== expectedRevision) throw new RevisionMismatch(handle);
 
+  const edit = settled === undefined ? requested : await settled();
   const contents = await readFile(path, 'utf8');
   const updated = applyEdit(contents, edit, defaultsFor(ticket));
 
@@ -684,11 +677,11 @@ function ticketPointers(
 ): DerivedPointer[] {
   return entries.flatMap(entry => {
     const { ticket, filename } = entry;
-    if (ticket.status !== status || ticket.id === undefined) return [];
+    if (ticket.status !== status) return [];
     const gist = status === 'resolved' ? ticket.answerGist : ticket.droppedReason;
     return [
       {
-        id: ticket.id,
+        id: ticket.name,
         title: ticket.title,
         link: `${ISSUES_DIR}/${filename}`,
         gist: gist ?? '',
@@ -697,7 +690,10 @@ function ticketPointers(
   });
 }
 
-/** Find the file backing a Ticket, by id or by its `<effort>#<order>` handle. */
+/**
+ * Find the file backing a Ticket, by whatever names it: an id, a full name, or
+ * a bare name only one Effort has.
+ */
 async function locate(
   storage: string,
   handle: string,
@@ -707,21 +703,25 @@ async function locate(
     slugs.map(async slug => ({ slug, entries: await readTicketFiles(join(storage, slug), slug) })),
   );
 
-  const found = perEffort.flatMap(({ slug, entries }) =>
-    entries
-      .filter(entry => entry.ticket.id === handle || entry.ticket.handle === handle)
-      .map(entry => ({
-        dir: join(storage, slug),
-        effort: slug,
-        filename: entry.filename,
-        ticket: entry.ticket,
-      })),
+  const files = perEffort.flatMap(({ slug, entries }) =>
+    entries.map(entry => ({
+      dir: join(storage, slug),
+      effort: slug,
+      filename: entry.filename,
+      ticket: entry.ticket,
+    })),
   );
+  const byTicket = new Map(files.map(file => [file.ticket, file]));
+  const found = indexNames(files.map(file => file.ticket))
+    .input(handle)
+    .map(ticket => byTicket.get(ticket))
+    .filter(file => file !== undefined);
 
   if (found.length > 1) {
     throw new DuplicateId(
       handle,
       found.map(entry => relativeFile(entry.effort, entry.filename)),
+      duplicateKindOf(found.map(entry => entry.ticket)),
     );
   }
   return found[0];
@@ -731,23 +731,44 @@ function relativeFile(effort: string, filename: string): string {
   return `${effort}/${ISSUES_DIR}/${filename}`;
 }
 
-/**
- * Ids carried by more than one Ticket file, with every claimant. One id is one
- * exact string: `T5` and `t5` are different ids, as they are to an Edge.
- */
-function duplicateClaims(
-  scanned: readonly ScannedEffort[],
-): ReadonlyMap<string, readonly string[]> {
-  const files = new Map<string, string[]>();
+/** One duplicated id or name: how it is spelled, and every file claiming it. */
+interface DuplicateClaim {
+  readonly label: string;
+  readonly files: readonly string[];
+}
+
+interface DuplicateClaims {
+  /** Sets whose claimants all carry one id. */
+  readonly ids: readonly DuplicateClaim[];
+  /** Every other set: Tickets that share a full name, not all by carrying one id. */
+  readonly names: readonly DuplicateClaim[];
+}
+
+/** Each scanned Ticket's file, and the name index that says which of them are duplicates. */
+function filesByTicket(scanned: readonly ScannedEffort[]) {
+  const fileOf = new Map<TicketSummary, string>();
   for (const { effort, entries } of scanned) {
     for (const { filename, ticket } of entries) {
-      if (ticket.id === undefined) continue;
-      const claimants = files.get(ticket.id) ?? [];
-      claimants.push(relativeFile(effort.slug, filename));
-      files.set(ticket.id, claimants);
+      fileOf.set(ticket, relativeFile(effort.slug, filename));
     }
   }
-  return new Map([...files].filter(([, claimants]) => claimants.length > 1));
+  return { fileOf, names: indexNames(scanned.flatMap(summariesOf)) };
+}
+
+/** What `Names.duplicates` finds in a scan, with the file behind every claimant. */
+function duplicateClaims(scanned: readonly ScannedEffort[]): DuplicateClaims {
+  const { fileOf, names } = filesByTicket(scanned);
+  const ids: DuplicateClaim[] = [];
+  const named: DuplicateClaim[] = [];
+  for (const claimants of names.duplicates()) {
+    const [first] = claimants;
+    if (first === undefined) continue;
+    (duplicateKindOf(claimants) === 'id' ? ids : named).push({
+      label: fullNameOf(first),
+      files: claimants.map(claimant => fileOf.get(claimant) ?? ''),
+    });
+  }
+  return { ids, names: named };
 }
 
 // Reported, never repaired: renumbering cannot reach the commit messages and
@@ -757,31 +778,34 @@ function duplicateClaims(
 const DUPLICATES_WITH_FILES = 3;
 const DUPLICATES_NAMED = 10;
 
+const DUPLICATE_IDS = {
+  what: 'duplicate ids, each carried by more than one Ticket file',
+  fix: 'renumber all but one by hand',
+};
+const DUPLICATE_NAMES = {
+  what: 'duplicate names, each the full name of more than one Ticket file',
+  fix: 'rename all but one file by hand',
+};
+
 function duplicateWarning(
-  duplicates: ReadonlyMap<string, readonly string[]>,
-  colliding: { readonly pattern: string } | undefined,
+  duplicates: readonly DuplicateClaim[],
+  wording: { readonly what: string; readonly fix: string },
 ): string {
-  const sorted = [...duplicates].toSorted(([a], [b]) => a.localeCompare(b));
+  const sorted = duplicates.toSorted((a, b) => a.label.localeCompare(b.label));
   const withFiles = sorted
     .slice(0, DUPLICATES_WITH_FILES)
-    .map(([id, files]) => `${id} (${files.join(', ')})`);
+    .map(({ label, files }) => `${label} (${files.join(', ')})`);
   const named = sorted
     .slice(DUPLICATES_WITH_FILES, DUPLICATES_WITH_FILES + DUPLICATES_NAMED)
-    .map(([id]) => id);
+    .map(({ label }) => label);
   const rest = sorted.length - DUPLICATES_WITH_FILES - named.length;
 
   let listed = withFiles.join('; ');
   if (named.length > 0) listed += `; also ${named.join(' ')}`;
   if (rest > 0) listed += ` and ${String(rest)} more`;
-  // T56's one-way cross-reference: the pattern is named only once a duplicate
-  // has actually happened, as its likely cause.
-  const cause =
-    colliding === undefined
-      ? ''
-      : `; the counted id pattern ${colliding.pattern} is the likely cause`;
   return (
-    `duplicate ids, each carried by more than one Ticket file (${String(duplicates.size)}): ` +
-    `${listed} — writes to them are refused; renumber all but one by hand${cause}`
+    `${wording.what} (${String(duplicates.length)}): ` +
+    `${listed} — writes to them are refused; ${wording.fix}`
   );
 }
 
@@ -800,9 +824,9 @@ function defaultsFor(ticket: TicketSummary): Defaults {
 interface ScannedEffort {
   readonly effort: Effort;
   /**
-   * The Effort's Ticket files in sort order. A scan keeps the filename beside
-   * each summary because that is what a body fetch opens — the pairing stays
-   * below the seam, where paths live.
+   * The Effort's Ticket files by filename prefix, then by name. A scan keeps
+   * the filename beside each summary because that is what a body fetch opens —
+   * the pairing stays below the seam, where paths live.
    */
   readonly entries: readonly TicketFileEntry[];
 }
@@ -830,14 +854,12 @@ async function readBodies(
   scanned: readonly ScannedEffort[],
   handles: readonly string[],
 ): Promise<readonly Ticket[]> {
-  const wanted = new Set(handles);
+  const names = indexNames(scanned.flatMap(summariesOf));
+  const wanted = new Set(handles.flatMap(handle => names.input(handle)));
 
   const found = scanned.flatMap(entry =>
     entry.entries
-      .filter(
-        ({ ticket }) =>
-          wanted.has(ticket.handle) || (ticket.id !== undefined && wanted.has(ticket.id)),
-      )
+      .filter(({ ticket }) => wanted.has(ticket))
       .map(({ filename, ticket }) => ({
         ticket,
         path: join(storage, entry.effort.slug, ISSUES_DIR, filename),
@@ -854,7 +876,8 @@ function withBody(ticket: TicketSummary, contents: string): Ticket {
 }
 
 /**
- * Every Ticket in one Effort with the file behind it, in sort order, each read
+ * Every Ticket in one Effort with the file behind it, by filename prefix and
+ * then by name — never by Edges, which only a Board orders by — each read
  * for its fields and not for its prose. Paths never cross the driver interface,
  * so this pairing stays inside the driver — it is how a write finds the file a
  * Ticket came from, and how a body fetch finds the one it must open.
@@ -867,56 +890,33 @@ async function readTicketFiles(dir: string, effort: string): Promise<TicketFileE
     .map(entry => entry.name)
     .toSorted();
 
-  const parsed = await Promise.all(
-    filenames.map(async (filename, position) => {
+  const read = await Promise.all(
+    filenames.map(async filename => {
       const path = join(issues, filename);
-      const [contents, revision] = await Promise.all([
-        readFile(path, 'utf8'),
-        currentRevision(path),
-      ]);
-      // A file with no `NN-` prefix still needs a position; its place in the
-      // sorted listing is the only order it has.
-      return parseTicketSummary(effort, { filename, contents }, position + 1, revision ?? '');
+      let contents: string;
+      let revision: string | undefined;
+      try {
+        [contents, revision] = await Promise.all([readFile(path, 'utf8'), currentRevision(path)]);
+      } catch (error) {
+        // Listed and then gone: another process took back a batch it could not
+        // complete. It is not a Ticket of this Effort, and never was.
+        if (isMissing(error)) return undefined;
+        throw error;
+      }
+      const parsed = parseTicketSummary(effort, { filename, contents }, revision ?? '');
+      return { filename, parsed };
     }),
   );
 
-  const tickets = resolveSubSlices(parsed);
-  const files = filenames.map((filename, position) => ({
+  const present = read.filter(entry => entry !== undefined);
+  const tickets = resolveSubSlices(present.map(entry => entry.parsed));
+  const files = present.map(({ filename }, position) => ({
     filename,
     ticket: tickets[position] as TicketSummary,
   }));
-  return withUniqueHandles(files.toSorted((a, b) => a.ticket.order - b.ticket.order));
-}
-
-/**
- * Two id-less Tickets can land on one order, which would make one of them
- * unfetchable. The cause is a prefix-less file taking `position + 1`, which
- * lands on whatever order a sibling's `NN-` prefix already gave: `a.md` listed
- * second collides with `02-b.md`. Two prefix-less files never collide with each
- * other. Later collisions in sort order get a `.2`, `.3` suffix.
- *
- * A Ticket with an id is never suffixed. Every claimant of a duplicated id must
- * keep answering to that id, so a write addressed to it refuses; a suffix would
- * be a handle reaching one claimant behind the refusal's back.
- */
-function withUniqueHandles(entries: readonly TicketFileEntry[]): TicketFileEntry[] {
-  const seen = new Set<string>();
-
-  return entries.map(entry => {
-    const { ticket } = entry;
-    if (ticket.id !== undefined) return entry;
-    if (!seen.has(ticket.handle)) {
-      seen.add(ticket.handle);
-      return entry;
-    }
-
-    let suffix = 2;
-    while (seen.has(`${ticket.handle}.${String(suffix)}`)) suffix += 1;
-    const handle = `${ticket.handle}.${String(suffix)}`;
-    seen.add(handle);
-
-    return { filename: entry.filename, ticket: { ...ticket, handle } };
-  });
+  // Stable over the sorted filenames, so two files tying on prefix and name
+  // still come out in one order on every machine.
+  return files.toSorted((a, b) => compareByOrderHint(a.ticket, b.ticket));
 }
 
 /**
@@ -974,6 +974,21 @@ async function readDir(dir: string) {
     if (isMissing(error)) return [];
     throw error;
   }
+}
+
+/**
+ * The directory of an Effort a caller named. Every Effort-addressed call builds
+ * its paths from here, so a slug is checked once: it is one directory name
+ * under the storage directory, and anything that could step out of it, or
+ * reach into another Effort, is refused before a path exists. Slugs the scan
+ * found on disk are directory names already and do not pass through.
+ */
+function effortDir(storage: string, slug: string): string {
+  // `\p{Cc}` is every control character: C0 with NUL, DEL, and C1.
+  if (slug === '' || slug.startsWith('.') || /[/\\\p{Cc}]/u.test(slug)) {
+    throw new InvalidEffortSlug(slug);
+  }
+  return join(storage, slug);
 }
 
 function isMissing(error: unknown): boolean {

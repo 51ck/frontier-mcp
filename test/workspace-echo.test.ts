@@ -42,7 +42,7 @@ describe('a write names the workspace it resolved', () => {
 
     const text = await frontier.call('create_tickets', {
       effort: 'demo',
-      tickets: [{ key: 'a', title: 'A new Ticket', kind: 'build', body: 'Body.' }],
+      tickets: [{ name: 'a', title: 'A new Ticket', kind: 'build', body: 'Body.' }],
     });
 
     expect(namesWorkspace(text, root)).toBe(true);

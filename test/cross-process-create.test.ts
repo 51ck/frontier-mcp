@@ -8,24 +8,24 @@ import { afterEach, describe, expect, it } from 'vitest';
 const run = promisify(execFile);
 
 const SESSIONS = 4;
-const PER_SESSION = 3;
 
 /**
  * The second test that leaves the in-process seam, for the same reason as
  * `cross-process-claim.test.ts` and under the same exception.
  *
  * The spec puts one process per client session, so parallel sessions are
- * parallel OS processes. Id allocation shares a scan, a write queue and a
- * module-level state within one process, every one of which would hand an
- * in-process test a pass it had not earned — exactly how the claim guarantee
- * came to hold only in-process. Two sessions issuing one id is the failure this
- * has to rule out, and only real processes can.
+ * parallel OS processes. Within one process creation shares a scan and a write
+ * queue, either of which would hand an in-process test a pass it had not
+ * earned — exactly how the claim guarantee came to hold only in-process. Two
+ * sessions both believing they created one name is the failure this has to
+ * rule out, and only real processes can.
  */
 const CREATOR = `
 import { createFrontierMCP } from '%SRC%';
 import { Client } from '@modelcontextprotocol/client';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
 const [who, at, cwd] = [process.argv[2], Number(process.argv[3]), process.argv[4]];
+const names = JSON.parse(process.argv[5]);
 const frontier = createFrontierMCP({ cwd, env: {} });
 const client = new Client({ name: who, version: '0' });
 const [a, b] = InMemoryTransport.createLinkedPair();
@@ -33,9 +33,7 @@ await Promise.all([frontier.server.connect(b), client.connect(a)]);
 // Warm every cache before the starting gun, so the collision is over the write
 // and not over who finished scanning first.
 await client.callTool({ name: 'get_board', arguments: { effort: 'alpha' } });
-const tickets = Array.from({ length: ${String(PER_SESSION)} }, (_, i) => ({
-  title: who + ' thing ' + String(i),
-}));
+const tickets = names.map(name => ({ name, title: who }));
 while (Date.now() < at) {}
 const result = await client.callTool({
   name: 'create_tickets',
@@ -45,6 +43,7 @@ console.log(result.isError ? 'FAILED: ' + JSON.stringify(result.content) : 'OK')
 process.exit(0);
 `;
 
+const SEED_FILE = '01-T1-already-here.md';
 const SEED = `---
 id: T1
 title: Already here
@@ -56,30 +55,7 @@ blocked_by: []
 Body.
 `;
 
-const IN_FRONTMATTER = /^id:[ \t]*(\S+)$/m;
-
-// Pinned: the random default needs no guard, so it would test nothing here.
-const COUNTED = 'id_pattern: T<N>\n';
-const DEFAULT_PATTERN = 'T<b36{6}>';
-
-/**
- * The id a pattern string renders, as regex source. Built here from the string
- * the test pinned, because tests cannot reach the driver's own compiler.
- */
-function idSource(pattern: string): string {
-  return pattern
-    .split(/(<N>|<b36\{\d+\}>|<b16\{\d+\}>)/)
-    .map(part => {
-      if (part === '<N>') return '\\d+';
-      const random = /^<b(36|16)\{(\d+)\}>$/.exec(part);
-      if (random !== null) return `[${random[1] === '36' ? '0-9a-z' : '0-9a-f'}]{${random[2]}}`;
-      return part.replaceAll('.', '\\.');
-    })
-    .join('');
-}
-
-// The seed declares its own id, which a mixed pattern does not render.
-const inFilenameFor = (pattern: string) => new RegExp(`^\\d+-(${idSource(pattern)}|T1)-`);
+const TITLE = /^title:[ \t]*(\S+)$/m;
 
 let workspace: string | undefined;
 
@@ -88,136 +64,87 @@ afterEach(async () => {
   workspace = undefined;
 });
 
-describe('creation from separate processes', () => {
-  // The mixed pattern is the guard-keying case: racers reaching one counter
-  // render different ids, so only a guard keyed on <N> keeps the counters apart.
-  it.each(['T<N>', 'T<N>-<b36{4}>'])(
-    'never issues one counter twice under %s',
-    async pattern => {
-      const inFilename = inFilenameFor(pattern);
-      workspace = await mkdtemp(join(tmpdir(), 'frontier-alloc-'));
-      const issues = join(workspace, '.scratch/alpha/issues');
-      await mkdir(issues, { recursive: true });
-      await writeFile(join(workspace, '.scratch/frontier.yml'), `id_pattern: ${pattern}\n`, 'utf8');
-      await writeFile(join(issues, '01-T1-already-here.md'), SEED, 'utf8');
+/** Start every session busy-waiting to one instant, so they collide for real. */
+async function race(
+  label: string,
+  root: string,
+  namesFor: (who: string) => readonly string[],
+): Promise<{ who: string; outcome: string }[]> {
+  // The script lives inside the project so it can resolve the SDK, and points
+  // at the temporary workspace rather than living in it.
+  const scripts = join(import.meta.dirname, '..', 'node_modules', '.frontier-test');
+  await mkdir(scripts, { recursive: true });
+  const script = join(scripts, `creator-${label}-${String(process.pid)}.mjs`);
+  const src = join(import.meta.dirname, '..', 'src', 'server.ts');
+  await writeFile(script, CREATOR.replace('%SRC%', src), 'utf8');
 
-      // The script lives inside the project so it can resolve the SDK, and points
-      // at the temporary workspace rather than living in it.
-      const scripts = join(import.meta.dirname, '..', 'node_modules', '.frontier-test');
-      await mkdir(scripts, { recursive: true });
-      const script = join(scripts, `creator-${String(process.pid)}.mjs`);
-      const src = join(import.meta.dirname, '..', 'src', 'server.ts');
-      await writeFile(script, CREATOR.replace('%SRC%', src), 'utf8');
-
-      // Every process busy-waits to the same instant, so they collide for real.
-      const at = Date.now() + 1500;
-      const outcomes = await Promise.all(
-        Array.from({ length: SESSIONS }, async (_, index) => {
-          const { stdout } = await run(process.execPath, [
-            script,
-            `agent-${String(index)}`,
-            String(at),
-            workspace ?? '',
-          ]);
-          return stdout.trim();
-        }),
-      );
-
-      // Contention is resolved by bumping, never by refusing: every session gets
-      // the whole batch it asked for.
-      expect(outcomes).toEqual(Array.from({ length: SESSIONS }, () => 'OK'));
-
-      const files = (await readdir(issues)).filter(name => name.endsWith('.md'));
-      expect(files).toHaveLength(SESSIONS * PER_SESSION + 1);
-
-      // The frontmatter is the authority and the filename is cosmetic, so both are
-      // read: an id issued twice shows up in either, and a disagreement between
-      // them is its own defect.
-      const ids = await Promise.all(
-        files.map(async name => ({
-          inFilename: inFilename.exec(name)?.[1],
-          inFrontmatter: IN_FRONTMATTER.exec(await readFile(join(issues, name), 'utf8'))?.[1],
-        })),
-      );
-
-      expect(ids.filter(entry => entry.inFrontmatter === undefined)).toEqual([]);
-      expect(ids.filter(entry => entry.inFilename !== entry.inFrontmatter)).toEqual([]);
-      expect(new Set(ids.map(entry => entry.inFrontmatter)).size).toBe(ids.length);
-      // The seed is outside a mixed pattern's namespace, so only minted ids count.
-      const minted = ids.filter(entry => entry.inFrontmatter !== 'T1');
-      const counters = minted.map(entry => /^T(\d+)/.exec(entry.inFrontmatter ?? '')?.[1]);
-      expect(new Set(counters).size).toBe(minted.length);
-    },
-    60_000,
+  const at = Date.now() + 1500;
+  return Promise.all(
+    Array.from({ length: SESSIONS }, async (_, index) => {
+      const who = `agent-${String(index)}`;
+      const { stdout } = await run(process.execPath, [
+        script,
+        who,
+        String(at),
+        root,
+        JSON.stringify(namesFor(who)),
+      ]);
+      return { who, outcome: stdout.trim() };
+    }),
   );
+}
 
-  it('leaves no allocation guard behind', async () => {
-    workspace = await mkdtemp(join(tmpdir(), 'frontier-alloc-'));
-    await mkdir(join(workspace, '.scratch/alpha/issues'), { recursive: true });
-    await writeFile(join(workspace, '.scratch/frontier.yml'), COUNTED, 'utf8');
+describe('creation from separate processes', () => {
+  it('gives one name to exactly one session, and leaves nothing of the others', async () => {
+    workspace = await mkdtemp(join(tmpdir(), 'frontier-create-'));
+    const issues = join(workspace, '.scratch/alpha/issues');
+    await mkdir(issues, { recursive: true });
+    await writeFile(join(issues, SEED_FILE), SEED, 'utf8');
 
-    const scripts = join(import.meta.dirname, '..', 'node_modules', '.frontier-test');
-    await mkdir(scripts, { recursive: true });
-    const script = join(scripts, `creator-solo-${String(process.pid)}.mjs`);
-    const src = join(import.meta.dirname, '..', 'src', 'server.ts');
-    await writeFile(script, CREATOR.replace('%SRC%', src), 'utf8');
+    // The contested name sits mid-batch, so a loser that had already landed its
+    // own first file has to take it back.
+    const outcomes = await race('same', workspace, who => [
+      `${who}-before`,
+      'shared',
+      `${who}-after`,
+    ]);
 
-    await run(process.execPath, [script, 'agent-solo', String(Date.now()), workspace]);
+    const winners = outcomes.filter(entry => entry.outcome === 'OK');
+    const refused = outcomes.filter(entry => entry.outcome.startsWith('FAILED: '));
+    expect(winners).toHaveLength(1);
+    expect(refused).toHaveLength(SESSIONS - 1);
+    for (const { outcome } of refused) expect(outcome).toMatch(/shared/);
 
-    // A guard is held only across the write. One surviving it would name an id
-    // that can never be minted again until it is swept.
+    const winner = winners[0]?.who ?? '';
+    // The whole directory, so a staged file or a guard left behind would show.
+    expect((await readdir(issues)).toSorted()).toEqual(
+      [SEED_FILE, `${winner}-after.md`, `${winner}-before.md`, 'shared.md'].toSorted(),
+    );
+    expect(TITLE.exec(await readFile(join(issues, 'shared.md'), 'utf8'))?.[1]).toBe(winner);
+    expect(await readdir(join(workspace, '.scratch'))).toEqual(['alpha']);
+  }, 60_000);
+
+  it('lets every session land its own names, taking no guard and leaving a 1.x one where it lies', async () => {
+    workspace = await mkdtemp(join(tmpdir(), 'frontier-create-'));
+    const issues = join(workspace, '.scratch/alpha/issues');
+    await mkdir(issues, { recursive: true });
+    await writeFile(join(workspace, '.scratch/frontier.yml'), 'id_pattern: T<N>\n', 'utf8');
+    await writeFile(join(workspace, '.scratch/.frontier-id-N-2.guard'), '4242\n', 'utf8');
+    await writeFile(join(issues, SEED_FILE), SEED, 'utf8');
+
+    const outcomes = await race('own', workspace, who => [`${who}-one`, `${who}-two`]);
+
+    // Different names never contend: nothing is shared for them to collide over.
+    expect(outcomes.map(entry => entry.outcome)).toEqual(
+      Array.from({ length: SESSIONS }, () => 'OK'),
+    );
+    expect((await readdir(issues)).toSorted()).toEqual(
+      [SEED_FILE, ...outcomes.flatMap(({ who }) => [`${who}-one.md`, `${who}-two.md`])].toSorted(),
+    );
     expect((await readdir(join(workspace, '.scratch'))).toSorted()).toEqual([
+      '.frontier-id-N-2.guard',
       'alpha',
       'frontier.yml',
     ]);
-  }, 60_000);
-
-  // Cross-process random draws are deliberately uncoordinated (T53), so this
-  // runs the default's full 36^6 space: a collision among a dozen ids is
-  // negligible, and a smaller space would make this test flaky by design.
-  it('draws distinct ids under the random default without a guard', async () => {
-    workspace = await mkdtemp(join(tmpdir(), 'frontier-alloc-'));
-    const issues = join(workspace, '.scratch/alpha/issues');
-    await mkdir(issues, { recursive: true });
-    await writeFile(join(issues, '01-T1-already-here.md'), SEED, 'utf8');
-
-    const scripts = join(import.meta.dirname, '..', 'node_modules', '.frontier-test');
-    await mkdir(scripts, { recursive: true });
-    const script = join(scripts, `creator-random-${String(process.pid)}.mjs`);
-    const src = join(import.meta.dirname, '..', 'src', 'server.ts');
-    await writeFile(script, CREATOR.replace('%SRC%', src), 'utf8');
-
-    const at = Date.now() + 1500;
-    const outcomes = await Promise.all(
-      Array.from({ length: SESSIONS }, async (_, index) => {
-        const { stdout } = await run(process.execPath, [
-          script,
-          `agent-${String(index)}`,
-          String(at),
-          workspace ?? '',
-        ]);
-        return stdout.trim();
-      }),
-    );
-    expect(outcomes).toEqual(Array.from({ length: SESSIONS }, () => 'OK'));
-
-    const files = (await readdir(issues)).filter(name => name.endsWith('.md'));
-    expect(files).toHaveLength(SESSIONS * PER_SESSION + 1);
-
-    const inFilename = inFilenameFor(DEFAULT_PATTERN);
-    const ids = await Promise.all(
-      files.map(async name => ({
-        inFilename: inFilename.exec(name)?.[1],
-        inFrontmatter: IN_FRONTMATTER.exec(await readFile(join(issues, name), 'utf8'))?.[1],
-      })),
-    );
-    expect(ids.filter(entry => entry.inFilename !== entry.inFrontmatter)).toEqual([]);
-    expect(new Set(ids.map(entry => entry.inFrontmatter)).size).toBe(ids.length);
-    const minted = ids.filter(entry => entry.inFrontmatter !== 'T1');
-    const shape = new RegExp(`^${idSource(DEFAULT_PATTERN)}$`);
-    expect(minted.filter(entry => !shape.test(entry.inFrontmatter ?? ''))).toEqual([]);
-
-    // A random pattern draws and rechecks; it never takes a guard at all.
-    expect(await readdir(join(workspace, '.scratch'))).toEqual(['alpha']);
   }, 60_000);
 });

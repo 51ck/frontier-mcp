@@ -1,5 +1,9 @@
 # Ids are minted by the pattern, and guarded only when the pattern counts
 
+Superseded for 2.0 by [ADR 0008](./0008-a-ticket-is-named-by-its-path.md), which is built on the
+`feat/ticket-names` branch: the pattern, both minting plans and the guard files described here are
+removed there. This document is the record of what 1.x ships.
+
 Supersedes [ADR 0005](./0005-ids-are-allocated-under-a-guard-and-a-rescan.md). Its arguments stand —
 why the exclusive create cannot sit on the Ticket file, and why no scheme for reclaiming a guard can
 be made safe — but it argues them for every id, and since ids became configurable that is no longer
