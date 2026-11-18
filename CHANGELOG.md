@@ -2,6 +2,36 @@
 
 Package release notes for `frontier-mcp` (npm). Not part of the `.scratch/` issue tracker.
 
+## [2.0.0](https://github.com/51ck/frontier-mcp/compare/v1.0.1...v2.0.0) (2026-11-18)
+
+### ⚠ BREAKING CHANGES
+
+* **migrate:** `id_pattern` in `frontier.yml` is ignored; a workspace
+  that still sets it gets one Board warning and no write is refused
+  because of that file. `migrate_effort` no longer adds an `id`.
+* **create:** `key` is replaced by `name`, which is required. New
+  Tickets carry no minted id. Creation needs a filesystem with hard links.
+* **foreign:** the "foreign fence" Board warning and the whole-fence
+  presentation for an id-less Ticket are gone. An id-carrying Ticket that
+  holds Unimported keys is now counted on its Board.
+* **names:** the `<effort>#<order>` handle is no longer produced or
+  accepted, and the Board's `no id (N)` warning is gone. Workspaces whose
+  Tickets all carry ids are byte-identical.
+
+### Features
+
+* **board:** order a Board by its Edges (Tk2s74f) ([f43415a](https://github.com/51ck/frontier-mcp/commit/f43415a47bbddbce0b0ff454e168fa9503a3cc3b))
+* **create:** create_tickets takes a name and mints nothing (Tz2cgzr) ([9502a83](https://github.com/51ck/frontier-mcp/commit/9502a832701dd1aa1aafecce396e65dc0c97e0ce))
+* **edges:** refuse a near-miss Edge, store the rest in shortest form (Tyughqp) ([bbb9334](https://github.com/51ck/frontier-mcp/commit/bbb933446e9bbf21df807d735c22417d4afe0627))
+* **foreign:** Foreign means no parseable fence (To7zwid) ([163e847](https://github.com/51ck/frontier-mcp/commit/163e847504931e15ef4e3ca7dc744cbff5df32a8))
+* **migrate:** stop minting and remove the id pattern (Tjgohfq, Td5xifi) ([68d7a64](https://github.com/51ck/frontier-mcp/commit/68d7a6460a087dc9a0bb07d0cc59de61ffbd9627))
+* **names:** read, show and address a Ticket by its name (T7idjze) ([b408c59](https://github.com/51ck/frontier-mcp/commit/b408c59cb34fafdf822c5a25b654b2596f0269a3))
+
+### Bug Fixes
+
+* **create:** close three collisions found in the branch review ([63b34d0](https://github.com/51ck/frontier-mcp/commit/63b34d07f7d264774043fd6b8d89fe333142beb0))
+* **runtime-check:** create by name in the packaged runtime check (Tijope9) ([c3fcd57](https://github.com/51ck/frontier-mcp/commit/c3fcd577fe9019331f6241967be378c6cdbfa945))
+
 ## [1.0.1](https://github.com/51ck/frontier-mcp/compare/v1.0.0...v1.0.1) (2026-11-15)
 
 ### Bug Fixes
