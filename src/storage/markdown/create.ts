@@ -62,6 +62,7 @@ export async function createTicketFiles(request: CreateRequest): Promise<readonl
         tags: draft.tags,
       },
       draft.body,
+      draft.extra,
     ),
   }));
 

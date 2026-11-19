@@ -173,6 +173,8 @@ export interface TicketEdit {
   readonly tick?: readonly string[];
   /** Unimported frontmatter keys to delete. A schema key or an absent one fails the write. */
   readonly dropKeys?: readonly string[];
+  /** Top-level keys outside the schema, each set to its JSON value whole. */
+  readonly extra?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -192,6 +194,8 @@ export interface TicketDraft {
   readonly blockedBy: readonly string[];
   /** Written as given; none writes no key. */
   readonly tags: readonly string[];
+  /** Top-level keys outside the schema, appended after the schema fields. */
+  readonly extra: Readonly<Record<string, unknown>>;
   /** The prose, written verbatim. A draft with none produces a Ticket with none. */
   readonly body: string | undefined;
 }

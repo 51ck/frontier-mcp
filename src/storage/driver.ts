@@ -336,6 +336,18 @@ export class WriteWouldExclude extends Error {
   }
 }
 
+/**
+ * Thrown when a file a write would edit is not valid UTF-8. Decoding it would
+ * replace the invalid bytes, so writing it back would change bytes the edit
+ * never touched; it is refused instead. Reads stay lenient.
+ */
+export class FileNotUtf8 extends Error {
+  constructor(file: string) {
+    super(`Nothing was written: ${file} is not valid UTF-8. Repair its encoding by hand.`);
+    this.name = 'FileNotUtf8';
+  }
+}
+
 /** Thrown when the storage cannot hold a new Ticket the way creation needs it held. */
 export class TicketStorageUnusable extends Error {
   constructor(problem: string) {
@@ -494,5 +506,39 @@ export class NoFrontmatterToDrop extends Error {
       'Nothing was written: this Ticket has no parseable frontmatter, so it has no keys to drop.',
     );
     this.name = 'NoFrontmatterToDrop';
+  }
+}
+
+/** Thrown when an extra key is a schema key or `extra` itself. The tool layer refuses first, naming the argument. */
+export class ExtraKeyReserved extends Error {
+  constructor(key: string) {
+    super(`Nothing was written: ${key} is reserved and cannot be written as an extra key.`);
+    this.name = 'ExtraKeyReserved';
+  }
+}
+
+/** Thrown when an extra value, as written to the fence, would not read back as the value given. */
+export class ExtraDoesNotReadBack extends Error {
+  constructor(key: string) {
+    super(
+      `Nothing was written: extra.${key} would not read back from the frontmatter as the value given.`,
+    );
+    this.name = 'ExtraDoesNotReadBack';
+  }
+}
+
+/**
+ * Thrown when replacing, adding or removing the named entries as text would
+ * not leave every other entry reading as it did, or the named ones reading as
+ * given. The fence is edited entry by entry and never re-rendered whole, so
+ * the write is refused rather than landed some other way.
+ */
+export class FenceNotCleanlyEditable extends Error {
+  constructor(keys: readonly string[]) {
+    super(
+      `Nothing was written: ${keys.map(key => `'${key}'`).join(', ')} cannot be written into the ` +
+        'frontmatter without changing how another entry reads. Edit it by hand.',
+    );
+    this.name = 'FenceNotCleanlyEditable';
   }
 }

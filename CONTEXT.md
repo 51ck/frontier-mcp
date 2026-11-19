@@ -116,7 +116,9 @@ MCP server name, which is why the tools are `mcp__frontier__*`.
 _Avoid_: Frontier (that is the set), the frontier server, frontier-mcp in prose
 
 **Unimported keys**:
-Frontmatter keys outside the schema, which the server reads past and never writes. Counted on the
-Board and shown by `get_tickets` for as long as a ticket carries them; removed only when an agent
-names them.
+Frontmatter keys outside the schema, at the top level of the fence. The server writes one only when
+an agent passes it in `extra`, which is the argument's name and never a stored key; every schema key
+is reserved from it, as are `extra` and `__proto__`; a key is non-blank, one line, with no control
+character. Counted on the Board and shown by `get_tickets` for as long as a ticket carries
+them; removed only when an agent names them.
 _Avoid_: foreign keys, extra fields

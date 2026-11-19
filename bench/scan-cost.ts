@@ -753,6 +753,7 @@ async function measureCreates(fixture: Fixture, batchSize: number) {
     })),
     [],
     effort,
+    new Set(),
   );
 
   for (let i = 0; i < SCAN_WARMUPS + fixture.iterations; i += 1) {

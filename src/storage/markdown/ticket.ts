@@ -7,7 +7,7 @@ import type {
   UnimportedFrontmatter,
 } from '../../domain.ts';
 import { STATUSES } from '../../domain.ts';
-import { fenceText, splitFrontmatter } from './frontmatter.ts';
+import { fenceText, readerKey, splitFrontmatter } from './frontmatter.ts';
 import { FIELDS, MARKER_KEY, SCHEMA_KEYS } from './schema.ts';
 
 /**
@@ -286,7 +286,8 @@ function unimportedEntries(raw: string): string | undefined {
   if (!isMap(doc.contents)) return undefined;
   const slices: string[] = [];
   for (const pair of doc.contents.items) {
-    if (isScalar(pair.key) && SCHEMA_KEYS.has(String(pair.key.value))) continue;
+    const key = readerKey(doc, pair);
+    if (key !== undefined && SCHEMA_KEYS.has(key)) continue;
     const start = isScalar(pair.key) ? pair.key.range?.[0] : undefined;
     const value = pair.value as { range?: [number, number, number] } | null;
     const end = value?.range?.[2] ?? (isScalar(pair.key) ? pair.key.range?.[2] : undefined);
@@ -302,6 +303,41 @@ function unimportedEntries(raw: string): string | undefined {
  * which is an order hint and never identity. One that is nothing but the
  * prefix is kept whole rather than left empty.
  */
+/**
+ * Each Unimported key's value as the reader holds it, every alias followed and
+ * every scalar kept with its source text, so two that YAML reads as one value
+ * — `2` and `02` — still differ. Empty when the fence does not parse.
+ */
+export function unimportedValues(contents: string): Record<string, unknown> {
+  const { raw } = splitFrontmatter(contents);
+  if (raw === undefined) return {};
+  const document = parseDocument(raw);
+  if (document.errors.length > 0 || !isMap(document.contents)) return {};
+  // No prototype, so a key named `__proto__` is an own entry and is compared too.
+  const values: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+  for (const pair of document.contents.items) {
+    const key = readerKey(document, pair);
+    if (key === undefined || SCHEMA_KEYS.has(key)) continue;
+    values[key] = writtenForm(document, pair.value, 0);
+  }
+  return values;
+}
+
+function writtenForm(document: Document, node: unknown, depth: number): unknown {
+  // An alias cycle is not followed forever; the reader excludes such a file anyway.
+  if (depth > 64) return undefined;
+  const target = isAlias(node) ? node.resolve(document) : node;
+  if (isScalar(target)) return [typeof target.value, target.source ?? String(target.value)];
+  if (isSeq(target)) return target.items.map(item => writtenForm(document, item, depth + 1));
+  if (isMap(target)) {
+    return target.items.map(pair => [
+      writtenForm(document, pair.key, depth + 1),
+      writtenForm(document, pair.value, depth + 1),
+    ]);
+  }
+  return null;
+}
+
 export function nameFromFilename(filename: string): string {
   const stem = filename.replace(/\.md$/, '');
   return stem.replace(/^\d+-/, '') || stem;

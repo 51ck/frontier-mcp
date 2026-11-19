@@ -244,12 +244,13 @@ describe('the cost of check_tracker', () => {
     expect(schema).toBeCloseTo(170, -1.5);
 
     // The full result on the marked fixtures, which hold no diagnostic: the
-    // contract alone. Measured: 1266 — about three Boards, paid only when called.
+    // contract alone. Measured: 1350 — about three Boards, paid only when called.
+    // The extra keys' rules took it from 1266.
     // It does not depend on the workspace: the legacy fixture, holding no
     // Ticket and nothing diagnosed, returns the same text.
     const full = await frontier.call('check_tracker');
     expect(full).toMatch(/^diagnostics: none, nothing to fix$/m);
-    expect(tokens(full)).toBeCloseTo(1266, -1.5);
+    expect(tokens(full)).toBeCloseTo(1350, -1.5);
     const legacy = await makeLegacyWorkspace({ telegram: 'sobrina-telegram' });
     expect(await (await connectFrontier({ cwd: legacy, env: {} })).call('check_tracker')).toBe(
       full,
@@ -275,5 +276,20 @@ describe('reads', () => {
 
     expect(before.size).toBeGreaterThan(20);
     expect([...after.entries()]).toEqual([...before.entries()]);
+  });
+});
+
+describe('the cost of extra', () => {
+  it('adds one argument to create_tickets and update_ticket, measured on the wire', async () => {
+    const root = await makeMarkedWorkspace({ telegram: 'sobrina-telegram' });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+    const { tools } = await frontier.client.listTools();
+    const entry = (name: string) => tokens(JSON.stringify(tools.find(tool => tool.name === name)));
+
+    // Paid in every session. Measured before extra: create_tickets 460,
+    // update_ticket 957; after: 525 and 1042, +65 and +85. The values are
+    // checked in code, not in the schema, which would add the JSON grammar.
+    expect(entry('create_tickets')).toBeCloseTo(525, -1.5);
+    expect(entry('update_ticket')).toBeCloseTo(1042, -1.5);
   });
 });

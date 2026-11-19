@@ -212,8 +212,42 @@ Design decisions settled and binding until an ADR revises them:
   `unmarked-ticket-like`, for an unmarked `issues/` file whose fence parses as a mapping holding
   the keys `title` and `status`, whatever their values. Other unmarked Markdown is ignored silently: not counted, not diagnosed,
   never written.
-- **A write never reformats what it did not touch.** Frontmatter round-trips through the `yaml`
-  package's document API, not a frontmatter library that re-serializes the whole block. See
+- **A write never reformats what it did not touch.** Frontmatter is parsed with the `yaml`
+  package's document API, not a frontmatter library that re-serializes the whole block, and edited
+  as text: every field write (lifecycle, identity, triage, `blocked_by`, `tags`, `extra`) replaces
+  the span of each entry it names with that entry freshly rendered under its key's own spelling,
+  appends a new one at the end of the fence, and cuts a removed one as `drop_keys` does. Entries are
+  found by the key the reader gives them, so `extra: { "12": … }` replaces a stored `12:`. Every
+  other entry, comment, blank line and line ending stays byte-identical, CRLF included — each
+  line keeps its own ending, and an inserted line takes the ending of the line it follows (the
+  fence's dominant one only when no line precedes it); an `id: +02` and an Edge `[+03]` keep their
+  spelling and still resolve. An entry runs from its key's line — its `?`'s, for an explicit key,
+  a comment on the `?` line allowed — to the end of the line holding its value's last non-blank,
+  non-comment character, never a node range past it; a comment or blank line after it belongs to no entry and is never replaced or cut,
+  even the blank lines a kept-chomped (`|+`, `>+`) scalar counts as its value. A replaced explicit key (`? title`) is rewritten as a plain key; a comment on its `?` line is
+  kept byte-identical as a line of its own just above it. A new
+  entry goes before a closing `...` line. Entries are matched by `readerKey` in `frontmatter.ts`,
+  the `yaml` package's own key conversion, so `null:` and `~:` are the key `""` and `1.0:` is
+  `1`: `extra: { "null": … }` beside a stored `null:` appends a quoted `"null":` and leaves it
+  alone, and `drop_keys: [""]` removes it — the empty string is accepted there
+  alone, never as an `extra` key. A comment, a tick or an answer leaves the fence alone, and a field write leaves the body
+  alone. The result is read back and refused with `FenceNotCleanlyEditable` (or, for a drop,
+  `KeyNotCleanlyDroppable`) unless every entry reads as it did or as the write set it *and*
+  every byte outside the written text is the same raw byte, with no line-ending normalization and
+  no exception for any scalar style, *and* the reader finds every untouched entry as the same
+  text in the same order. So a write that would move a kept-chomped scalar off the end of the
+  fence, or append after one, is refused rather than changing its value. Judged on lines alone, every
+  own-line comment of the old fence must also be in the new one, byte for byte and in order, unless
+  it sat inside a replaced entry with that entry's content below it; a written value ending
+  in newlines that ends the fence carries one more line ending of its own, as part of what it
+  wrote. Then, beside `assertStillATicket` in the driver, the scan's own reader re-reads the
+  result and the write is refused with `FenceNotCleanlyEditable` unless every schema field the
+  write did not set — `id`, name, `title`, `kind`, `type`, `status`, `triage`, the lifecycle
+  fields, Edges and tags — reads exactly as before, a list entry by entry, and Edges a write set
+  read exactly as written; and every Unimported key it did not touch reads as before with every
+  alias followed and each scalar by its source text: a value compare misses a name, which is read
+  by its source spelling, and YAML reads `2` and `02` as one number. The fence
+  is never re-rendered whole (`applyEdit` in `serialize.ts`). See
   [ADR 0003](./docs/adr/0003-frontmatter-round-trips-through-a-yaml-document.md).
 - **Eight tools, permanently.** Every tool schema is context in every session, against a project
   whose whole purpose is token cost. A ninth tool is not a trade-off to weigh; an optional argument
@@ -369,7 +403,7 @@ Source layout:
 | `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout, which it takes as a construction parameter — `frontmatter.ts` splits the fence, `ticket.ts` classifies a file as a Ticket, excluded, an unmarked look-alike or nothing, `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` writes a new batch at the paths its names imply, `schema.ts` is the one definition of the schema's keys, types and values, the marker, the Ticket locations and the layout contract `check_tracker` shows, `write.ts` renames it into place, `watcher.ts` tells the driver another process moved the workspace under it. |
 | `src/workspace.ts` | Workspace resolution — the only module above the driver that reads a *served* repository, and only to locate its root. `.scratch` is a marker only as a directory; `.git` counts as a file too, so a worktree or submodule resolves to itself rather than to the repository enclosing it. |
 | `src/driver-registry.ts` | One driver per resolved workspace, and the `closeAll()` that shuts them. A lookup, not a layer: it hands back the driver itself, so no read or write passes through it. |
-| `src/tools/` | One module per tool: its input schema, its description, and how its result renders. `workspace-line.ts`, `diagnostics.ts` and `tags.ts` are the exceptions — the single renderings of which repository a call served, shared by `list_efforts` and every write, of Diagnostics, shared by the Board, `list_efforts`, `get_tickets` and `update_ticket`, and of tags, whose input rule `create_tickets` and `update_ticket` share. |
+| `src/tools/` | One module per tool: its input schema, its description, and how its result renders. `workspace-line.ts`, `diagnostics.ts`, `tags.ts` and `extra.ts` are the exceptions — the single renderings of which repository a call served, shared by `list_efforts` and every write, of Diagnostics, shared by the Board, `list_efforts`, `get_tickets` and `update_ticket`, of tags, whose input rule `create_tickets` and `update_ticket` share, and of the `extra` input with its reserved-key refusals, likewise shared. |
 | `src/server.ts` | Wires the above into an `McpServer`. |
 | `src/tracker-doc.ts` | Loads the shipped tracker configuration document for the `tracker-doc` MCP resource, from beside `dist/` in the installed package rather than from the working directory. |
 | `src/index.ts` | The package's library surface. Deliberately narrow — below-seam modules are not exported. |
@@ -459,11 +493,13 @@ Rendering rules that are load-bearing, not cosmetic:
   unimported entries, each sliced from the file's own text, whether or not it carries an `id`; the
   whole fence shows only when an entry cannot be cut cleanly (a non-scalar or explicit key).
   Conforming Tickets gain nothing. No ordinary write removes them: a comment and a claim keep the
-  stray keys. Only `update_ticket` `drop_keys` removes one (T103), cutting each named
+  stray keys. A key written through `extra` is an Unimported key like any other: no separate term,
+  section or count. Only `update_ticket` `drop_keys` removes one (T103), cutting each named
   entry out of the fence's text — block scalars, nested maps and sequences whole, a comment on its
-  line with it, an own-line comment above it kept — so a drop alone leaves the rest byte-identical.
-  A schema key, the marker among them (`SchemaKeyNotDroppable`), or an absent key (`NoSuchKey`)
-  fails the whole call. The cut is read back
+  line with it, an own-line comment above or below it and trailing blank lines kept — so a drop alone leaves the rest byte-identical.
+  A schema key, the marker and `id` among them, or an absent key (`NoSuchKey`)
+  fails the whole call; the tool layer refuses a schema key first, naming the Ticket and the
+  argument that sets it, and the driver's `SchemaKeyNotDroppable` stays behind it. The cut is read back
   before it is written, and refused with `KeyNotCleanlyDroppable` unless exactly the other entries
   survive with the values they had — an alias left without its anchor, a flow mapping sharing the
   entry's line, or an alias falling back to an earlier anchor of the same name would land a fence
@@ -491,7 +527,7 @@ Rendering rules that are load-bearing, not cosmetic:
   file included; one per line, by `renderDiagnostic`. `effort` narrows to one Effort and refuses an
   unknown one as `get_board` does. The tracker doc's Ticket frontmatter section carries the contract
   verbatim between `check_tracker contract` markers, pinned by `test/check-tracker.test.ts`; its
-  Diagnostics table is pinned to the contract's codes. A clean result is ~1270 tokens and the tool
+  Diagnostics table is pinned to the contract's codes. A clean result is ~1350 tokens and the tool
   entry 170, against `migrate_effort`'s 181, pinned in `test/read-path-cost.test.ts`.
 - **A Board line never shows tags** — showing and filtering them belongs to `frontier-search`.
   Two tags on each of the 15 lines of the named Board would cost 81 tokens (354 to 435), pinned in
@@ -508,6 +544,10 @@ Write rules, equally load-bearing:
 
 - **Atomic or not at all.** Write a temporary file in the same directory, rename over the target.
   No lock files, ever — a crashed session must never be able to wedge the tracker.
+- **A file that is not valid UTF-8 is never written.** `update_ticket`, `edit_map` and the
+  resolve/drop Map refresh decode the file they edit with a fatal decoder and refuse with
+  `FileNotUtf8`, naming the file: a lenient decode turns an invalid byte into U+FFFD, a byte
+  the write never touched. Reads stay lenient.
 - **A transient Windows `EPERM` retries the filesystem replace, not the write.** Ticket replacement
   keeps the same staged file and revision guard, rechecks the expected revision before each retry,
   and stops after 10, 20, 40, and 80ms delays. A changed target becomes a revision mismatch; every
@@ -523,12 +563,31 @@ Write rules, equally load-bearing:
   before anything is staged or renamed; a file that would be excluded — a blank title, a marker
   aliased to an edited anchor — is `WriteWouldExclude` and nothing is written, nothing of a batch.
   Both tools also refuse a blank `title` at input.
+- **`extra` writes top-level keys, never a key named `extra`.** `create_tickets` (per Ticket)
+  and `update_ticket` take `extra`, an object whose every key is written at the top level of the
+  fence; created ones follow the schema fields in the caller's order, an update appends a new key
+  and replaces an existing one's value whole, with no deep merge, and leaves every key it does not
+  name alone. Every schema key — the contract's `fields`, so `frontier` and `id` too — is reserved
+  from `extra` and from `drop_keys`, and so is `__proto__`, which an object cannot carry as its own
+  key by assignment, so it is refused rather than silently lost. `extra` itself is reserved from
+  `extra` only: a hand-written `extra:` entry is an Unimported key, which `drop_keys` removes. A
+  refusal fails the call whole and writes nothing,
+  no Ticket of a batch included, with a message naming the Ticket or batch entry, the key, and the
+  argument that sets it, or that none does (`src/tools/extra.ts`). A key in both `extra` and
+  `drop_keys` is refused. A value is any JSON value, written by the `yaml` package's `createNode`
+  (block collections, `[]`/`{}` when empty, scalars plain or quoted as needed) and read back as
+  YAML 1.2 core: `-0`, an unpaired surrogate, a blank key and a key holding a control or line
+  separator character are refused at input; the driver re-reads the final text the scan's way and
+  refuses with `ExtraDoesNotReadBack` any value that would come back different, then
+  `assertStillATicket` judges the file. A nested value is never at column 0, so it cannot be read
+  as the marker. A string ending in newlines, written as a kept block scalar, keeps them when it is
+  the fence's last entry. Extra keys never reach Status, Edges, the Frontier,
+  Board order or names. The argument costs 65 tokens on `create_tickets` and 85 on
+  `update_ticket`, pinned in `test/read-path-cost.test.ts`.
 - **Tags are written as given and replaced whole.** `create_tickets` and `update_ticket` `tags`
   refuse a blank or non-string tag at input, and fold, trim and deduplicate nothing. An empty list
-  removes the key; a Ticket given none is written without one. A tags-only update re-renders the
-  fence, so it is byte-identical on untouched lines only where the fence is already in the `yaml`
-  package's rendering — the same limit `frontier-v1.comment-reformats-fence` records for a comment.
-  An entry the package would write plain but that reads back as something else (`-\n---\n-`) is
+  removes the key; a Ticket given none is written without one. A tags-only update rewrites only
+  the `tags` entry. An entry the package would write plain but that reads back as something else (`-\n---\n-`) is
   double-quoted; one that already round-trips keeps its rendering, `blocked_by` included. Replacing
   or removing a value that holds an anchor another field aliases is refused with `AliasedValue`,
   naming the key and the anchor, and writes nothing: copying the value into the alias was tried and
@@ -631,8 +690,14 @@ in the graph:
 
 - **Nothing is injected into content an agent wrote.** A comment is stored byte-for-byte, including
   `/triage`'s mandatory disclaimer, which is the skill's own to write.
+- **A comment, a tick or an answer leaves every fence byte alone, CRLF included**, pinned in
+  `test/fence-edit.test.ts`. The one exception is at the body's edges: the blank lines between
+  the closing fence and the first body line become exactly one, and the body's trailing blank
+  lines become one line ending. A body written uniformly in CRLF is edited as LF and written back
+  in CRLF, so a tick finds its line and an append keeps every existing ending; a body mixing both
+  is edited as it stands. A field write leaves the body whole.
 - **Ticking a criterion changes only its checkbox.** Every other line of the body stays
-  byte-identical, and the criterion keeps its own indentation and wording. Wrapped criteria
+  byte-identical, its edges aside, and the criterion keeps its own indentation and wording. Wrapped criteria
   match both as `get_tickets` returns them and re-joined onto one line — comparison collapses
   whitespace, so house-style continuations are not a silent miss.
 - **Naming a criterion that does not exist fails**, rather than writing nothing and reporting success.

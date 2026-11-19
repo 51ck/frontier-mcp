@@ -1,4 +1,4 @@
-import { parse } from 'yaml';
+import { Document, isScalar, Pair, parse, YAMLMap } from 'yaml';
 
 /**
  * The `---` fence split, which is all a frontmatter library would have given us.
@@ -28,6 +28,20 @@ export function fenceText(contents: string): string | undefined {
   return FENCE.exec(contents)?.[1];
 }
 
+/**
+ * Where the fence's raw YAML starts and ends in `contents`, and where the body
+ * starts, so a write can replace the YAML alone and keep both delimiter lines
+ * and their line endings as they were.
+ */
+export function fenceBounds(
+  contents: string,
+): { readonly rawStart: number; readonly rawEnd: number; readonly bodyStart: number } | undefined {
+  const match = FENCE.exec(contents);
+  if (match?.[1] === undefined) return undefined;
+  const rawStart = /^\uFEFF?---\r?\n/.exec(contents)?.[0].length ?? 0;
+  return { rawStart, rawEnd: rawStart + match[1].length, bodyStart: match[0].length };
+}
+
 export function splitFrontmatter(contents: string): Split {
   const match = FENCE.exec(contents);
   if (match?.[1] === undefined) {
@@ -52,6 +66,23 @@ function parseFields(yaml: string): Record<string, unknown> | undefined {
     const parsed: unknown = parse(yaml);
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
     return parsed as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The key the reader gives a top-level entry: the `yaml` package's own
+ * conversion of that one key, so `null:` and `~:` are `""`, `1.0:` is `"1"`,
+ * and a write or drop that finds an entry by key cannot disagree with the read.
+ * Undefined for a key that is not a scalar.
+ */
+export function readerKey(document: Document, pair: Pair): string | undefined {
+  if (!isScalar(pair.key)) return undefined;
+  const probe = new YAMLMap();
+  probe.items.push(new Pair(pair.key, null));
+  try {
+    return Object.keys(probe.toJS(document) as object)[0];
   } catch {
     return undefined;
   }

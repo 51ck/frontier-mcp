@@ -1,6 +1,6 @@
 # Issue tracker — FrontierMCP and file fallback
 
-Tracker doc revision 12. To check a vendored copy, compare this number with the one in the
+Tracker doc revision 13. To check a vendored copy, compare this number with the one in the
 `frontier://tracker-doc` resource of the server you run; a lower number, or no revision line, is
 stale.
 
@@ -51,8 +51,8 @@ Eight tools permanently. Optional arguments extend an existing tool; there is no
 | `list_efforts` | Orient — list Efforts with Ticket counts, header doc kinds, and Frontier size; `excluded=N` and `unmarked=N` when an Effort holds files that are not Tickets (see [Diagnostics](#diagnostics)). A repository with no `.scratch/` at all gets `no tracker here`, the marker that located the root, and a `start one` line to copy; an empty `.scratch/` still reads `(no efforts)`. |
 | `get_board` | See the whole Effort cheaply — Destination, one summary line per Ticket, Frontier marked. Never returns bodies. |
 | `get_tickets` | Fetch full bodies for specific Tickets, by name or id, after the Board tells you which matter. Given the name of an excluded file, returns its diagnostics. |
-| `create_tickets` | Publish a breakdown in one call. You give each Ticket its `name`, and optionally `tags`; Edges may name a sibling from the same call. All are written or none. |
-| `update_ticket` | Claim, resolve, drop, reopen, release, set title/kind/type, set triage, replace Edges or tags, comment, tick acceptance criteria, or `drop_keys` to delete Unimported frontmatter keys. One Ticket per call. |
+| `create_tickets` | Publish a breakdown in one call. You give each Ticket its `name`, and optionally `tags` and `extra` keys; Edges may name a sibling from the same call. All are written or none. |
+| `update_ticket` | Claim, resolve, drop, reopen, release, set title/kind/type, set triage, replace Edges or tags, comment, tick acceptance criteria, set `extra` keys, or `drop_keys` to delete Unimported frontmatter keys. One Ticket per call. |
 | `edit_map` | Edit Map sections — Destination, Notes, fog, Out of scope. Decisions-so-far regenerates from resolved Tickets. |
 | `spec` | Read or write a Spec as a whole document. |
 | `check_tracker` | Learn how to write a Ticket and what is wrong with the files there: the frontmatter schema, the layout contract and its version, a valid example, and every diagnostic itemized with file, key, expected, found and fix. `effort` narrows the diagnostics to one Effort. Reads only; fix files by hand. |
@@ -120,6 +120,21 @@ When a Ticket's frontmatter carries keys outside the schema, the Board counts it
 appends those entries as a fenced `yaml` block under `## Unimported frontmatter`. No ordinary write
 removes them: pass `update_ticket` `drop_keys` with the names to delete. A schema key or a key the
 fence does not carry fails the call and writes nothing; the rest of the fence stays byte-identical.
+
+To write such keys on purpose, pass `extra` — per Ticket on `create_tickets`, or on `update_ticket`.
+Each key of the object is written at the top level of the frontmatter, never under a key named
+`extra`, to any JSON value; an update replaces a named key's value whole, with no merge, and leaves
+the rest alone. They are Unimported keys like any other: shown, counted and dropped the same way,
+and they never affect Status, Edges or the Frontier. Every schema key, `frontier` and `id` included,
+is reserved: naming one in `extra` or `drop_keys` fails the whole call — no Ticket of a batch is
+created — and the error names the argument that sets it, or says none does. `__proto__` is refused
+in both, and `extra` as a key of `extra`; a hand-written `extra:` entry is dropped like any other.
+A key must be non-blank, one line, with no control character. `-0`, an unpaired surrogate, and any
+value that would not read back from YAML as given are refused. A key YAML reads the same as a
+stored one (`"12"` against `12:`) replaces that entry.
+
+Every write edits only the frontmatter entries it names; every other line, comment and line ending
+stays byte-identical.
 A Board counts `resolved` Tickets with no `answer_gist`, `dropped` with no `dropped_reason` and
 `claimed` with no `claimed_by` or `claimed_at` in its warnings, so set the field with the Status.
 
@@ -227,7 +242,7 @@ schema: frontmatter between --- lines; keys any order, the marker first by conve
   claimed_at  optional  text — a scalar as YAML reads it (02 is 2); null or blank is unset; convention only: an ISO timestamp, set with claimed_by
   answer_gist  optional  text — a scalar as YAML reads it (02 is 2); null or blank is unset; convention only: one line, set with status: resolved
   dropped_reason  optional  text — a scalar as YAML reads it (02 is 2); null or blank is unset; convention only: set with status: dropped
-  other keys: any other top-level key is Unimported, not malformed: kept, shown by get_tickets, removed only by update_ticket drop_keys
+  other keys: any other top-level key is Unimported, not malformed: shown by get_tickets and left byte-identical by every write that does not name it; create_tickets or update_ticket extra sets one at the top level to a JSON value, replacing a stored value whole, never under a key named extra; update_ticket drop_keys removes one; a key is non-blank, one line, no control character, not __proto__; no schema key above, frontier and id included, is set or removed either way
 layout v1:
   .scratch/  storage root; holds Effort directories; may be a symbolic link
   .scratch/<effort>/  an Effort once it holds map.md, spec.md or issues/; the slug is one directory name: not empty, not starting ., no / or \, no control character, and a directory whose name breaks that is never one

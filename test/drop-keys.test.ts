@@ -223,11 +223,6 @@ describe('drop_keys refuses a cut that would damage the fence', () => {
       'id: T1\ntitle: One\nx: &s open\nz: &s resolved\nstatus: *s',
       'z',
     ],
-    [
-      'the entry after a keep-chomped scalar',
-      'id: T1\ntitle: One\nstatus: open\nlit: |+\n  a\n\nz: 1',
-      'z',
-    ],
   ])('refuses %s and writes nothing', async (_, fence, key) => {
     const { frontier, read } = await setup(file(fence));
     const before = await read();

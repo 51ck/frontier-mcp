@@ -5,6 +5,14 @@ import { STATUSES, TRIAGE_ROLES } from '../domain.ts';
 import type { TriageRole } from '../domain.ts';
 import { cycleThrough, renderCycle, type EdgesOf } from '../edges.ts';
 import { fullNameOf, indexNames } from '../names.ts';
+import {
+  extraInput,
+  extraProblems,
+  PROTO,
+  PROTO_REFUSED,
+  reservedKeyMessage,
+  UPDATE_ARGUMENTS,
+} from './extra.ts';
 import { tagsInput } from './tags.ts';
 
 export const updateTicketInputSchema = z.object({
@@ -69,13 +77,18 @@ export const updateTicketInputSchema = z.object({
         'anything is written — one unmatched name fails the whole call and leaves the file untouched.',
     ),
   drop_keys: z
-    .array(z.string().min(1))
+    .array(z.string())
     .min(1)
     .optional()
     .describe(
       'Unimported frontmatter keys to delete, as get_tickets lists them. A schema key or an ' +
         'absent one fails the whole call; nothing else in the fence changes.',
     ),
+  extra: extraInput.describe(
+    'Keys outside the schema to set, each written at the top level of the frontmatter to its ' +
+      'JSON value, replacing a stored value whole. Keys not named are untouched. A schema key ' +
+      'fails the whole call. No effect on what is takeable.',
+  ),
   title: z
     .string()
     .refine(value => value.trim() !== '', 'title must not be blank')
@@ -94,7 +107,7 @@ export const updateTicketDescription =
   'Change one Ticket. Lifecycle: claim, resolve with a one-line gist, drop with a reason, reopen ' +
   'with a reason, or release a claim — at most one of those per call. Graph: replace the Edges, ' +
   'refused if they close a cycle. Identity: title, kind, and type. Annotations: triage role, tags, a ' +
-  'comment, ticking acceptance criteria, dropping Unimported keys; these touch no part of the graph. Any of the four groups ' +
+  'comment, ticking acceptance criteria, setting extra keys or dropping them; these touch no part of the graph. Any of the four groups ' +
   'may accompany the others or stand alone.';
 
 export interface UpdateRequest {
@@ -110,6 +123,7 @@ export interface UpdateRequest {
   readonly comment?: string | undefined;
   readonly tick?: readonly string[] | undefined;
   readonly drop_keys?: readonly string[] | undefined;
+  readonly extra?: Readonly<Record<string, unknown>> | undefined;
   readonly title?: string | undefined;
   readonly kind?: Kind | undefined;
   readonly type?: string | undefined;
@@ -128,7 +142,9 @@ export function editFor(
   all: readonly TicketSummary[],
   request: UpdateRequest,
   now: string,
+  reserved: ReadonlySet<string>,
 ): TicketEdit {
+  refuseReserved(ticket, request, reserved);
   // Identity and annotations are not graph operations. They carry no lifecycle
   // meaning, so they ride along with a transition or stand on their own. An Edge
   // change is a graph operation and rides along the same way, having been
@@ -140,6 +156,9 @@ export function editFor(
     ...(request.comment === undefined ? {} : { comment: request.comment }),
     ...(request.tick === undefined ? {} : { tick: request.tick }),
     ...(request.drop_keys === undefined ? {} : { dropKeys: request.drop_keys }),
+    ...(request.extra === undefined || Object.keys(request.extra).length === 0
+      ? {}
+      : { extra: request.extra }),
     ...(request.blocked_by === undefined ? {} : { blockedBy: edgesFor(ticket, all, request) }),
   };
 
@@ -168,7 +187,7 @@ export function editFor(
     if (Object.keys(annotations).length === 0) {
       throw new Error(
         'Nothing to do: pass a lifecycle change, or title, kind, type, blocked_by, triage, tags, ' +
-          'comment, tick, or drop_keys.',
+          'comment, tick, drop_keys, or extra.',
       );
     }
     return annotations;
@@ -215,6 +234,35 @@ export function editFor(
   }
 
   throw new Error('Unreachable: an action was counted but none matched.');
+}
+
+/**
+ * A schema key, the marker and `id` among them, is reachable neither through
+ * `extra` nor through `drop_keys`; the whole call is refused before any edit
+ * is built, naming the argument that does set the field. A key both set and
+ * dropped in one call is refused too: the call does not say which it means.
+ */
+function refuseReserved(
+  ticket: TicketSummary,
+  request: UpdateRequest,
+  reserved: ReadonlySet<string>,
+): void {
+  const subject = fullNameOf(ticket);
+  for (const key of request.drop_keys ?? []) {
+    if (key === PROTO) throw new Error(`${subject}: ${PROTO_REFUSED}`);
+    if (reserved.has(key)) {
+      throw new Error(reservedKeyMessage(subject, 'drop_keys', key, UPDATE_ARGUMENTS));
+    }
+  }
+  if (request.extra === undefined) return;
+  const problem = extraProblems(subject, request.extra, reserved, UPDATE_ARGUMENTS);
+  if (problem !== undefined) throw new Error(problem);
+  const both = (request.drop_keys ?? []).find(key => Object.hasOwn(request.extra ?? {}, key));
+  if (both !== undefined) {
+    throw new Error(
+      `${subject}: ${both} is in both extra and drop_keys; pass it in one. Nothing was written.`,
+    );
+  }
 }
 
 function identityFor(ticket: TicketSummary, request: UpdateRequest): TicketEdit {

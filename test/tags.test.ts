@@ -114,9 +114,8 @@ describe('tags through update_ticket', () => {
   });
 
   it('changes no other frontmatter line', async () => {
-    // Written as the yaml package renders, so the pre-existing re-render
-    // defect (frontier-v1.comment-reformats-fence: CRLF, inline-comment
-    // spacing, `[a,b]` padding) cannot show here.
+    // Not as the yaml package would render it: the fence is edited entry by
+    // entry, so `[two,  three]` and the comment's spacing survive.
     const before = [
       'frontier: ticket',
       'title: One',
@@ -124,8 +123,8 @@ describe('tags through update_ticket', () => {
       'status: open',
       'tags:',
       '  - old',
-      'blocked_by: [two]',
-      'owner: someone # note',
+      'blocked_by: [two,  two]',
+      'owner: someone    # note',
       'kind: build',
     ];
     const { frontier, read } = await workspace({

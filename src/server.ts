@@ -118,6 +118,11 @@ export interface FrontierMCP {
 }
 
 /** Injectable so a test can pin the moment a claim was taken. */
+/** Every schema key, reserved from `extra` and `drop_keys`: the contract's own list, so a new field is reserved with no change here. */
+function reservedKeys(driver: StorageDriver): ReadonlySet<string> {
+  return new Set(driver.contract().fields.map(field => field.key));
+}
+
 function now(): string {
   return new Date().toISOString();
 }
@@ -257,7 +262,12 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       // Every name and reference is settled before anything is written, so a
       // refusal — a taken name, a cycle — leaves the workspace exactly as it
       // was. The driver runs the same rules again on a fresh read.
-      const { drafts, settle } = planBatch(tickets, await driver.listTickets(), effort);
+      const { drafts, settle } = planBatch(
+        tickets,
+        await driver.listTickets(),
+        effort,
+        tickets.some(ticket => ticket.extra !== undefined) ? reservedKeys(driver) : new Set(),
+      );
       const created = await driver.createTickets(effort, drafts, {
         createEffort: create === true,
         settle,
@@ -302,6 +312,7 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       comment,
       tick,
       drop_keys,
+      extra,
       title,
       kind,
       type,
@@ -331,10 +342,13 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
         comment,
         tick,
         drop_keys,
+        extra,
         title,
         kind,
         type,
       };
+      const reserved =
+        extra === undefined && drop_keys === undefined ? new Set<string>() : reservedKeys(driver);
       const find = (from: readonly TicketSummary[]): readonly [TicketSummary, number, string] => {
         const names = indexNames(from);
         const claimants = names.input(id);
@@ -355,13 +369,14 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       const settle =
         blocked_by === undefined
           ? undefined
-          : (fresh: readonly TicketSummary[]) => editFor(find(fresh)[0], fresh, request, at);
+          : (fresh: readonly TicketSummary[]) =>
+              editFor(find(fresh)[0], fresh, request, at, reserved);
 
       let written: TicketWriteResult;
       try {
         written = await driver.updateTicket(
           address,
-          editFor(ticket, tickets, request, at),
+          editFor(ticket, tickets, request, at, reserved),
           ticket.revision,
           settle,
         );
@@ -374,7 +389,7 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
         // retried — a mismatch may equally be somebody's hand edit, and
         // overwriting that is exactly what the check exists to prevent.
         const fresh = await driver.listTickets();
-        editFor(find(fresh)[0], fresh, request, now());
+        editFor(find(fresh)[0], fresh, request, now(), reserved);
         throw error;
       }
 

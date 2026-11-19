@@ -1,6 +1,7 @@
 import { lstat, mkdir, readdir, readFile, stat } from 'node:fs/promises';
 import { lstatSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 
 import { isMap, parseDocument } from 'yaml';
 
@@ -37,6 +38,8 @@ import {
   SymlinkedHeaderDoc,
   TicketStorageUnusable,
   WriteWouldExclude,
+  FenceNotCleanlyEditable,
+  FileNotUtf8,
 } from '../driver.ts';
 import { createTicketFiles } from './create.ts';
 import {
@@ -72,6 +75,7 @@ import {
   type Problem,
   ticketBody,
   unimportedFrontmatter,
+  unimportedValues,
 } from './ticket.ts';
 import { watchStorage, type StorageWatcher } from './watcher.ts';
 
@@ -452,9 +456,10 @@ async function write(
   if ((await currentRevision(path)) !== expectedRevision) throw new RevisionMismatch(handle);
 
   const edit = settled === undefined ? requested : await settled();
-  const contents = await readFile(path, 'utf8');
+  const contents = await readUtf8ForWrite(path, `${effort}/${ISSUES_DIR}/${filename}`);
   const updated = applyEdit(contents, edit, defaultsFor(ticket));
   assertStillATicket(handle, effort, filename, updated);
+  assertIdentityKept(effort, filename, contents, updated, edit);
 
   try {
     await withGuard(path, expectedRevision, async () => {
@@ -497,6 +502,87 @@ async function write(
   }
 
   return { ticket: written, warnings };
+}
+
+/** A file's text for a write that edits it: refused, never repaired, when it is not UTF-8. */
+async function readUtf8ForWrite(path: string, file: string): Promise<string> {
+  const bytes = await readFile(path);
+  try {
+    // ignoreBOM keeps a leading BOM in the text, as the lenient read does.
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    throw new FileNotUtf8(file);
+  }
+}
+
+/**
+ * Refuse a write after which the scan's own reader reads any field the write
+ * did not set differently from before: the name, every schema field — a list
+ * entry by entry — and every Unimported key's value as written. A set field
+ * must read as set: Edges exactly those written. A value compare alone misses
+ * this: names are read by their source spelling, so a drop that leaves
+ * `tags: [*a]` falling back to an earlier `&a 2` would turn an `02` into `2`.
+ */
+function assertIdentityKept(
+  effort: string,
+  filename: string,
+  before: string,
+  after: string,
+  edit: TicketEdit,
+): void {
+  const was = classifyTicketFile(effort, { filename, contents: before }, '');
+  const now = classifyTicketFile(effort, { filename, contents: after }, '');
+  if (was.kind !== 'ticket' || now.kind !== 'ticket') return;
+  const set: Partial<Record<keyof TicketSummary, unknown>> = {
+    title: edit.title,
+    kind: edit.kind,
+    type: edit.type,
+    status: edit.status,
+    triage: edit.triage,
+    answerGist: edit.answerGist,
+    droppedReason: edit.droppedReason,
+    claimedBy: edit.claimedBy,
+    claimedAt: edit.claimedAt,
+    tags: edit.tags,
+  };
+  const fields = [
+    'id',
+    'name',
+    'title',
+    'kind',
+    'type',
+    'status',
+    'triage',
+    'answerGist',
+    'droppedReason',
+    'claimedBy',
+    'claimedAt',
+    'tags',
+  ] as const;
+  const changed: string[] = fields.filter(
+    field => set[field] === undefined && !sameValue(was.ticket[field], now.ticket[field]),
+  );
+  if (!sameValue(now.ticket.blockedBy, edit.blockedBy ?? was.ticket.blockedBy)) {
+    changed.push('blocked_by');
+  }
+  const wasExtra = unimportedValues(before);
+  const nowExtra = unimportedValues(after);
+  const touched = new Set([...Object.keys(edit.extra ?? {}), ...(edit.dropKeys ?? [])]);
+  for (const key of Object.keys(wasExtra)) {
+    if (touched.has(key)) continue;
+    if (!Object.hasOwn(nowExtra, key) || !isDeepStrictEqual(wasExtra[key], nowExtra[key])) {
+      changed.push(key);
+    }
+  }
+  if (changed.length > 0) throw new FenceNotCleanlyEditable(changed);
+}
+
+/** Two read values alike: a list entry by entry, never joined into one string. */
+function sameValue(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((entry, index) => entry === b[index]);
+  }
+  return a === b;
 }
 
 /**
@@ -572,7 +658,7 @@ async function saveMap(
     throw new RevisionMismatch(handle);
   }
 
-  const contents = await readFile(path, 'utf8');
+  const contents = await readUtf8ForWrite(path, `${effort}/${MAP_FILE}`);
   const entries = await readTicketFiles(dir, effort);
   const updated = applyMapEdit(
     contents,
@@ -615,7 +701,7 @@ async function refreshMapDerivedOnce(
   const revision = await currentRevision(path);
   if (revision === undefined) return;
 
-  const contents = await readFile(path, 'utf8');
+  const contents = await readUtf8ForWrite(path, `${effort}/${MAP_FILE}`);
   const entries = await readTicketFiles(await realEffortDir(storage, effort), effort);
   const updated = applyMapEdit(
     contents,

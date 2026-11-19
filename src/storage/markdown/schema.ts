@@ -226,7 +226,7 @@ export function trackerContract(storage: string): TrackerContract {
   return {
     fields: FIELDS,
     unimported:
-      'any other top-level key is Unimported, not malformed: kept, shown by get_tickets, removed only by update_ticket drop_keys',
+      'any other top-level key is Unimported, not malformed: shown by get_tickets and left byte-identical by every write that does not name it; create_tickets or update_ticket extra sets one at the top level to a JSON value, replacing a stored value whole, never under a key named extra; update_ticket drop_keys removes one; a key is non-blank, one line, no control character, not __proto__; no schema key above, frontier and id included, is set or removed either way',
     layoutVersion: LAYOUT_VERSION,
     paths,
     unsupported: (Object.keys(UNSUPPORTED) as DiagnosticCode[]).map(code => ({

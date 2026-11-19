@@ -5,6 +5,7 @@ import { TRIAGE_ROLES } from '../domain.ts';
 import { cycleThrough, renderCycle } from '../edges.ts';
 import { fullNameOf, indexNames, newNameProblem, type Names } from '../names.ts';
 import { renderEdge } from './get-board.ts';
+import { CREATE_ARGUMENTS, extraInput, extraProblems } from './extra.ts';
 import { tagsInput } from './tags.ts';
 
 export const createTicketsInputSchema = z.object({
@@ -41,6 +42,10 @@ export const createTicketsInputSchema = z.object({
             'Edges: a name from this call or this Effort, <effort>.<name>, or an existing id.',
           ),
         tags: tagsInput.describe('Tags, kept exactly as given. No effect on what is takeable.'),
+        extra: extraInput.describe(
+          'Keys outside the schema, each written at the top level of the frontmatter to its ' +
+            'JSON value. A schema key fails the whole call. No effect on what is takeable.',
+        ),
         body: z.string().optional().describe('The prose, written verbatim.'),
       }),
     )
@@ -61,6 +66,7 @@ export interface DraftRequest {
   readonly triage?: TriageRole | undefined;
   readonly blocked_by?: readonly string[] | undefined;
   readonly tags?: readonly string[] | undefined;
+  readonly extra?: Readonly<Record<string, unknown>> | undefined;
   readonly body?: string | undefined;
 }
 
@@ -87,7 +93,14 @@ export function planBatch(
   requests: readonly DraftRequest[],
   existing: readonly TicketSummary[],
   effort: string,
+  reserved: ReadonlySet<string>,
 ): PlannedBatch {
+  requests.forEach((request, index) => {
+    if (request.extra === undefined) return;
+    const subject = `Ticket ${String(index + 1)} of this call, name "${request.name}"`;
+    const problem = extraProblems(subject, request.extra, reserved, CREATE_ARGUMENTS);
+    if (problem !== undefined) throw new Error(`${problem} No Ticket of the batch was created.`);
+  });
   const requested = requests.map(request => toDraft(request));
   const settle = (tickets: readonly TicketSummary[]): readonly TicketDraft[] => {
     checkNames(requested, tickets, effort);
@@ -135,6 +148,7 @@ function toDraft(request: DraftRequest): TicketDraft {
     triage: request.triage,
     blockedBy: request.blocked_by ?? [],
     tags: request.tags ?? [],
+    extra: request.extra ?? {},
     body: request.body,
   };
 }
