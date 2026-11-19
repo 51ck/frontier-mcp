@@ -2,6 +2,25 @@
 
 Package release notes for `frontier-mcp` (npm). Not part of the `.scratch/` issue tracker.
 
+## [3.0.0](https://github.com/51ck/frontier-mcp/compare/v2.0.0...v3.0.0) (2026-11-19)
+
+### ⚠ BREAKING CHANGES
+
+* **ticket:** existing Tickets stop being Tickets until
+  `frontier: ticket` is added to each by hand or by an agent.
+* **tools:** migrate_effort is removed.
+
+### Features
+
+* **ticket:** a file is a Ticket only when it carries frontier: ticket ([96bdd41](https://github.com/51ck/frontier-mcp/commit/96bdd41cf8d207b7bd44d0ef601755f36c9ba30e))
+* **ticket:** a Ticket can carry tags ([2c2994a](https://github.com/51ck/frontier-mcp/commit/2c2994a375d0ad5653254e0196e3c7d9e8a37957))
+* **ticket:** extra metadata, and writes that edit the fence as text ([9723e69](https://github.com/51ck/frontier-mcp/commit/9723e6945b4bceb5b643f25de64f2431fbc42f80))
+* **tools:** check_tracker replaces migrate_effort ([72a179a](https://github.com/51ck/frontier-mcp/commit/72a179a8060fd0ae868eb85405511cb421db82e9))
+
+### Bug Fixes
+
+* **scripts:** runtime and setup checks know check_tracker ([bc5b6ee](https://github.com/51ck/frontier-mcp/commit/bc5b6ee3c082450d891699362100970dd76d2ce3))
+
 ## [2.0.0](https://github.com/51ck/frontier-mcp/compare/v1.0.1...v2.0.0) (2026-11-18)
 
 ### ⚠ BREAKING CHANGES
