@@ -9,6 +9,7 @@ import type {
   TicketDraft,
   TicketEdit,
   TicketSummary,
+  TrackerContract,
 } from '../domain.ts';
 
 export type { MapDocument, MapEdit, SpecDocument, TicketDraft, TicketEdit };
@@ -61,6 +62,12 @@ export interface HeaderDocOptions {
  * there is no such layer. Callers see none of it: every method answers as
  * though it had just read.
  */
+export interface DirectoryDiagnostics {
+  readonly slug: string;
+  readonly effort: boolean;
+  readonly diagnostics: readonly Diagnostic[];
+}
+
 export interface StorageDriver {
   /**
    * Every Effort in the workspace, ordered by slug. A workspace holding no
@@ -106,6 +113,20 @@ export interface StorageDriver {
    * answers to maps to an empty list. Never writes.
    */
   diagnosticsFor(handles: readonly string[]): Promise<ReadonlyMap<string, readonly Diagnostic[]>>;
+
+  /**
+   * What a Ticket must be and where it must live, built from the definitions
+   * this driver's validation and scan read. Never touches the workspace.
+   */
+  contract(): TrackerContract;
+
+  /**
+   * Every Diagnostic in the workspace from one fresh read, grouped by the
+   * directory under the storage root it was found in. `effort` is false for a
+   * directory scanned only because it holds a marked file outside `issues/`,
+   * which is no Effort. Never writes.
+   */
+  trackerDiagnostics(): Promise<readonly DirectoryDiagnostics[]>;
 
   /**
    * The named Tickets with their bodies, each addressed as `Names.input`

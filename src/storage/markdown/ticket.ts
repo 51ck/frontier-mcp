@@ -1,14 +1,14 @@
 import { type Document, isAlias, isMap, isScalar, isSeq, parseDocument } from 'yaml';
 import type {
   Diagnostic,
-  Kind,
+  FieldDefinition,
   Status,
   TicketSummary,
   UnimportedFrontmatter,
 } from '../../domain.ts';
-import { STATUSES, TRIAGE_ROLES } from '../../domain.ts';
+import { STATUSES } from '../../domain.ts';
 import { fenceText, splitFrontmatter } from './frontmatter.ts';
-import { MARKER_KEY, MARKER_VALUE, SCHEMA_KEYS } from './schema.ts';
+import { FIELDS, MARKER_KEY, SCHEMA_KEYS } from './schema.ts';
 
 /**
  * `<NN>-<rest>.md` — `NN` is a hint for Board order and nothing else. Digits
@@ -45,7 +45,7 @@ export type Problem = Omit<Diagnostic, 'file' | 'effect'>;
  * parsed, so a marked file whose YAML is broken is diagnosed rather than read
  * as unmarked. Only column 0 is top level; block scalars are always indented.
  */
-const MARKER_LINE = /^(?:frontier|'frontier'|"frontier")[ \t]*:/m;
+const MARKER_LINE = new RegExp(`^(?:${MARKER_KEY}|'${MARKER_KEY}'|"${MARKER_KEY}")[ \\t]*:`, 'm');
 
 /** Whether a file's fence carries the marker key at top level, whatever its value. */
 export function isMarked(contents: string): boolean {
@@ -145,83 +145,90 @@ export function diagnosedNames(filename: string, contents: string): string[] {
   }
 }
 
-/** Schema fields read as one line of text; a mapping or list there cannot be. */
-const TEXT_KEYS = ['id', 'type', 'answer_gist', 'dropped_reason', 'claimed_by', 'claimed_at'];
+/** A field's values as a Diagnostic's `expected` shows them. */
+function listed(field: FieldDefinition): string {
+  return (field.values ?? []).join(' | ');
+}
 
 /**
- * The faults that exclude a marked file whose fence parses. Every other field
- * keeps its default when missing — no `kind` reads as `build` — and a
- * lifecycle gap such as `resolved` without `answer_gist` is a Board warning,
- * not a fault.
+ * The faults that exclude a marked file whose fence parses, one check per
+ * {@link FIELDS} entry by its type. Every other field keeps its default when
+ * missing — no `kind` reads as `build` — and a lifecycle gap such as
+ * `resolved` without `answer_gist` is a Board warning, not a fault.
  */
 function validate(fields: Record<string, unknown>): Problem[] {
   const problems: Problem[] = [];
 
-  if (fields[MARKER_KEY] !== MARKER_VALUE) {
-    problems.push({
-      code: 'invalid-value',
-      key: MARKER_KEY,
-      expected: MARKER_VALUE,
-      found: found(fields[MARKER_KEY]),
-      fix: `set ${MARKER_KEY}: ${MARKER_VALUE}`,
-    });
-  }
-  for (const key of ['title', 'status', ...TEXT_KEYS]) {
-    const value = fields[key];
-    if (value !== undefined && value !== null && !isPlain(value)) {
+  for (const field of FIELDS.filter(entry => entry.type === 'marker')) {
+    const value = field.values?.[0];
+    if (fields[field.key] !== value) {
       problems.push({
         code: 'invalid-value',
-        key,
-        expected: key === 'status' ? STATUSES.join(' | ') : 'text',
-        found: found(value),
-        fix: `write ${key} as plain text`,
-      });
-    } else if ((key === 'title' || key === 'status') && text(value) === undefined) {
-      problems.push({
-        code: 'missing-key',
-        key,
-        expected: key === 'status' ? STATUSES.join(' | ') : 'non-empty text',
-        fix: `add ${key} to the frontmatter`,
+        key: field.key,
+        expected: listed(field),
+        found: found(fields[field.key]),
+        fix: `set ${field.key}: ${String(value)}`,
       });
     }
   }
-  // `status` absent or blank was reported above. `kind` and `triage` absent or
-  // null default; written but blank, they are a value outside the enum.
-  const oneOf = (key: string, allowed: readonly string[]) => {
-    const value = fields[key];
-    if (value === undefined || value === null) return;
-    if (key === 'status' && (text(value) === undefined || !isPlain(value))) return;
-    if (typeof value === 'string' && allowed.includes(value.trim())) return;
+  // Scalars first, the required before the rest, so the key that keeps a file
+  // off the Board is named first.
+  const scalars = FIELDS.filter(
+    field => field.type === 'text' || (field.type === 'enum' && field.required),
+  ).toSorted((a, b) => Number(b.required) - Number(a.required));
+  for (const field of scalars) {
+    const value = fields[field.key];
+    if (value !== undefined && value !== null && !isPlain(value)) {
+      problems.push({
+        code: 'invalid-value',
+        key: field.key,
+        expected: field.type === 'enum' ? listed(field) : 'text',
+        found: found(value),
+        fix: `write ${field.key} as plain text`,
+      });
+    } else if (field.required && text(value) === undefined) {
+      problems.push({
+        code: 'missing-key',
+        key: field.key,
+        expected: field.type === 'enum' ? listed(field) : 'non-empty text',
+        fix: `add ${field.key} to the frontmatter`,
+      });
+    }
+  }
+  // A required enum absent, blank or not a scalar was reported above. An
+  // optional one absent or null defaults; written but blank, it is a value
+  // outside the enum.
+  for (const field of FIELDS.filter(entry => entry.type === 'enum')) {
+    const value = fields[field.key];
+    const allowed = field.values ?? [];
+    if (value === undefined || value === null) continue;
+    if (field.required && (text(value) === undefined || !isPlain(value))) continue;
+    if (typeof value === 'string' && allowed.includes(value.trim())) continue;
     problems.push({
       code: 'invalid-value',
-      key,
-      expected: allowed.join(' | '),
+      key: field.key,
+      expected: listed(field),
       found: found(value),
-      fix: `set ${key} to one of ${allowed.join(', ')}`,
+      fix: `set ${field.key} to one of ${allowed.join(', ')}`,
     });
-  };
-  oneOf('status', STATUSES);
-  oneOf('kind', KINDS);
-  oneOf('triage', TRIAGE_ROLES);
-
-  const edges = fields['blocked_by'];
-  if (
-    edges !== undefined &&
-    edges !== null &&
-    (!Array.isArray(edges) || edges.some(entry => entry !== null && typeof entry === 'object'))
-  ) {
+  }
+  for (const field of FIELDS.filter(entry => entry.type === 'list')) {
+    const value = fields[field.key];
+    if (value === undefined || value === null) continue;
+    if (Array.isArray(value) && !value.some(entry => entry !== null && typeof entry === 'object')) {
+      continue;
+    }
+    const example = Array.isArray(field.example) ? `[${field.example.join(', ')}], ` : '';
     problems.push({
       code: 'invalid-value',
-      key: 'blocked_by',
-      expected: 'a list of Ticket names',
-      found: found(edges),
-      fix: 'write blocked_by as a list, e.g. [T3, token-cache], or []',
+      key: field.key,
+      expected: `a list of ${field.items ?? 'scalars'}`,
+      found: found(value),
+      fix: `write ${field.key} as a list, e.g. ${example}or []`,
     });
   }
   return problems;
 }
-
-const KINDS: readonly Kind[] = ['build', 'decision'];
 
 /** Long enough to recognize a value, short enough that a Diagnostic stays one line. */
 const FOUND_LIMIT = 80;

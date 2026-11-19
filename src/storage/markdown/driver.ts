@@ -39,6 +39,14 @@ import {
   WriteWouldExclude,
 } from '../driver.ts';
 import { createTicketFiles } from './create.ts';
+import {
+  diagnostic,
+  isEffortSlug,
+  ISSUES_DIR,
+  MAP_FILE,
+  SPEC_FILE,
+  trackerContract,
+} from './schema.ts';
 import { applyEdit, type Defaults } from './serialize.ts';
 import {
   AtomicWriteConflict,
@@ -83,9 +91,6 @@ import { watchStorage, type StorageWatcher } from './watcher.ts';
  * valid; what else is noticed there is a Diagnostic, never an error.
  */
 const DEFAULT_STORAGE_DIR = '.scratch';
-const ISSUES_DIR = 'issues';
-const MAP_FILE = 'map.md';
-const SPEC_FILE = 'spec.md';
 /** 1.x read `id_pattern` from it. Its contents decide nothing now; it only earns a warning. */
 const CONFIG_FILE = 'frontier.yml';
 const HEADER_DOCS: ReadonlyArray<readonly [HeaderDoc, string]> = [
@@ -254,6 +259,20 @@ export function createMarkdownDriver(
 
     async assertAddressable(handle) {
       await locate(storage, handle);
+    },
+
+    contract() {
+      return trackerContract(relativeStorage);
+    },
+
+    async trackerDiagnostics() {
+      // Fresh, as diagnosticsFor is: the call that lists what to fix by hand
+      // must see the hand edit just made.
+      return (await walk()).map(({ diagnosticOnly, effort }) => ({
+        slug: effort.slug,
+        effort: !diagnosticOnly,
+        diagnostics: effort.diagnostics,
+      }));
     },
 
     async diagnosticsFor(handles) {
@@ -972,13 +991,11 @@ async function readIssues(dir: string, effort: string, prefix: string): Promise<
       entries: [],
       excluded: [],
       diagnostics: [
-        {
-          code: 'symlinked-issues',
-          effect: 'excluded',
+        diagnostic('symlinked-issues', {
           file: `${prefix}${ISSUES_DIR}`,
           expected: 'a directory, not a symbolic link',
           fix: `replace the link with the directory itself by hand; nothing through it is read`,
-        },
+        }),
       ],
     };
   }
@@ -987,13 +1004,13 @@ async function readIssues(dir: string, effort: string, prefix: string): Promise<
     .filter(entry => entry.isDirectory())
     .map(entry => entry.name)
     .toSorted()
-    .map(name => ({
-      code: 'directory-in-issues',
-      effect: 'excluded',
-      file: `${relative}${name}/`,
-      expected: `Ticket files directly in ${relative}`,
-      fix: `move any Ticket in it up into ${relative} by hand; nothing below ${relative} is read`,
-    }));
+    .map(name =>
+      diagnostic('directory-in-issues', {
+        file: `${relative}${name}/`,
+        expected: `Ticket files directly in ${relative}`,
+        fix: `move any Ticket in it up into ${relative} by hand; nothing below ${relative} is read`,
+      }),
+    );
   const filenames = listing
     .filter(entry => entry.isFile() && entry.name.endsWith('.md'))
     .map(entry => entry.name)
@@ -1028,13 +1045,11 @@ async function readIssues(dir: string, effort: string, prefix: string): Promise<
   for (const file of read) {
     if (file === undefined) continue;
     if ('unreadable' in file) {
-      const unreadable: Diagnostic = {
-        code: 'unreadable',
-        effect: 'excluded',
+      const unreadable: Diagnostic = diagnostic('unreadable', {
         file: `${relative}${file.filename}`,
         expected: 'a file the server can read',
         fix: 'fix its permissions by hand so the server can read it',
-      };
+      });
       diagnostics.push(unreadable);
       excluded.push({ names: diagnosedNames(file.filename, ''), diagnostics: [unreadable] });
       continue;
@@ -1047,14 +1062,12 @@ async function readIssues(dir: string, effort: string, prefix: string): Promise<
       diagnostics.push(...found);
       excluded.push({ names: classified.names, diagnostics: found });
     } else if (classified.kind === 'unmarked-ticket-like') {
-      const suggestion: Diagnostic = {
-        code: 'unmarked-ticket-like',
-        effect: 'suggestion',
+      const suggestion: Diagnostic = diagnostic('unmarked-ticket-like', {
         file: path,
         key: 'frontier',
         expected: 'ticket',
         fix: 'if this is a Ticket, add `frontier: ticket` to its frontmatter by hand',
-      };
+      });
       diagnostics.push(suggestion);
       excluded.push({ names: diagnosedNames(filename, contents), diagnostics: [suggestion] });
     }
@@ -1087,8 +1100,8 @@ function classifySafely(effort: string, filename: string, contents: string, revi
   }
 }
 
-function excludedAt(file: string, problem: Problem): Diagnostic {
-  return { ...problem, effect: 'excluded', file };
+function excludedAt(file: string, { code, ...rest }: Problem): Diagnostic {
+  return diagnostic(code, { ...rest, file });
 }
 
 /**
@@ -1117,13 +1130,13 @@ async function readEffort(
   // a file outside the storage root. It still makes the Effort, diagnosed.
   const linkedDocs: Diagnostic[] = HEADER_DOCS.filter(([, filename]) =>
     listing.some(entry => entry.name === filename && entry.isSymbolicLink()),
-  ).map(([, filename]) => ({
-    code: 'symlinked-header-doc',
-    effect: 'excluded',
-    file: `${prefix}${filename}`,
-    expected: 'a file, not a symbolic link',
-    fix: 'replace the link with the file itself by hand; nothing through it is read or written',
-  }));
+  ).map(([, filename]) =>
+    diagnostic('symlinked-header-doc', {
+      file: `${prefix}${filename}`,
+      expected: 'a file, not a symbolic link',
+      fix: 'replace the link with the file itself by hand; nothing through it is read or written',
+    }),
+  );
 
   // A linked issues/ still makes an Effort, so the link is diagnosed rather than unseen.
   const hasIssues = listing.some(
@@ -1159,13 +1172,11 @@ async function readEffort(
     .map(({ name, contents }) => ({
       names: diagnosedNames(name, contents),
       diagnostics: [
-        {
-          code: 'ticket-outside-issues',
-          effect: 'excluded',
+        diagnostic('ticket-outside-issues', {
           file: `${prefix}${name}`,
           expected: `${prefix}${ISSUES_DIR}/${name}`,
           fix: `move it into ${prefix}${ISSUES_DIR}/ by hand to make it a Ticket`,
-        } satisfies Diagnostic,
+        }),
       ],
     }));
   const outside = strays.flatMap(stray => stray.diagnostics);
@@ -1202,9 +1213,12 @@ async function readText(path: string): Promise<string> {
   }
 }
 
+/** The directories under the storage directory that can be Efforts: hidden ones are skipped. */
 async function readDirectories(dir: string): Promise<string[]> {
   const entries = await readDir(dir);
-  return entries.filter(entry => entry.isDirectory()).map(entry => entry.name);
+  return entries
+    .filter(entry => entry.isDirectory() && isEffortSlug(entry.name))
+    .map(entry => entry.name);
 }
 
 /** A missing directory reads as empty — the layout is optional at every level. */
@@ -1226,7 +1240,7 @@ async function readDir(dir: string) {
  */
 function effortDir(storage: string, slug: string): string {
   // `\p{Cc}` is every control character: C0 with NUL, DEL, and C1.
-  if (slug === '' || slug.startsWith('.') || /[/\\\p{Cc}]/u.test(slug)) {
+  if (!isEffortSlug(slug)) {
     throw new InvalidEffortSlug(slug);
   }
   return join(storage, slug);
@@ -1252,7 +1266,9 @@ async function headerDocPath(storage: string, slug: string, filename: string): P
  * every Board rather than left unseen.
  */
 async function readLinkedDirectories(storage: string): Promise<string[]> {
-  const linked = (await readDir(storage)).filter(entry => entry.isSymbolicLink());
+  const linked = (await readDir(storage)).filter(
+    entry => entry.isSymbolicLink() && isEffortSlug(entry.name),
+  );
   const isDir = await Promise.all(
     linked.map(entry =>
       stat(join(storage, entry.name)).then(

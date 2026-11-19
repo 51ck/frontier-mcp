@@ -29,6 +29,8 @@ export function bareIdOf(name: string): string | undefined {
 
 export const STATUSES: readonly Status[] = ['open', 'claimed', 'resolved', 'dropped'];
 
+export const KINDS: readonly Kind[] = ['build', 'decision'];
+
 /**
  * A Ticket without its body — everything a Board line needs. Bodies are fetched
  * separately, so a Board never pays for prose it does not show.
@@ -240,21 +242,25 @@ export interface SpecDocument {
 export type DiagnosticEffect = 'excluded' | 'suggestion';
 
 /**
- * Why a file in a Ticket location is not a Ticket, or may be one left unmarked.
- * `excluded` codes name a marked file kept off every Board, the Frontier, Edge
- * resolution and every write; `suggestion` names an unmarked file that looks
- * like a Ticket. A file that is neither — a README, notes — has none.
+ * Why a file in a Ticket location is not a Ticket, or may be one left unmarked,
+ * and what each does to its file. `excluded` codes name a marked file kept off
+ * every Board, the Frontier, Edge resolution and every write; `suggestion`
+ * names an unmarked file that looks like a Ticket. A file that is neither — a
+ * README, notes — has none. The one list of codes.
  */
-export type DiagnosticCode =
-  | 'yaml-unparseable'
-  | 'missing-key'
-  | 'invalid-value'
-  | 'ticket-outside-issues'
-  | 'directory-in-issues'
-  | 'symlinked-issues'
-  | 'symlinked-header-doc'
-  | 'unreadable'
-  | 'unmarked-ticket-like';
+export const DIAGNOSTIC_EFFECTS = {
+  'yaml-unparseable': 'excluded',
+  'missing-key': 'excluded',
+  'invalid-value': 'excluded',
+  'ticket-outside-issues': 'excluded',
+  'directory-in-issues': 'excluded',
+  'symlinked-issues': 'excluded',
+  'symlinked-header-doc': 'excluded',
+  unreadable: 'excluded',
+  'unmarked-ticket-like': 'suggestion',
+} as const satisfies Record<string, DiagnosticEffect>;
+
+export type DiagnosticCode = keyof typeof DIAGNOSTIC_EFFECTS;
 
 export interface Diagnostic {
   readonly code: DiagnosticCode;
@@ -267,4 +273,59 @@ export interface Diagnostic {
   readonly found?: string;
   /** What to do by hand. The server never repairs a file. */
   readonly fix: string;
+}
+
+/** How a frontmatter value is checked: the marker's one value, a scalar, one of a list, or a list. */
+export type FieldType = 'marker' | 'text' | 'enum' | 'list';
+
+/**
+ * One frontmatter key of a Ticket, as the validator enforces it. The driver
+ * holds the list; the contract a caller is shown is that same list.
+ */
+export interface FieldDefinition {
+  readonly key: string;
+  readonly type: FieldType;
+  /** Missing or blank excludes the file. */
+  readonly required: boolean;
+  /** The marker's one value, or an enum's values. */
+  readonly values?: readonly string[];
+  /** What each entry of a list names. */
+  readonly items?: string;
+  /** Exactly what validation checks and how a value is read. */
+  readonly checked: string;
+  /** Guidance no validation enforces. */
+  readonly convention?: string;
+  /** What the example Ticket carries for it; a key without one is left out of the example. */
+  readonly example?: string | readonly string[];
+}
+
+/** One supported path and what it is for. */
+export interface LayoutPath {
+  readonly path: string;
+  readonly role: string;
+}
+
+/** A placement or file state the scan diagnoses, and the code it gets. */
+export interface UnsupportedPlacement {
+  readonly code: DiagnosticCode;
+  readonly effect: DiagnosticEffect;
+  readonly where: string;
+}
+
+/**
+ * What a Ticket must be and where it must live, as the driver enforces it —
+ * built from the definitions validation and the scan read, never copied.
+ */
+export interface TrackerContract {
+  readonly fields: readonly FieldDefinition[];
+  /** What a key outside {@link fields} is. */
+  readonly unimported: string;
+  /** Raised whenever a path, placement or rule below changes meaning. */
+  readonly layoutVersion: number;
+  readonly paths: readonly LayoutPath[];
+  readonly unsupported: readonly UnsupportedPlacement[];
+  readonly ignored: readonly string[];
+  readonly symlinks: string;
+  /** A Ticket file that validates, and the path it would sit at. */
+  readonly example: { readonly path: string; readonly contents: string };
 }

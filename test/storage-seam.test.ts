@@ -33,6 +33,12 @@ function fixedDriver(
       workspaceWarnings() {
         return [];
       },
+      contract() {
+        throw new Error('this driver serves no contract');
+      },
+      async trackerDiagnostics() {
+        return [];
+      },
       async assertAddressable() {},
       async readTickets(handles) {
         const wanted = new Set(handles);
@@ -139,6 +145,12 @@ describe('the storage driver seam', () => {
         return [];
       },
       workspaceWarnings() {
+        return [];
+      },
+      contract() {
+        throw new Error('this driver serves no contract');
+      },
+      async trackerDiagnostics() {
         return [];
       },
       absentStorage() {

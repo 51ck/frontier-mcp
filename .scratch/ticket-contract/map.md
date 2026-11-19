@@ -37,6 +37,7 @@ Existing work this touches, left where it lives:
 ## Decisions so far
 
 <!-- GENERATED: overwritten on every mutation through the server. Do not hand-edit. -->
+- [check-tracker — One tool reports the tracker's contract and what is wrong with its files](issues/check-tracker.md) — migrate_effort is replaced by the read-only check_tracker: the frontmatter schema with what is checked versus convention, layout contract v1, a valid example and every diagnostic itemized, optionally per Effort; all derived from FIELDS and the placement table the validator and scan read, the tracker doc block pinned verbatim. Eight tools, four writers, four readers.
 - [explicit-ticket-marker — A file is a Ticket only when marked, valid and in a supported location](issues/explicit-ticket-marker.md) — A file is a Ticket only when it is a .md directly in issues/ carrying frontier: ticket; malformed marked files are excluded with structured diagnostics (Board grouped, list_efforts counts, get_tickets/update_ticket by name); prose parser, Foreign and migration removed; only storage root, Effort dirs and issues/ are listed; only the storage dir is followed as a link. ADR 0009.
 <!-- /GENERATED -->
 

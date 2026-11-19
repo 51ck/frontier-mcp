@@ -119,8 +119,7 @@ Design decisions settled and binding until an ADR revises them:
   editor open-world and the additive `create_tickets` destructive. All eight tools set
   `openWorldHint: false`. The four writers also set `destructiveHint` — `false` on `create_tickets`
   alone, `true` out loud on the three that replace or remove, so that the one `false` reads as a
-  decision rather than an oversight. The four readers — `migrate_effort` among them since it writes
-  nothing (ADR 0009) — set neither `destructiveHint` nor `idempotentHint`: both are meaningless under
+  decision rather than an oversight. The four readers — `check_tracker` among them — set neither `destructiveHint` nor `idempotentHint`: both are meaningless under
   `readOnlyHint: true`. Pinned in `test/ship.test.ts`.
 - **Nothing is minted, and nothing configures an id**
   ([ADR 0008](./docs/adr/0008-a-ticket-is-named-by-its-path.md)). There is no id pattern, minting
@@ -180,7 +179,10 @@ Design decisions settled and binding until an ADR revises them:
   diagnosed `unreadable` and fails nothing else, so a Ticket never vanishes unseen; a loose `.md`
   read only for the marker reads as unmarked when it cannot be opened.
 - **Only known locations are inspected.** The driver lists the storage directory, each Effort
-  directory and each `issues/`, and nothing else. A directory inside `issues/` is noticed from its
+  directory and each `issues/`, and nothing else. A directory under the storage directory whose
+  name is not a slug — empty, starting with a dot, holding `/`, `\` or a control character — is
+  skipped whole (`isEffortSlug` in `schema.ts`, the one slug rule): never an Effort, never scanned
+  for a stray marked file, never watched, and refused as a slug. A directory inside `issues/` is noticed from its
   entry and never entered; no other directory of an Effort is read. The `.md` files directly in an
   Effort directory, `map.md` and `spec.md` aside, are read for the marker alone, and so are those of
   any other directory under the storage directory: one holding a marked file is scanned only so
@@ -363,7 +365,7 @@ Source layout:
 | `src/board-order.ts` | Board order, derived from the Edges on each Board, and the prefix-then-name tie-break the driver's scan also sorts by. |
 | `src/edges.ts` | Cycle detection over the Edge graph. Above the seam, because a cycle is a rule about the domain rather than about storage — the same reason the Status model is checked in the tool layer. |
 | `src/storage/driver.ts` | The ADR 0001 seam, its edit vocabulary, and its typed failures. A driver is the workspace cached and live, so `close()` sits here beside the reads and writes. |
-| `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout, which it takes as a construction parameter — `frontmatter.ts` splits the fence, `ticket.ts` classifies a file as a Ticket, excluded, an unmarked look-alike or nothing, `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` writes a new batch at the paths its names imply, `schema.ts` is the one list of schema frontmatter keys and the marker, `write.ts` renames it into place, `watcher.ts` tells the driver another process moved the workspace under it. |
+| `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout, which it takes as a construction parameter — `frontmatter.ts` splits the fence, `ticket.ts` classifies a file as a Ticket, excluded, an unmarked look-alike or nothing, `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` writes a new batch at the paths its names imply, `schema.ts` is the one definition of the schema's keys, types and values, the marker, the Ticket locations and the layout contract `check_tracker` shows, `write.ts` renames it into place, `watcher.ts` tells the driver another process moved the workspace under it. |
 | `src/workspace.ts` | Workspace resolution — the only module above the driver that reads a *served* repository, and only to locate its root. `.scratch` is a marker only as a directory; `.git` counts as a file too, so a worktree or submodule resolves to itself rather than to the repository enclosing it. |
 | `src/driver-registry.ts` | One driver per resolved workspace, and the `closeAll()` that shuts them. A lookup, not a layer: it hands back the driver itself, so no read or write passes through it. |
 | `src/tools/` | One module per tool: its input schema, its description, and how its result renders. `workspace-line.ts` and `diagnostics.ts` are the exceptions — the single renderings of which repository a call served, shared by `list_efforts` and every write, and of Diagnostics, shared by the Board, `list_efforts`, `get_tickets` and `update_ticket`. |
@@ -392,7 +394,7 @@ Rendering rules that are load-bearing, not cosmetic:
   against the wrong repository as the right one, and it is the one result a caller cannot check from
   what it got back. A read needs no such line: the wrong repository returns visibly wrong content.
   What decides is *whether the call wrote*, not whether the tool can — `edit_map` with no section
-  fields, `spec` with no content, and `migrate_effort` are reads, and pay nothing.
+  fields, `spec` with no content, and `check_tracker` are reads, and pay nothing.
   Measured at ~10 tokens on a typical checkout; a forty-write session costs less than one Board.
 - **Warnings are grouped, never itemized per Ticket or file.** An Effort of migrated Tickets carries a
   dangling Edge on nearly every Ticket, and one left unmarked after an upgrade has a look-alike per
@@ -401,11 +403,12 @@ Rendering rules that are load-bearing, not cosmetic:
 - **Diagnostics render grouped, counted and by name** (`src/tools/diagnostics.ts`). A Board shows
   one warning line per code over its Effort's `diagnostics`, naming at most 3 files and counting the
   rest. `list_efforts` suffixes an Effort `excluded=N` and `unmarked=N`, counting files, each only
-  when N is non-zero. A `symlinked-header-doc` diagnostic is shown on the Board only. `get_tickets` given a name a diagnosed file would have — its id when the
+  when N is non-zero. A `symlinked-header-doc` diagnostic is shown on the Board and by `check_tracker` only. `get_tickets` given a name a diagnosed file would have — its id when the
   fence parsed and carried one, and its stem less any `NN-` prefix, bare or as `<effort>.<stem>` —
   returns that file's diagnostics in place of `not found:`, for an unmarked look-alike's suggestion
-  and a marked file outside `issues/` as for an exclusion; `update_ticket` refuses with them and writes nothing. An
-  itemized listing is a later Ticket, not a ninth tool.
+  and a marked file outside `issues/` as for an exclusion; `update_ticket` refuses with them and writes nothing.
+  `check_tracker` is the itemized listing, one line per Diagnostic, the Board's linked Header docs
+  included.
 - **A blocker in another Effort with an id renders `T9@beta`, one named by its file `beta.token-cache`, a
   local one bare.** The full name is valid input. The
   `@<effort>` is never input: a pasted `T9@beta` fails — `NoSuchTicket` on a write, the `not found:` line on
@@ -474,9 +477,21 @@ Rendering rules that are load-bearing, not cosmetic:
   `src/workspace.ts`; existence crosses the seam as `StorageDriver.absentStorage()`, which never
   creates the directory. An empty `.scratch/` keeps `(no efforts)`, and no other result carries the
   `resolved by` suffix — a populated tracker is its own proof of the root.
-- **`migrate_effort` writes nothing** (ADR 0009). It stays registered so the surface stays at eight
-  tools until a later Ticket replaces it, takes its old arguments, and answers a fixed three lines
-  saying normalization is gone, without echoing the slug or reading the workspace.
+- **`check_tracker` returns the contract and itemizes every Diagnostic** (it took `migrate_effort`'s
+  slot, so the surface stays at eight). The schema, the layout contract with its version
+  (`LAYOUT_VERSION`) and a valid example are `trackerContract()` in `src/storage/markdown/schema.ts`,
+  built from the same `FIELDS` table `validate` in `ticket.ts` checks key by key and the same
+  code-keyed placement table the scan's codes must fill; the scan takes each Diagnostic's `effect`
+  from `DIAGNOSTIC_EFFECTS` through `diagnostic()` there, never a literal — crossing the seam as
+  `StorageDriver.contract()`, rendered by `src/tools/check-tracker.ts`. A new schema key is one
+  `FIELDS` entry and needs no change to the tool; a new Diagnostic code is one `DIAGNOSTIC_EFFECTS`
+  entry in `src/domain.ts`, and the typecheck then demands its placement. Diagnostics come from
+  `StorageDriver.trackerDiagnostics()`, one fresh walk, directories scanned only for a stray marked
+  file included; one per line, by `renderDiagnostic`. `effort` narrows to one Effort and refuses an
+  unknown one as `get_board` does. The tracker doc's Ticket frontmatter section carries the contract
+  verbatim between `check_tracker contract` markers, pinned by `test/check-tracker.test.ts`; its
+  Diagnostics table is pinned to the contract's codes. A clean result is ~1200 tokens and the tool
+  entry 170, against `migrate_effort`'s 181, pinned in `test/read-path-cost.test.ts`.
 - **A Spec-only Effort opens with its Spec's first paragraph**, labelled `spec:` rather than
   `destination:`. Destination is a Map section; calling a Spec's opening one would be a lie in the
   vocabulary. Multi-line header prose has its continuation lines indented so it can never be read as

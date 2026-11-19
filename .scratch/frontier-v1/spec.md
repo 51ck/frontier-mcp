@@ -296,7 +296,7 @@ Ticket frontmatter:
 | `claimed_at` | Timestamp, set with `claimed_by`. |
 | `answer_gist` | Required when `status: resolved`, on **every** kind — a build Ticket's one line of what landed is what makes a Board of finished work readable. |
 | `dropped_reason` | Required when `status: dropped`. This is what the Out-of-scope section renders. |
-| `schema` | Set to `legacy` by the lenient parser; absent on schema-conformant files. |
+| `frontier` | The marker, always `ticket`. A file without it is not a Ticket. |
 
 Header doc frontmatter carries the header kind (`map` or `spec`). An Effort may hold both, `map` first
 — that is wayfinder's designed handoff into `/to-spec`, not an error.
@@ -331,13 +331,13 @@ entire purpose is token cost.
 | Tool | Contract |
 | --- | --- |
 | `list_efforts` | Efforts in the workspace, with Ticket counts, header kinds, and Frontier size. |
-| `get_board` | The Effort's Destination, then one summary line per Ticket — name, title, kind, status, Edges — with the Frontier marked, foreign blockers annotated with their Effort, and a warnings block for broken Edges and Legacy Tickets. No bodies, ever. |
+| `get_board` | The Effort's Destination, then one summary line per Ticket — name, title, kind, status, Edges — with the Frontier marked, foreign blockers annotated with their Effort, and a warnings block for broken Edges and diagnosed files. No bodies, ever. |
 | `get_tickets` | Full bodies for a list of Tickets, by name or id. |
 | `create_tickets` | A whole set in one call, all written or none. The caller gives each Ticket its `name`, and Edges may name a sibling from the same call. This removes wayfinder's mandated create-then-wire second pass. |
 | `update_ticket` | One mutator taking any of status, triage, claim, answer, comment, criteria, title, Edges. Claiming is compare-and-set and fails if another holder exists. Content is stored verbatim — nothing is injected, including `/triage`'s mandatory comment disclaimer, which is the skill's business to write. |
 | `edit_map` | A section operation on a Map: set Destination, set Notes, add or graduate a fog patch, rule something out of scope. |
 | `spec` | Get or put a Spec as a whole document. |
-| `migrate_effort` | Normalize Legacy Tickets in an Effort and rewrite bare sort-order Edges to names. Preview mode writes nothing. Names and filenames never change. |
+| `check_tracker` | The Ticket frontmatter schema, the versioned layout contract, a valid example Ticket, and every diagnostic in the workspace or one Effort, itemized. Read-only. |
 
 `create_tickets`, `spec`, and `edit_map` will create an Effort that does not exist, but only when the
 call passes an explicit `create` flag — so starting work is one call while a mistyped slug is not.
@@ -345,23 +345,21 @@ call passes an explicit `create` flag — so starting work is one call while a m
 The rewritten tracker configuration document is exposed as an **MCP resource**, not a tool — it is read
 once at setup, and resources cost no tool-schema tokens.
 
-### Migration
+### Recognition
 
-Reads are lenient: a Ticket with no frontmatter is parsed best-effort — title from the heading, status
-from a `Status:` line, Edges from `Depends on:` / `Blocked by:` prose — and flagged `schema: legacy` in
-the returned model. Reads never write. Writes are strict: any write through the server normalizes the
-file it touches. `migrate_effort` does the whole Effort at once for those who want it done
-deliberately.
+A file is a Ticket only when it is a `.md` directly in `<effort>/issues/` whose frontmatter carries
+`frontier: ticket` ([ADR 0009](../../docs/adr/0009-a-ticket-is-recognized-by-an-explicit-marker.md)).
+There is no prose parser and no migration: a file without the marker is not a Ticket, and the
+server never adds the marker, rewrites a file it did not create, or moves one. A marked file that
+does not validate is excluded and diagnosed; `check_tracker` lists every diagnostic with the
+file, key, expected value and fix. Existing ids are preserved verbatim, and a Ticket with no id
+keeps the name its file gives it.
 
-Ids that already exist are preserved verbatim — sobrina's `T31` survives, along with every prose and
-commit-message reference to it. A Ticket with no id keeps the name its file gives it; migration mints
-nothing, and rewrites a bare sort-order Edge such as `01` to the name of the Ticket whose file carries
-that prefix.
+Filenames are **never** rewritten. Files are linked to by relative markdown links throughout the
+Maps and Tickets, and a Ticket with no id is named by its file.
 
-Filenames are **never** rewritten. The 159 existing files are linked to by relative markdown links
-throughout the Maps and Tickets, and a Ticket with no id is named by its file.
-
-Unrecognized files in an Effort directory are ignored, never an error.
+Only the storage directory, each Effort directory and each `issues/` are read. Anything else in an
+Effort directory is ignored, never an error.
 
 ### Validation
 

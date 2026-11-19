@@ -85,7 +85,7 @@ async function everyTool(frontier: ConnectedFrontier, effort: string, id: string
   });
   await frontier.call('edit_map', { effort: elsewhere, create: true, destination: 'Away.' });
   await frontier.call('spec', { effort: elsewhere, create: true, content: '# Away\n' });
-  await frontier.call('migrate_effort', { effort });
+  await frontier.call('check_tracker', { effort });
 }
 
 describe('the marker', () => {

@@ -1,6 +1,6 @@
 # Issue tracker — FrontierMCP and file fallback
 
-Tracker doc revision 10. To check a vendored copy, compare this number with the one in the
+Tracker doc revision 11. To check a vendored copy, compare this number with the one in the
 `frontier://tracker-doc` resource of the server you run; a lower number, or no revision line, is
 stale.
 
@@ -37,7 +37,7 @@ reports no Efforts — that is the worktree being served correctly, not the trac
 — a Ticket's name is unique within a repository, not across them, so `T10 updated` looks the same
 whichever repository answered, and this line is the only part of the result that tells you. Reads do not carry it, and neither do the
 read paths of write-capable tools: `edit_map` with no section fields and `spec` with no `content`.
-`migrate_effort` never writes.
+`check_tracker` never writes.
 
 A repo with no `.scratch/` yet is not an error. Create an Effort by writing to it with `create: true`
 on `create_tickets`, `edit_map`, or `spec`.
@@ -55,7 +55,7 @@ Eight tools permanently. Optional arguments extend an existing tool; there is no
 | `update_ticket` | Claim, resolve, drop, reopen, release, set title/kind/type, set triage, replace Edges, comment, tick acceptance criteria, or `drop_keys` to delete Unimported frontmatter keys. One Ticket per call. |
 | `edit_map` | Edit Map sections — Destination, Notes, fog, Out of scope. Decisions-so-far regenerates from resolved Tickets. |
 | `spec` | Read or write a Spec as a whole document. |
-| `migrate_effort` | Retired: writes nothing and says so. The server never adds the marker; add it by hand. |
+| `check_tracker` | Learn how to write a Ticket and what is wrong with the files there: the frontmatter schema, the layout contract and its version, a valid example, and every diagnostic itemized with file, key, expected, found and fix. `effort` narrows the diagnostics to one Effort. Reads only; fix files by hand. |
 
 ### Typical agent flow
 
@@ -145,10 +145,10 @@ and never satisfies an Edge. What the server noticed about it is a diagnostic:
 
 Each names the file (workspace-root-relative), and where one applies the key, what was expected and
 what was found, with the fix. A Board shows one line per code, naming three files and counting the
-rest. `get_tickets` on a name the file would have — its `id` if it carries one, its stem less any
+rest; `check_tracker` lists every one. `get_tickets` on a name the file would have — its `id` if it carries one, its stem less any
 `NN-` prefix, or `<effort>.<stem>` — returns the diagnostics, for a suggestion as for an exclusion,
 and `update_ticket` on it refuses with them. A linked `map.md` or `spec.md` is reported on the
-Board only. Fix the file by hand; the server never
+Board and by `check_tracker` only. Fix the file by hand; the server never
 repairs, marks or moves one. Any other unmarked Markdown — a README, notes — is ignored silently.
 An Effort directory that is a symbolic link is not an Effort: nothing reads or writes through it,
 and every Board names it in one `symlinked-effort` warning line.
@@ -177,14 +177,15 @@ only a marked file outside `issues/` is not an Effort until a write with `create
 (`create_tickets`, `edit_map` or `spec`) names it exactly, which creates its `issues/`.
 
 A marked file must also be valid: `title` and `status` present and not blank, and every value from
-the template below where it is set. A missing `kind` reads as `build`; other missing fields stay
+the schema below where it is set. A missing `kind` reads as `build`; other missing fields stay
 unset. `blocked_by:` with no value is the same as no `blocked_by`: no Edges. A write that would
 leave a file failing any of this is refused and writes nothing.
 
 ### Layout
 
 - One Effort per directory: `.scratch/<effort-slug>/`.
-- An Effort slug is one directory name: no path separator, no leading dot.
+- An Effort slug is one directory name: no path separator, no leading dot, no control character.
+  A directory under `.scratch/` whose name breaks that is skipped: never an Effort, never read.
 - The header doc is `spec.md` (from `/to-spec`) or `map.md` (from `/wayfinder`). An Effort charted as a
   Map may later gain a Spec — that is wayfinder's handoff, not a mistake.
 - Tickets are one file per Ticket under `.scratch/<effort-slug>/issues/` — never a single combined
@@ -198,21 +199,70 @@ leave a file failing any of this is refused and writes nothing.
 
 ### Ticket frontmatter
 
-```yaml
+The contract `check_tracker` returns, generated from the definitions the server validates with.
+`test/check-tracker.test.ts` fails when this block differs from them; paste the tool's output over
+it, everything above its `diagnostics` line.
+
+<!-- check_tracker contract -->
+````text
+schema: frontmatter between --- lines; keys any order, the marker first by convention
+  frontier  required  exactly ticket — exactly the string ticket; detected as a top-level line at column 0; convention only: written first
+  id  optional  text — a scalar kept as written (02 stays 02); null or blank is unset; when set it is the Ticket's name; convention only: only where a file already carries one; never add or change it
+  title  required  text — a scalar as YAML reads it (02 is 2); absent, null or blank is missing-key; convention only: one line
+  kind  optional  build | decision — absent or null is unset, read as build; a blank string is invalid-value; spaces trimmed
+  type  optional  text — a scalar as YAML reads it (02 is 2); null or blank is unset; convention only: decision only: research | prototype | grilling | task
+  status  required  open | claimed | resolved | dropped — absent, null or blank is missing-key; spaces trimmed; convention only: new Tickets are open
+  triage  optional  needs-triage | needs-info | ready-for-agent | ready-for-human | wontfix — absent or null is unset; a blank string is invalid-value; spaces trimmed; convention only: a /triage role, never a Status
+  blocked_by  optional  list of Ticket names — absent, null or [] is no Edges; a mapping or list entry is invalid-value; a null or blank entry is dropped; any other scalar entry is as written; convention only: each a name in this Effort, <effort>.<name>, or an id
+  claimed_by  optional  text — a scalar as YAML reads it (02 is 2); null or blank is unset; convention only: set with status: claimed
+  claimed_at  optional  text — a scalar as YAML reads it (02 is 2); null or blank is unset; convention only: an ISO timestamp, set with claimed_by
+  answer_gist  optional  text — a scalar as YAML reads it (02 is 2); null or blank is unset; convention only: one line, set with status: resolved
+  dropped_reason  optional  text — a scalar as YAML reads it (02 is 2); null or blank is unset; convention only: set with status: dropped
+  other keys: any other top-level key is Unimported, not malformed: kept, shown by get_tickets, removed only by update_ticket drop_keys
+layout v1:
+  .scratch/  storage root; holds Effort directories; may be a symbolic link
+  .scratch/<effort>/  an Effort once it holds map.md, spec.md or issues/; the slug is one directory name: not empty, not starting ., no / or \, no control character, and a directory whose name breaks that is never one
+  .scratch/<effort>/map.md  the Map: typed sections, edited with edit_map
+  .scratch/<effort>/spec.md  the Spec: one opaque document, written with spec
+  .scratch/<effort>/issues/  Ticket files, listed and never recursed
+  .scratch/<effort>/issues/<name>.md  a Ticket when marked and valid; named by its id when set, else by the stem less any <digits>- prefix, unless that leaves nothing
+unsupported, diagnosed:
+  yaml-unparseable (excluded)  a marked file whose frontmatter does not parse as a YAML mapping
+  missing-key (excluded)  a marked file whose required key is absent, null, empty or blank
+  invalid-value (excluded)  a marked file with a value outside its key's type or values; a set kind or triage that is blank counts
+  ticket-outside-issues (excluded)  a marked .md directly in an Effort directory, other than map.md and spec.md, or in another directory under the storage root
+  directory-in-issues (excluded)  a directory inside issues/, never entered
+  symlinked-issues (excluded)  an issues that is a symbolic link, never followed
+  symlinked-header-doc (excluded)  a map.md or spec.md that is a symbolic link, never read or written
+  unreadable (excluded)  a .md in issues/ the server cannot open
+  unmarked-ticket-like (suggestion)  an unmarked .md in issues/ whose frontmatter holds title and status
+ignored, no diagnostic:
+  files directly in .scratch/ but frontier.yml (read only for a Board warning), and every directory there whose name is not a slug, with all below it
+  unmarked Markdown without title and status keys, and every file not ending .md, in issues/
+  unmarked .md beside map.md and spec.md, and in other directories under .scratch/
+  every directory of an Effort but issues/, and everything below a directory in issues/
+symlinks: only .scratch/ itself is followed; a linked Effort directory is no Effort (a symlinked-effort Board warning), and a linked issues, map.md, spec.md or frontier.yml is never read or written
+example .scratch/<effort>/issues/token-cache.md:
+```markdown
 ---
-frontier: ticket            # the marker: first line, exactly this
-title: Cache the auth token  # no id: the filename is the name
-kind: build                 # build | decision
-type: research              # decision only: research | prototype | grilling | task
-status: open                # open | claimed | resolved | dropped
-triage: ready-for-agent     # see triage-labels.md
-blocked_by: [fence-split, auth.token-cache, T9]  # name here, <effort>.<name>, or an existing id
-claimed_by:                 # required when status: claimed
-claimed_at:                 # timestamp, set with claimed_by
-answer_gist:                # required when status: resolved — one line, every kind
-dropped_reason:             # required when status: dropped
+frontier: ticket
+title: Cache the auth token
+kind: build
+status: open
+triage: ready-for-agent
+blocked_by: [token-store]
 ---
+
+## What to build
+
+Keep the auth token in memory between requests.
+
+## Acceptance criteria
+
+- [ ] A second request reuses the token
 ```
+````
+<!-- /check_tracker contract -->
 
 Only `frontier`, `title` and `status` are required. Body shape follows whichever skill produced the Ticket: Problem / Done when / acceptance criteria for
 `build`, `## Question` / `## Acceptance criteria` / `## Answer` for `decision`. Comments append at the
@@ -252,7 +302,7 @@ loaded, `create_tickets` publishes the breakdown, per the File conventions pream
 
 When a skill says "publish to the issue tracker" and FrontierMCP is not loaded, create
 `.scratch/<effort-slug>/issues/<name>.md` (creating directories as needed) with frontmatter matching
-the template above. Choose the name as under [Names and references](#names-and-references), and
+the example above. Choose the name as under [Names and references](#names-and-references), and
 check it is free yourself: no file in `issues/` has that stem, case and any `<digits>-` prefix
 ignored, and no Ticket carries it as an `id`. Write `frontier: ticket` as the first frontmatter
 line: without it the file is not a Ticket.

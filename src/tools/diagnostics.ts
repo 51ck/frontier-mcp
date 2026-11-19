@@ -5,12 +5,17 @@ export function renderDiagnostic(diagnostic: Diagnostic): string {
   const { code, effect, file, key, expected, found, fix } = diagnostic;
   const parts = [
     `${code} (${effect})`,
-    file,
+    printable(file),
     key === undefined ? undefined : `key=${key}`,
     expected === undefined ? undefined : `expected=${expected}`,
     found === undefined ? undefined : `found=${found}`,
   ].filter(part => part !== undefined);
   return `${parts.join('  ')} — ${fix}`;
+}
+
+/** A path on one line: a control character in a filename is shown escaped, so it cannot split the line. */
+export function printable(path: string): string {
+  return path.replace(/\p{Cc}/gu, char => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
 }
 
 /** What a file shows for, by code, on a Board's warnings. */

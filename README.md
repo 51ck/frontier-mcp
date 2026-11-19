@@ -139,8 +139,8 @@ frontmatter carries the line `frontier: ticket` and it sits directly in an Effor
 added, a 2.x Ticket is an unmarked file: off every Board, off the Frontier, never written. Its id
 and its name come back unchanged once it is marked.
 
-**The server never adds the marker.** Nothing is migrated, normalized or moved; `migrate_effort`
-now writes nothing. Add the line by hand, or have an agent add it, after upgrading:
+**The server never adds the marker.** Nothing is migrated, normalized or moved, and
+`migrate_effort` is gone. Add the line by hand, or have an agent add it, after upgrading:
 
 ```yaml
 ---
@@ -156,6 +156,7 @@ To find the files to mark:
 - `list_efforts` suffixes an Effort `unmarked=N` while N of its `issues/` files have frontmatter
   holding `title` and `status` but no marker.
 - `get_board` names them on an `unmarked-ticket-like` warning line, three at a time with a count.
+- `check_tracker` lists every one, with the schema, the layout contract and a valid example.
 - A file with no frontmatter at all, such as one 2.x read from prose, is not listed. Run 2.x's
   `migrate_effort` on its Effort before upgrading, or write its frontmatter by hand.
 
@@ -212,7 +213,7 @@ the server.
 ## Tools
 
 Eight tools: `list_efforts`, `get_board`, `get_tickets`, `create_tickets`, `update_ticket`,
-`edit_map`, `spec`, `migrate_effort`. See the tracker configuration document for when to use each.
+`edit_map`, `spec`, `check_tracker`. See the tracker configuration document for when to use each.
 
 ## Development
 

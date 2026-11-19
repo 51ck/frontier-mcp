@@ -130,24 +130,12 @@ describe('a read does not, even through a tool that can write', () => {
     expect(text).not.toContain('root: ');
   });
 
-  it('migrate_effort in preview', async () => {
+  it('check_tracker, whole workspace and one Effort', async () => {
     const root = await makeMarkedWorkspace({ telegram: 'sobrina-telegram' });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    const text = await frontier.call('migrate_effort', { effort: 'telegram', preview: true });
-
-    expect(text).not.toContain('root: ');
-  });
-
-  it('migrate_effort on an Effort already in schema, which writes nothing', async () => {
-    const root = await makeFixtureTree(WORKSPACE);
-    const frontier = await connectFrontier({ cwd: root, env: {} });
-
-    const text = await frontier.call('migrate_effort', { effort: 'demo' });
-
-    // Not a preview, so the flag says write. Nothing was written, so the line
-    // would be claiming a change that never happened.
-    expect(text).not.toContain('root: ');
+    expect(await frontier.call('check_tracker')).not.toContain('root: ');
+    expect(await frontier.call('check_tracker', { effort: 'telegram' })).not.toContain('root: ');
   });
 
   it('get_board and get_tickets', async () => {

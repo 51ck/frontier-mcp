@@ -61,11 +61,13 @@ values.
 Other unmarked Markdown has no diagnostic. A Board groups them one line per code; `list_efforts`
 counts `excluded=` and `unmarked=`; `get_tickets` and `update_ticket` on a name a diagnosed file
 would have — its id, or its stem bare or as `<effort>.<stem>` — return or refuse with its
-diagnostics. A linked Header doc is diagnosed on the Board only.
+diagnostics. A linked Header doc is diagnosed on the Board and by `check_tracker`, not by
+`list_efforts`, `get_tickets` or `update_ticket`.
 
 **Nothing is auto-modified.** No file is normalized, migrated, marked or moved by the server.
-`create_tickets` writes the marker as the first frontmatter line. `migrate_effort` stays registered,
-so the surface stays at eight tools, and writes nothing.
+`create_tickets` writes the marker as the first frontmatter line. `migrate_effort`, which wrote
+them, was removed; its slot went to `check_tracker`, which reports the contract and itemizes every diagnostic, so the
+surface stays at eight tools.
 
 ## What it amends in ADR 0008
 

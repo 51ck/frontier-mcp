@@ -66,7 +66,7 @@ async function writeWithEveryTool(frontier: ConnectedFrontier): Promise<void> {
     expected_revision: revisionIn(await frontier.call('spec', { effort: 'alpha' })),
   });
   await frontier.call('spec', { effort: 'gamma', content: '# Gamma\n' });
-  expect(await frontier.call('migrate_effort', { effort: 'beta' })).toContain('nothing migrated');
+  expect(await frontier.call('check_tracker', { effort: 'beta' })).toContain('layout v1');
 }
 
 async function filesUnder(dir: string): Promise<string[]> {
@@ -134,11 +134,13 @@ describe('a frontier.yml left over from 1.x', () => {
       effort: 'alpha',
       tickets: [{ name: 'new', title: 'New' }],
     });
-    const migrated = await frontier.call('migrate_effort', { effort: 'beta' });
+    const checked = await frontier.call('check_tracker', { effort: 'beta' });
 
-    for (const text of [created, migrated, await frontier.call('list_efforts')]) {
+    for (const text of [created, await frontier.call('list_efforts')]) {
       expect(text).not.toMatch(/frontier\.yml|id_pattern|regression|warnings:/);
     }
+    // Its contract names frontier.yml in the symlink rule, never the warning.
+    expect(checked).not.toMatch(/id_pattern|ignored since|regression|warnings:/);
   });
 });
 

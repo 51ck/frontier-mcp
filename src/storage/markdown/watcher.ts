@@ -1,6 +1,8 @@
 import { existsSync, readdirSync, watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
 
+import { isEffortSlug, ISSUES_DIR } from './schema.ts';
+
 export interface StorageWatcher {
   close(): void;
 }
@@ -54,9 +56,6 @@ const DEFAULT_SETTLE_MS: readonly number[] = [50, 250, 1000];
  */
 const NATIVE_RECURSIVE = process.platform === 'darwin' || process.platform === 'win32';
 
-/** The one directory of an Effort the scan lists. */
-const ISSUES_DIR = 'issues';
-
 /**
  * One non-recursive watch per directory the scan lists under `dir` (ADR 0009):
  * `dir` itself, each Effort directory in it, and each Effort's `issues/` —
@@ -98,6 +97,7 @@ function watchDirectories(
       for (const entry of entries) {
         // A Dirent does not follow links, so a linked Effort or issues/ is not entered.
         if (!entry.isDirectory()) continue;
+        if (depth === 0 && !isEffortSlug(entry.name)) continue;
         if (depth === 1 && entry.name !== ISSUES_DIR) continue;
         visit(join(path, entry.name), depth + 1);
       }

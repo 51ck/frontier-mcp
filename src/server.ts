@@ -12,6 +12,11 @@ import { createMarkdownDriver } from './storage/markdown/driver.ts';
 import type { StorageDriver, TicketWriteResult } from './storage/driver.ts';
 import { NoSuchMap, NoSuchTicket, RevisionMismatch } from './storage/driver.ts';
 import {
+  checkTrackerDescription,
+  checkTrackerInputSchema,
+  renderCheck,
+} from './tools/check-tracker.ts';
+import {
   createTicketsDescription,
   createTicketsInputSchema,
   planBatch,
@@ -36,11 +41,6 @@ import {
   renderEfforts,
   renderNoTracker,
 } from './tools/list-efforts.ts';
-import {
-  migrateEffortDescription,
-  migrateEffortInputSchema,
-  renderMigrationRetired,
-} from './tools/migrate-effort.ts';
 import { renderSpec, specDescription, specInputSchema } from './tools/spec.ts';
 import { withWorkspace } from './tools/workspace-line.ts';
 import {
@@ -476,15 +476,31 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
   );
 
   server.registerTool(
-    'migrate_effort',
+    'check_tracker',
     {
-      title: 'Migrate Effort',
-      description: migrateEffortDescription,
-      inputSchema: migrateEffortInputSchema,
+      title: 'Check Tracker',
+      description: checkTrackerDescription,
+      inputSchema: checkTrackerInputSchema,
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    // It writes nothing, so it names no workspace (T11).
-    () => ({ content: [{ type: 'text', text: renderMigrationRetired() }] }),
+    // A read, so it names no workspace (T11).
+    async ({ effort, root }) => {
+      const workspace = resolveWorkspace(root, context);
+      const driver = registry.forWorkspace(workspace);
+      const found = await driver.trackerDiagnostics();
+      const efforts = found.filter(entry => entry.effort);
+      if (effort !== undefined && !efforts.some(entry => entry.slug === effort)) {
+        throw new Error(
+          `No Effort '${effort}' in ${workspace}. Known: ${efforts.map(e => e.slug).join(', ') || '(none)'}`,
+        );
+      }
+      const diagnostics = found
+        .filter(entry => effort === undefined || (entry.effort && entry.slug === effort))
+        .flatMap(entry => entry.diagnostics);
+      return {
+        content: [{ type: 'text', text: renderCheck(driver.contract(), diagnostics, effort) }],
+      };
+    },
   );
 
   return {

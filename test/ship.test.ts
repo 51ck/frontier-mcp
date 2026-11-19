@@ -31,12 +31,12 @@ describe('the shipped surface', () => {
     // The cap is a design constraint, not an outcome — every tool schema is
     // context in every session. See AGENTS.md, Local Contracts.
     expect(tools.map(tool => tool.name).toSorted()).toEqual([
+      'check_tracker',
       'create_tickets',
       'edit_map',
       'get_board',
       'get_tickets',
       'list_efforts',
-      'migrate_effort',
       'spec',
       'update_ticket',
     ]);
@@ -130,7 +130,7 @@ describe('the shipped surface', () => {
     expect(text).toContain('create_tickets');
     expect(text).toContain('edit_map');
     expect(text).toContain('spec');
-    expect(text).toContain('migrate_effort');
+    expect(text).toContain('check_tracker');
     expect(text).toContain('get_tickets');
     expect(text).toContain('.scratch/');
     expect(text).toContain('blocked_by');
@@ -330,11 +330,14 @@ describe('tool annotations', () => {
     }
   });
 
-  it('keeps the readers read-only, retired migrate_effort among them', async () => {
+  it('keeps the readers read-only, check_tracker among them', async () => {
     const annotations = await annotationsByTool();
 
-    for (const name of ['list_efforts', 'get_board', 'get_tickets', 'migrate_effort']) {
+    for (const name of ['list_efforts', 'get_board', 'get_tickets', 'check_tracker']) {
       expect(annotations[name], name).toMatchObject({ readOnlyHint: true });
+      // Both are meaningless under readOnlyHint: true, so neither is stated.
+      expect(annotations[name], name).not.toHaveProperty('destructiveHint');
+      expect(annotations[name], name).not.toHaveProperty('idempotentHint');
     }
   });
 });

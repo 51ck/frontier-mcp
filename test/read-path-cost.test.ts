@@ -210,6 +210,36 @@ describe('the cost of a Board', () => {
   });
 });
 
+describe('the cost of check_tracker', () => {
+  it('costs less schema than the migrate_effort it replaced, and a fixed result', async () => {
+    const root = await makeMarkedWorkspace({
+      telegram: 'sobrina-telegram',
+      'ship-0-5-0': 'tag-customizer-ship-0-5-0',
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+    const { tools } = await frontier.client.listTools();
+    const schema = tokens(JSON.stringify(tools.find(tool => tool.name === 'check_tracker')));
+
+    // migrate_effort's tool entry measured 181 tokens on the wire before it was
+    // replaced; the slot is paid in every session, so the successor must not
+    // cost more. Measured: 170.
+    expect(schema).toBeLessThanOrEqual(181);
+    expect(schema).toBeCloseTo(170, -1.5);
+
+    // The full result on the marked fixtures, which hold no diagnostic: the
+    // contract alone. Measured: 1202 — about three Boards, paid only when called.
+    // It does not depend on the workspace: the legacy fixture, holding no
+    // Ticket and nothing diagnosed, returns the same text.
+    const full = await frontier.call('check_tracker');
+    expect(full).toMatch(/^diagnostics: none, nothing to fix$/m);
+    expect(tokens(full)).toBeCloseTo(1200, -1.5);
+    const legacy = await makeLegacyWorkspace({ telegram: 'sobrina-telegram' });
+    expect(await (await connectFrontier({ cwd: legacy, env: {} })).call('check_tracker')).toBe(
+      full,
+    );
+  });
+});
+
 describe('reads', () => {
   it('never modify a file, so querying the tracker is not a source of git noise', async () => {
     const root = await makeMarkedWorkspace({
