@@ -12,6 +12,11 @@ import { createMarkdownDriver } from './storage/markdown/driver.ts';
 import type { StorageDriver, TicketWriteResult } from './storage/driver.ts';
 import { NoSuchMap, NoSuchTicket, RevisionMismatch } from './storage/driver.ts';
 import {
+  checkTrackerDescription,
+  checkTrackerInputSchema,
+  renderCheck,
+} from './tools/check-tracker.ts';
+import {
   createTicketsDescription,
   createTicketsInputSchema,
   planBatch,
@@ -27,6 +32,7 @@ import {
 import {
   getTicketsDescription,
   getTicketsInputSchema,
+  renderExcluded,
   renderTickets,
 } from './tools/get-tickets.ts';
 import {
@@ -35,11 +41,6 @@ import {
   renderEfforts,
   renderNoTracker,
 } from './tools/list-efforts.ts';
-import {
-  migrateEffortDescription,
-  migrateEffortInputSchema,
-  renderMigration,
-} from './tools/migrate-effort.ts';
 import { renderSpec, specDescription, specInputSchema } from './tools/spec.ts';
 import { withWorkspace } from './tools/workspace-line.ts';
 import {
@@ -93,6 +94,15 @@ export interface CreateServerOptions {
    * Ignored when `createDriver` is supplied — a driver constructs its own.
    */
   readonly watcherDebounceMs?: number;
+  /**
+   * Watch directory by directory, as on Linux, whatever the platform, so a
+   * test on macOS runs the mode Linux runs. Only `true` exists: no value can
+   * select the recursive watch where it is not native (T99). Ignored when
+   * `createDriver` is supplied.
+   *
+   * @internal
+   */
+  readonly watcherPerDirectory?: true;
 }
 
 export interface FrontierMCP {
@@ -108,6 +118,11 @@ export interface FrontierMCP {
 }
 
 /** Injectable so a test can pin the moment a claim was taken. */
+/** Every schema key, reserved from `extra` and `drop_keys`: the contract's own list, so a new field is reserved with no change here. */
+function reservedKeys(driver: StorageDriver): ReadonlySet<string> {
+  return new Set(driver.contract().fields.map(field => field.key));
+}
+
 function now(): string {
   return new Date().toISOString();
 }
@@ -120,12 +135,14 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
   const registry = createDriverRegistry(
     options.createDriver ??
       (root =>
-        createMarkdownDriver(
-          root,
-          options.watcherDebounceMs === undefined
+        createMarkdownDriver(root, {
+          ...(options.watcherDebounceMs === undefined
             ? {}
-            : { watcherDebounceMs: options.watcherDebounceMs },
-        )),
+            : { watcherDebounceMs: options.watcherDebounceMs }),
+          ...(options.watcherPerDirectory === undefined
+            ? {}
+            : { watcherPerDirectory: options.watcherPerDirectory }),
+        })),
   );
 
   const server = new McpServer(
@@ -219,9 +236,9 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
     },
     async ({ ids, root }) => {
       const workspace = resolveWorkspace(root, context);
-      const found = await registry.forWorkspace(workspace).readTickets(ids);
-
-      return { content: [{ type: 'text', text: renderTickets(ids, found) }] };
+      const driver = registry.forWorkspace(workspace);
+      const { tickets, diagnostics } = await driver.readTickets(ids);
+      return { content: [{ type: 'text', text: renderTickets(ids, tickets, diagnostics) }] };
     },
   );
 
@@ -245,7 +262,12 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       // Every name and reference is settled before anything is written, so a
       // refusal — a taken name, a cycle — leaves the workspace exactly as it
       // was. The driver runs the same rules again on a fresh read.
-      const { drafts, settle } = planBatch(tickets, await driver.listTickets(), effort);
+      const { drafts, settle } = planBatch(
+        tickets,
+        await driver.listTickets(),
+        effort,
+        tickets.some(ticket => ticket.extra !== undefined) ? reservedKeys(driver) : new Set(),
+      );
       const created = await driver.createTickets(effort, drafts, {
         createEffort: create === true,
         settle,
@@ -286,9 +308,11 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       status,
       triage,
       blocked_by,
+      tags,
       comment,
       tick,
       drop_keys,
+      extra,
       title,
       kind,
       type,
@@ -297,6 +321,13 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       const workspace = resolveWorkspace(root, context);
       const driver = registry.forWorkspace(workspace);
       const tickets = await driver.listTickets();
+      // A marked file excluded for its faults is never written; say why, not just "no Ticket".
+      if (indexNames(tickets).input(id).length === 0) {
+        const diagnostics = (await driver.diagnosticsFor([id])).get(id) ?? [];
+        if (diagnostics.length > 0) {
+          throw new Error(`Nothing was written: ${renderExcluded(id, diagnostics)}`);
+        }
+      }
 
       const request = {
         claim,
@@ -307,13 +338,17 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
         status,
         triage,
         blocked_by,
+        tags,
         comment,
         tick,
         drop_keys,
+        extra,
         title,
         kind,
         type,
       };
+      const reserved =
+        extra === undefined && drop_keys === undefined ? new Set<string>() : reservedKeys(driver);
       const find = (from: readonly TicketSummary[]): readonly [TicketSummary, number, string] => {
         const names = indexNames(from);
         const claimants = names.input(id);
@@ -334,13 +369,14 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       const settle =
         blocked_by === undefined
           ? undefined
-          : (fresh: readonly TicketSummary[]) => editFor(find(fresh)[0], fresh, request, at);
+          : (fresh: readonly TicketSummary[]) =>
+              editFor(find(fresh)[0], fresh, request, at, reserved);
 
       let written: TicketWriteResult;
       try {
         written = await driver.updateTicket(
           address,
-          editFor(ticket, tickets, request, at),
+          editFor(ticket, tickets, request, at, reserved),
           ticket.revision,
           settle,
         );
@@ -353,7 +389,7 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
         // retried — a mismatch may equally be somebody's hand edit, and
         // overwriting that is exactly what the check exists to prevent.
         const fresh = await driver.listTickets();
-        editFor(find(fresh)[0], fresh, request, now());
+        editFor(find(fresh)[0], fresh, request, now(), reserved);
         throw error;
       }
 
@@ -457,33 +493,29 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
   );
 
   server.registerTool(
-    'migrate_effort',
+    'check_tracker',
     {
-      title: 'Migrate Effort',
-      description: migrateEffortDescription,
-      inputSchema: migrateEffortInputSchema,
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-        openWorldHint: false,
-      },
+      title: 'Check Tracker',
+      description: checkTrackerDescription,
+      inputSchema: checkTrackerInputSchema,
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async ({ effort, preview, root }) => {
+    // A read, so it names no workspace (T11).
+    async ({ effort, root }) => {
       const workspace = resolveWorkspace(root, context);
       const driver = registry.forWorkspace(workspace);
-      const report = await driver.migrateEffort(effort, {
-        preview: preview === true,
-      });
-
-      // A preview writes nothing, and neither does a run that finds nothing to
-      // normalize — an Effort already in schema reports no changes and leaves
-      // every file alone. Both are reads, whatever the flag said.
-      const wrote = preview !== true && report.changes.length > 0;
-
-      const rendered = renderMigration(report);
+      const found = await driver.trackerDiagnostics();
+      const efforts = found.filter(entry => entry.effort);
+      if (effort !== undefined && !efforts.some(entry => entry.slug === effort)) {
+        throw new Error(
+          `No Effort '${effort}' in ${workspace}. Known: ${efforts.map(e => e.slug).join(', ') || '(none)'}`,
+        );
+      }
+      const diagnostics = found
+        .filter(entry => effort === undefined || (entry.effort && entry.slug === effort))
+        .flatMap(entry => entry.diagnostics);
       return {
-        content: [{ type: 'text', text: wrote ? withWorkspace(workspace, rendered) : rendered }],
+        content: [{ type: 'text', text: renderCheck(driver.contract(), diagnostics, effort) }],
       };
     },
   );

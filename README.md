@@ -131,6 +131,41 @@ references a call accepts and the hand-written file conventions are in
 [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md); the reasoning is in
 [ADR 0008](docs/adr/0008-a-ticket-is-named-by-its-path.md).
 
+## Upgrading from 2.x
+
+**Existing Tickets stop being Tickets on upgrade.** In 3.0 a file is a Ticket only when its
+frontmatter carries the line `frontier: ticket` and it sits directly in an Effort's `issues/`
+([ADR 0009](docs/adr/0009-a-ticket-is-recognized-by-an-explicit-marker.md)). Until the line is
+added, a 2.x Ticket is an unmarked file: off every Board, off the Frontier, never written. Its id
+and its name come back unchanged once it is marked.
+
+**The server never adds the marker.** Nothing is migrated, normalized or moved, and
+`migrate_effort` is gone. Add the line by hand, or have an agent add it, after upgrading:
+
+```yaml
+---
+frontier: ticket
+id: T12
+title: Cache the access token
+status: open
+---
+```
+
+To find the files to mark:
+
+- `list_efforts` suffixes an Effort `unmarked=N` while N of its `issues/` files have frontmatter
+  holding `title` and `status` but no marker.
+- `get_board` names them on an `unmarked-ticket-like` warning line, three at a time with a count.
+- `check_tracker` lists every one, with the schema, the layout contract and a valid example.
+- A file with no frontmatter at all, such as one 2.x read from prose, is not listed. Run 2.x's
+  `migrate_effort` on its Effort before upgrading, or write its frontmatter by hand.
+
+Once marked, a file must also validate. One that does not — an unknown `status`, a missing `title`,
+YAML that does not parse — is counted `excluded=N` and named on the Board with its fault, and
+`get_tickets` on its name gives the detail. A hand edit carries no revision check, so mark files
+while no session is writing to the tracker. A vendored copy of the tracker document should be
+replaced with revision 9.
+
 ## Upgrading from 1.x
 
 **Existing Tickets need no action.** Every id a file already carries keeps resolving, as an Edge and
@@ -150,11 +185,8 @@ What breaks in 2.0:
   sets it draws one Board warning and can be deleted.
 - **`<effort>#<order>` is gone**, and so is the Board's `no id` warning. A Ticket with no `id` is
   addressed by its name.
-- **`migrate_effort` mints no ids.** It gives a file with no parseable frontmatter the schema block
-  and rewrites bare sort-order Edges (`01`) to names.
-- **Foreign means only a file with no parseable frontmatter.** A fenced Ticket holding keys outside
-  the schema is counted on the Board as holding Unimported keys, and `update_ticket` `drop_keys`
-  removes them.
+- **A fenced Ticket holding keys outside the schema** is counted on the Board as holding Unimported
+  keys, and `update_ticket` `drop_keys` removes them.
 - **A Board lists blockers above the Tickets they block.** An existing `NN-` prefix only breaks
   ties.
 - **An Edge that looks like a slip is refused** rather than left dangling: a near miss of an
@@ -164,7 +196,8 @@ What breaks in 2.0:
 - **Creating a Ticket needs a filesystem with hard links.**
 
 An Effort slug that would step outside `.scratch/` is refused, as it has been since 1.0.1. A vendored
-copy of the tracker document should be replaced with revision 8.
+copy of the tracker document should be replaced with revision 8. Then read
+[Upgrading from 2.x](#upgrading-from-2x).
 
 ## Override the workspace
 
@@ -180,7 +213,7 @@ the server.
 ## Tools
 
 Eight tools: `list_efforts`, `get_board`, `get_tickets`, `create_tickets`, `update_ticket`,
-`edit_map`, `spec`, `migrate_effort`. See the tracker configuration document for when to use each.
+`edit_map`, `spec`, `check_tracker`. See the tracker configuration document for when to use each.
 
 ## Development
 

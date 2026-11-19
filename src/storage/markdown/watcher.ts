@@ -1,6 +1,8 @@
 import { existsSync, readdirSync, watch, type FSWatcher } from 'node:fs';
 import { join } from 'node:path';
 
+import { isEffortSlug, ISSUES_DIR } from './schema.ts';
+
 export interface StorageWatcher {
   close(): void;
 }
@@ -11,6 +13,13 @@ export interface WatchStorageOptions {
   // object one present key at a time.
   readonly debounceMs?: number | undefined;
   readonly settleMs?: readonly number[] | undefined;
+  /**
+   * Watch the scanned directories one by one even where a native recursive
+   * watch exists, so the per-directory set Linux uses can be exercised on any
+   * platform. Only `true` exists: nothing may choose the recursive watch where
+   * it is not native, which on Linux kills the process (T99).
+   */
+  readonly perDirectory?: true | undefined;
 }
 
 /**
@@ -48,7 +57,9 @@ const DEFAULT_SETTLE_MS: readonly number[] = [50, 250, 1000];
 const NATIVE_RECURSIVE = process.platform === 'darwin' || process.platform === 'win32';
 
 /**
- * One non-recursive watch per directory under `dir`. The set of directories is
+ * One non-recursive watch per directory the scan lists under `dir` (ADR 0009):
+ * `dir` itself, each Effort directory in it, and each Effort's `issues/` —
+ * nothing deeper, and no link followed below `dir`. The set of directories is
  * re-synced on `resync()`, which the caller runs before each invalidation, so a
  * directory created during a debounce is watched before the scan that reads
  * it. Every filesystem call is caught: this runs in our own event callback,
@@ -61,7 +72,7 @@ function watchDirectories(
   const watchers = new Map<string, FSWatcher>();
   const resync = (): boolean => {
     const seen = new Set<string>();
-    const visit = (path: string) => {
+    const visit = (path: string, depth: number) => {
       seen.add(path);
       if (!watchers.has(path)) {
         try {
@@ -82,9 +93,16 @@ function watchDirectories(
       } catch {
         return;
       }
-      for (const entry of entries) if (entry.isDirectory()) visit(join(path, entry.name));
+      if (depth === 2) return;
+      for (const entry of entries) {
+        // A Dirent does not follow links, so a linked Effort or issues/ is not entered.
+        if (!entry.isDirectory()) continue;
+        if (depth === 0 && !isEffortSlug(entry.name)) continue;
+        if (depth === 1 && entry.name !== ISSUES_DIR) continue;
+        visit(join(path, entry.name), depth + 1);
+      }
     };
-    visit(dir);
+    visit(dir, 0);
     for (const [path, watcher] of watchers) {
       if (seen.has(path)) continue;
       watcher.close();
@@ -129,8 +147,13 @@ export function watchStorage(
   root: string,
   storageDir: string,
   invalidate: () => void,
-  { debounceMs = DEFAULT_DEBOUNCE_MS, settleMs = DEFAULT_SETTLE_MS }: WatchStorageOptions = {},
+  {
+    debounceMs = DEFAULT_DEBOUNCE_MS,
+    settleMs = DEFAULT_SETTLE_MS,
+    perDirectory: forcePerDirectory,
+  }: WatchStorageOptions = {},
 ): StorageWatcher {
+  const perDirectory = forcePerDirectory === true || !NATIVE_RECURSIVE;
   const storagePath = join(root, storageDir);
   let timer: ReturnType<typeof setTimeout> | undefined;
   let storageWatcher: StorageWatcher | undefined;
@@ -179,7 +202,7 @@ export function watchStorage(
   const attachStorageWatcher = () => {
     if (storageWatcher !== undefined || !existsSync(storagePath)) return;
     try {
-      if (NATIVE_RECURSIVE) {
+      if (!perDirectory) {
         const watcher = watch(storagePath, { recursive: true }, () => {
           scheduleInvalidate();
         });

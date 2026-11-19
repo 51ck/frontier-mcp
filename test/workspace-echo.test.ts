@@ -5,7 +5,7 @@ import {
   cleanupFixtures,
   connectFrontier,
   makeFixtureTree,
-  makeForeignWorkspace,
+  makeMarkedWorkspace,
 } from './support/harness.ts';
 import { tokens } from './support/tokens.ts';
 import { workspaceLine } from '../src/tools/workspace-line.ts';
@@ -90,17 +90,6 @@ describe('a write names the workspace it resolved', () => {
     expect(namesWorkspace(text, root)).toBe(true);
   });
 
-  it('on migrate_effort when it normalizes something', async () => {
-    // Real Foreign files, because an Effort already in schema is normalized by
-    // doing nothing — and doing nothing is a read.
-    const root = await makeForeignWorkspace({ telegram: 'sobrina-telegram' });
-    const frontier = await connectFrontier({ cwd: root, env: {} });
-
-    const text = await frontier.call('migrate_effort', { effort: 'telegram' });
-
-    expect(namesWorkspace(text, root)).toBe(true);
-  });
-
   it('naming the workspace the call resolved, not the session default', async () => {
     const session = await makeFixtureTree(WORKSPACE);
     const other = await makeFixtureTree(WORKSPACE);
@@ -141,24 +130,12 @@ describe('a read does not, even through a tool that can write', () => {
     expect(text).not.toContain('root: ');
   });
 
-  it('migrate_effort in preview', async () => {
-    const root = await makeForeignWorkspace({ telegram: 'sobrina-telegram' });
+  it('check_tracker, whole workspace and one Effort', async () => {
+    const root = await makeMarkedWorkspace({ telegram: 'sobrina-telegram' });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    const text = await frontier.call('migrate_effort', { effort: 'telegram', preview: true });
-
-    expect(text).not.toContain('root: ');
-  });
-
-  it('migrate_effort on an Effort already in schema, which writes nothing', async () => {
-    const root = await makeFixtureTree(WORKSPACE);
-    const frontier = await connectFrontier({ cwd: root, env: {} });
-
-    const text = await frontier.call('migrate_effort', { effort: 'demo' });
-
-    // Not a preview, so the flag says write. Nothing was written, so the line
-    // would be claiming a change that never happened.
-    expect(text).not.toContain('root: ');
+    expect(await frontier.call('check_tracker')).not.toContain('root: ');
+    expect(await frontier.call('check_tracker', { effort: 'telegram' })).not.toContain('root: ');
   });
 
   it('get_board and get_tickets', async () => {
@@ -196,7 +173,7 @@ describe('what naming the workspace costs', () => {
   });
 
   it('buys the whole write path for less than one Board', async () => {
-    const root = await makeForeignWorkspace({ telegram: 'sobrina-telegram' });
+    const root = await makeMarkedWorkspace({ telegram: 'sobrina-telegram' });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
     const board = tokens(await frontier.call('get_board', { effort: 'telegram' }));

@@ -23,6 +23,8 @@ export interface CreateRequest {
   readonly settle: (tickets: readonly TicketSummary[]) => readonly TicketDraft[];
   /** Whether the Effort's directory has to be made, and unmade if nothing lands. */
   readonly createEffort: boolean;
+  /** Throws for a file the scan would not read back as a Ticket. Run on every file before any is staged. */
+  readonly validate: (name: string, filename: string, contents: string) => void;
 }
 
 /** A Ticket file this call wrote, with the text it was given. */
@@ -40,7 +42,7 @@ export interface WrittenFile {
  * so nothing but a Ticket can be left behind.
  */
 export async function createTicketFiles(request: CreateRequest): Promise<readonly WrittenFile[]> {
-  const { effort, dir, issues, rescan, settle, createEffort } = request;
+  const { effort, dir, issues, rescan, settle, createEffort, validate } = request;
 
   // Nothing has been written or even created, so a refusal leaves no trace.
   const drafts = settle(await rescan());
@@ -57,10 +59,14 @@ export async function createTicketFiles(request: CreateRequest): Promise<readonl
         status: 'open',
         triage: draft.triage,
         blockedBy: draft.blockedBy,
+        tags: draft.tags,
       },
       draft.body,
+      draft.extra,
     ),
   }));
+
+  for (const file of files) validate(file.name, file.filename, file.contents);
 
   // A path already held is refused here, before anything is staged or linked:
   // found at the link instead, the files linked before it would be visible to

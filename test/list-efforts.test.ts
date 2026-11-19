@@ -159,7 +159,7 @@ describe('list_efforts in a repository with no tracker', () => {
     await frontier.call('get_tickets', { ids: ['T1'] });
     await frontier.callExpectingError('edit_map', { effort: 'nothing' });
     await frontier.callExpectingError('spec', { effort: 'nothing' });
-    await frontier.callExpectingError('migrate_effort', { effort: 'nothing', preview: true });
+    await frontier.call('check_tracker');
 
     expect(existsSync(join(root, '.scratch'))).toBe(false);
   });

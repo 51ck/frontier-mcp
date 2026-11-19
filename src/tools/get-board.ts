@@ -4,6 +4,7 @@ import type { Effort, Status, TicketSummary } from '../domain.ts';
 import { boardOrder } from '../board-order.ts';
 import { frontierOf } from '../frontier.ts';
 import { fullNameOf, indexNames, type Names } from '../names.ts';
+import { groupedDiagnostics } from './diagnostics.ts';
 
 export const getBoardInputSchema = z.object({
   effort: z.string().describe('Effort slug, as reported by list_efforts.'),
@@ -174,8 +175,7 @@ const LIFECYCLE_FIELDS: readonly (readonly [
  * Broken Edges surface here rather than through a separate validation tool,
  * because a validation tool nobody calls is a validator that does not exist.
  *
- * Every warning is grouped, never itemized per Ticket. An Effort of Foreign
- * Tickets can carry a dangling Edge on nearly every one of them, and a warnings
+ * Every warning is grouped, never itemized per Ticket or per file. A warnings
  * block longer than the Board it annotates would undo the saving the Board
  * exists to deliver.
  */
@@ -183,8 +183,6 @@ function collectWarnings(board: Board): string[] {
   const warnings: string[] = [...board.workspaceWarnings];
   const dangling = new Set<string>();
   const orphaned = new Set<string>();
-  const unrecognized = new Set<string>();
-  const collapsed = new Set<string>();
   const declined = new Set<string>();
   const stale = new Set<string>();
 
@@ -196,14 +194,10 @@ function collectWarnings(board: Board): string[] {
       else if (blocker.status === 'dropped') orphaned.add(ticket.name);
     }
 
-    if (ticket.unrecognizedStatus !== undefined) {
-      unrecognized.add(`${ticket.name} "${ticket.unrecognizedStatus}"`);
-    }
     // Still takeable as far as the graph is concerned — a Triage role never
     // moves the Frontier — but somebody has declined it, which is worth saying
     // before an agent picks it up.
     if (ticket.status === 'open' && ticket.triage === 'wontfix') declined.add(ticket.name);
-    for (const ref of ticket.collapsedRefs) collapsed.add(ref);
     if (isStaleClaim(ticket)) stale.add(`${ticket.name} (${ticket.claimedBy ?? '?'})`);
   }
 
@@ -219,18 +213,6 @@ function collectWarnings(board: Board): string[] {
         [...orphaned].toSorted().join(' '),
     );
   }
-  if (unrecognized.size > 0) {
-    warnings.push(
-      `unrecognized status, kept off the Frontier (${String(unrecognized.size)}): ` +
-        [...unrecognized].toSorted().join(' '),
-    );
-  }
-  if (collapsed.size > 0) {
-    warnings.push(
-      `sub-slice Edges coarsened to their parent Ticket (${String(collapsed.size)}): ` +
-        [...collapsed].toSorted().join(' '),
-    );
-  }
   if (declined.size > 0) {
     warnings.push(
       `takeable but triaged wontfix — somebody declined these (${String(declined.size)}): ` +
@@ -244,13 +226,6 @@ function collectWarnings(board: Board): string[] {
     );
   }
 
-  const foreign = board.tickets.filter(ticket => ticket.foreign);
-  if (foreign.length > 0) {
-    warnings.push(
-      `${String(foreign.length)}/${String(board.tickets.length)} Tickets are Foreign — title, ` +
-        'status and Edges are inferred, not read from schema frontmatter. Run migrate_effort to normalize.',
-    );
-  }
   const unimported = board.tickets.filter(ticket => ticket.hasUnimportedKeys);
   if (unimported.length > 0) {
     warnings.push(
@@ -259,11 +234,8 @@ function collectWarnings(board: Board): string[] {
     );
   }
 
-  // A file with no fence records its answer as prose, so it never carries these
-  // fields; counting it would repeat the Foreign warning above as a false alarm.
-  const fielded = board.tickets.filter(ticket => !ticket.foreign);
   for (const [status, field, value] of LIFECYCLE_FIELDS) {
-    const holding = fielded.filter(ticket => ticket.status === status);
+    const holding = board.tickets.filter(ticket => ticket.status === status);
     const missing = holding.filter(ticket => value(ticket) === undefined).length;
     if (missing > 0) {
       warnings.push(
@@ -271,6 +243,8 @@ function collectWarnings(board: Board): string[] {
       );
     }
   }
+
+  warnings.push(...groupedDiagnostics(board.effort.diagnostics));
 
   return warnings;
 }

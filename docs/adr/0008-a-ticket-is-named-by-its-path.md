@@ -4,6 +4,11 @@ Supersedes [ADR 0006](./0006-ids-are-minted-by-pattern-and-guarded-only-when-cou
 Accepted on 2026-11-15 and built on the `feat/ticket-names` branch for 2.0, where nothing mints an id
 any longer; ADR 0006 remains the record of what 1.x ships.
 
+**Amended** by [ADR 0009](./0009-a-ticket-is-recognized-by-an-explicit-marker.md) for 3.0 at two
+clauses of "The rules": no id is read from prose, since a file with no parseable fence is not a
+Ticket; and "any stem is a name" holds only for a marked, valid file directly in `issues/`. Every
+other rule here stands.
+
 A new Ticket's name is where it lives. `PROJ-123.token-cache` is the file
 `.scratch/PROJ-123/issues/token-cache.md`: the Effort slug, a dot, and the file's stem. The creator
 chooses the stem, one to three meaningful words. The server mints nothing, and a Ticket written this
@@ -33,7 +38,8 @@ name ([2026-11-15 name fidelity](../research/2026-11-15-name-fidelity.md)).
 
 **A name is derived, in this order.** A file carrying `id:` is named by it, exactly as before. A file
 with no parseable fence whose prose declares an id is named by that. Otherwise the name is the file's
-stem with a leading `<digits>-` removed. Reading is lenient: any stem is a name.
+stem with a leading `<digits>-` removed. Reading is lenient: any stem is a name. *(Amended by ADR
+0009: the prose clause is removed, and only a marked, valid file is named at all.)*
 
 **Existing ids are read forever.** `T52` and `Tik4z0t` keep resolving as Edges and as tool input, and
 no existing file is renamed or rewritten. This is what lets 2.0 ship without a migration: commit

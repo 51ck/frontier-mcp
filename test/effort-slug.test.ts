@@ -35,7 +35,6 @@ const REFUSED: ReadonlyArray<readonly [name: string, slug: string]> = [
 const CALLS: ReadonlyArray<readonly [name: string, tool: string, args: Record<string, unknown>]> = [
   ['edit_map read', 'edit_map', {}],
   ['spec read', 'spec', {}],
-  ['migrate_effort preview', 'migrate_effort', { preview: true }],
   [
     'create_tickets create',
     'create_tickets',
@@ -44,7 +43,6 @@ const CALLS: ReadonlyArray<readonly [name: string, tool: string, args: Record<st
   ['edit_map create', 'edit_map', { create: true }],
   ['edit_map create with a section', 'edit_map', { create: true, destination: 'Out.' }],
   ['spec create', 'spec', { create: true, content: '# Out\n' }],
-  ['migrate_effort', 'migrate_effort', {}],
 ];
 
 async function snapshot(root: string): Promise<Record<string, string>> {
@@ -99,8 +97,6 @@ describe('an Effort slug that is one directory name', () => {
       expect(await frontier.call('spec', { effort: slug })).toContain('# Kept');
       expect(await readFile(join(dir, 'spec.md'), 'utf8')).toBe('# Kept\n');
 
-      await frontier.call('migrate_effort', { effort: slug, preview: true });
-      await frontier.call('migrate_effort', { effort: slug });
       expect(await frontier.call('get_board', { effort: slug })).toContain('Kept');
     },
   );

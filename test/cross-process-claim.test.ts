@@ -62,6 +62,7 @@ process.exit(0);
 `;
 
 const TICKET = `---
+frontier: ticket
 id: T1
 title: Contested
 kind: build

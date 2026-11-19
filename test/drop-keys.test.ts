@@ -14,9 +14,9 @@ const FENCE = [
   'title: One',
   'kind: build',
   'status: open',
-  '# about the tags',
-  'tags: [a, b] # trailing note',
-  'tag: z',
+  '# about the labels',
+  'labels: [a, b] # trailing note',
+  'label: z',
   'note: |',
   '  line one',
   '  line two',
@@ -34,7 +34,7 @@ const FENCE = [
 const BODY = '## Acceptance criteria\n\n- [ ] first thing\n';
 
 function file(fence: string, body = BODY): string {
-  return `---\n${fence}\n---\n\n${body}`;
+  return `---\nfrontier: ticket\n${fence}\n---\n\n${body}`;
 }
 
 async function setup(contents = file(FENCE), extra: Record<string, string> = {}) {
@@ -69,24 +69,24 @@ describe('update_ticket drop_keys', () => {
 
     const result = await frontier.call('update_ticket', {
       id: 'T1',
-      drop_keys: ['tag', 'note', 'nested', 'seq', 'tag'],
+      drop_keys: ['label', 'note', 'nested', 'seq', 'label'],
     });
 
     expect(result).toMatch(/^root: /m);
     expect(result).toContain('T1 updated');
-    // `tag` is a prefix of `tags`; only the exact key goes. A duplicate name is one drop.
-    expect(await read()).toBe(file(without('tag', 'note', 'nested', 'seq')));
+    // `label` is a prefix of `labels`; only the exact key goes. A duplicate name is one drop.
+    expect(await read()).toBe(file(without('label', 'note', 'nested', 'seq')));
   });
 
   it('takes a trailing comment with its entry and leaves an own-line comment above', async () => {
     const { frontier, read } = await setup();
 
-    await frontier.call('update_ticket', { id: 'T1', drop_keys: ['tags'] });
+    await frontier.call('update_ticket', { id: 'T1', drop_keys: ['labels'] });
 
     const after = await read();
     expect(after).not.toContain('trailing note');
-    expect(after).toContain('# about the tags\ntag: z');
-    expect(after).toBe(file(without('tags')));
+    expect(after).toContain('# about the labels\nlabel: z');
+    expect(after).toBe(file(without('labels')));
   });
 
   it('drops the last entry of a fence', async () => {
@@ -103,7 +103,7 @@ describe('update_ticket drop_keys', () => {
 
     const error = await frontier.callExpectingError('update_ticket', {
       id: 'T1',
-      drop_keys: ['tags', 'blocked_by'],
+      drop_keys: ['labels', 'blocked_by'],
     });
 
     expect(error).toContain('blocked_by is a schema key');
@@ -116,7 +116,7 @@ describe('update_ticket drop_keys', () => {
 
     const error = await frontier.callExpectingError('update_ticket', {
       id: 'T1',
-      drop_keys: ['tags', 'nope'],
+      drop_keys: ['labels', 'nope'],
       comment: 'hello',
       tick: ['first thing'],
     });
@@ -131,7 +131,7 @@ describe('update_ticket drop_keys', () => {
 
     await frontier.callExpectingError('update_ticket', {
       id: 'T1',
-      drop_keys: ['tags'],
+      drop_keys: ['labels'],
       tick: ['no such criterion'],
     });
 
@@ -143,15 +143,15 @@ describe('update_ticket drop_keys', () => {
 
     await frontier.call('update_ticket', {
       id: 'T1',
-      drop_keys: ['tags'],
-      comment: 'dropped the tags',
+      drop_keys: ['labels'],
+      comment: 'dropped the labels',
       tick: ['first thing'],
     });
 
     const after = await read();
-    expect(after).not.toContain('tags:');
+    expect(after).not.toContain('labels:');
     expect(after).toContain('- [x] first thing');
-    expect(after).toContain('dropped the tags');
+    expect(after).toContain('dropped the labels');
   });
 
   it('removes the Unimported frontmatter block once the last unimported key is gone', async () => {
@@ -162,7 +162,7 @@ describe('update_ticket drop_keys', () => {
 
     await frontier.call('update_ticket', {
       id: 'T1',
-      drop_keys: ['tags', 'tag', 'note', 'nested', 'seq', 'quoted'],
+      drop_keys: ['labels', 'label', 'note', 'nested', 'seq', 'quoted'],
     });
 
     expect(await frontier.call('get_tickets', { ids: ['T1'] })).not.toContain(
@@ -170,16 +170,16 @@ describe('update_ticket drop_keys', () => {
     );
   });
 
-  it('refuses an unfenced Ticket without normalizing it', async () => {
+  it('refuses an unfenced file, which is no Ticket, and leaves it as it is', async () => {
     const prose = '# T1 — One\n\nStatus: open\n\nProse only.\n';
     const { frontier, read } = await setup(prose);
 
     const error = await frontier.callExpectingError('update_ticket', {
       id: 'T1',
-      drop_keys: ['tags'],
+      drop_keys: ['labels'],
     });
 
-    expect(error).toContain('no parseable frontmatter');
+    expect(error).toContain("No Ticket 'T1'");
     expect(await read()).toBe(prose);
   });
 
@@ -205,9 +205,9 @@ describe('update_ticket drop_keys', () => {
     // A hand edit the cached scan has not seen, sized differently so the revision moves.
     await writeFile(join(root, FILE), (await read()).replace('title: One', 'title: One edited'));
 
-    await frontier.callExpectingError('update_ticket', { id: 'T1', drop_keys: ['tags'] });
+    await frontier.callExpectingError('update_ticket', { id: 'T1', drop_keys: ['labels'] });
 
-    expect(await read()).toContain('tags: [a, b]');
+    expect(await read()).toContain('labels: [a, b]');
   });
 });
 
@@ -219,16 +219,10 @@ describe('drop_keys refuses a cut that would damage the fence', () => {
       'base',
     ],
     [
-      'an entry sharing its line in a flow mapping',
-      '{id: T1, title: One, status: open, z: 2}',
-      'z',
-    ],
-    [
       'an anchor whose alias would fall back to an earlier one',
       'id: T1\ntitle: One\nx: &s open\nz: &s resolved\nstatus: *s',
       'z',
     ],
-    ['the entry after a keep-chomped scalar', 'id: T1\ntitle: One\nlit: |+\n  a\n\nz: 1', 'z'],
   ])('refuses %s and writes nothing', async (_, fence, key) => {
     const { frontier, read } = await setup(file(fence));
     const before = await read();
@@ -243,16 +237,16 @@ describe('drop_keys refuses a cut that would damage the fence', () => {
     expect(await frontier.call('get_board', { effort: 'alpha' })).toContain('T1  One');
   });
 
-  it('refuses a fence the reader cannot parse with the typed failure', async () => {
+  it('refuses a marked fence the reader cannot parse with its diagnostic', async () => {
     const { frontier, read } = await setup(file('id: T1\ntitle: One\nw: *q\nz: 1'));
     const before = await read();
 
     const error = await frontier.callExpectingError('update_ticket', {
-      id: 'T1-one',
+      id: 'alpha.T1-one',
       drop_keys: ['z'],
     });
 
-    expect(error).toContain('no parseable frontmatter');
+    expect(error).toContain('yaml-unparseable (excluded)  .scratch/alpha/issues/01-T1-one.md');
     expect(await read()).toBe(before);
   });
 
@@ -292,23 +286,5 @@ describe('drop_keys on a fence with no id', () => {
     expect(await frontier.call('get_tickets', { ids: ['foreign'] })).not.toContain(
       '## Unimported frontmatter',
     );
-  });
-  it('gives a fence left with no key the schema block, never an empty fence', async () => {
-    const root = await makeFixtureTree({
-      '.scratch/alpha/map.md': map('Somewhere.'),
-      [FOREIGN]: file('labels: bug', '# Export\n\nBody.\n'),
-    });
-    const frontier = await connectFrontier({ cwd: root, env: {} });
-
-    await frontier.call('update_ticket', { id: 'foreign', drop_keys: ['labels'] });
-    await frontier.call('update_ticket', { id: 'foreign', comment: 'Still fine.' });
-
-    const written = await readFile(join(root, FOREIGN), 'utf8');
-    expect(written).not.toContain('null');
-    expect(written).toMatch(/^---\ntitle: /);
-    const board = await frontier.call('get_board', { effort: 'alpha' });
-    expect(board).not.toContain('Foreign');
-    expect(board).not.toContain('Unimported');
-    expect(board).toContain('> foreign  ');
   });
 });

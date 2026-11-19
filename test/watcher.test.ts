@@ -91,6 +91,41 @@ describe('filesystem watcher', { timeout: TEST_TIMEOUT_MS }, () => {
     expect(board).toContain('gist=Hand edit.');
   });
 
+  // Linux's mode, forced so it runs on every platform. What it proves is that a
+  // change in each kind of watched directory is heard, an Effort made after
+  // start included; which directories it leaves unwatched is not observable here.
+  it('in per-directory mode hears the storage root, an Effort and its issues/', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      [FILE]: ticket('T1', 'Open work'),
+    });
+    const frontier = await connectFrontier({
+      cwd: root,
+      env: {},
+      watcherDebounceMs: DEBOUNCE_MS,
+      watcherPerDirectory: true,
+    });
+    expect(await frontier.call('get_board', { effort: 'alpha' })).toContain('Open work');
+
+    await writeFile(join(root, FILE), ticket('T1', 'Edited in issues'), 'utf8');
+    await waitFor(
+      () => frontier.call('get_board', { effort: 'alpha' }),
+      text => text.includes('Edited in issues'),
+    );
+
+    await mkdir(join(root, '.scratch/beta/issues'), { recursive: true });
+    await waitFor(
+      () => frontier.call('list_efforts'),
+      text => /^beta /m.test(text),
+    );
+    await writeFile(join(root, '.scratch/beta/issues/late.md'), ticket('T2', 'Late one'), 'utf8');
+    const board = await waitFor(
+      () => frontier.call('get_board', { effort: 'beta' }),
+      text => text.includes('Late one'),
+    );
+    expect(board).toContain('Late one');
+  });
+
   it('survives a watched directory being replaced by a same-named file (T99)', async () => {
     const root = await makeFixtureTree({
       [FILE]: ticket('T1', 'Before the swap'),

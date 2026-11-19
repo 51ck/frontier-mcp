@@ -30,7 +30,8 @@ These scripts provide runtime probes and setup helpers for T88–T91.
 - `frontier-setup.cjs` is a dependency-free Node 16 bootstrap. It reads the exact released pin's
   engine declaration, uses a resolved compatible Node plus its pnpm/Corepack JavaScript entry,
   installs directly into a unique immutable user-data directory, verifies real MCP initialization
-  and `tools/list`, then previews or applies Cursor or Claude Code user configuration. It never relocates that
+  and `tools/list` — eight tools, the eighth `migrate_effort` before 3.0 and `check_tracker` from
+  3.0, either accepted for any `--version` — then previews or applies Cursor or Claude Code user configuration. It never relocates that
   directory after pnpm runs because pnpm's Windows directory junctions retain their absolute target.
   It ships in the package as bootstrap revision 3 (0.5.0 shipped 2). Its private `testing` export exists solely for the
   adjacent process-level check to force races and protocol failures; it is not a supported interface.

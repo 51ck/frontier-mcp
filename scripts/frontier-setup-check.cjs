@@ -367,7 +367,7 @@ async function protocolShutdownCheck(checkTemporary, node) {
     'get_board',
     'get_tickets',
     'list_efforts',
-    'migrate_effort',
+    'check_tracker',
     'spec',
     'update_ticket',
   ];

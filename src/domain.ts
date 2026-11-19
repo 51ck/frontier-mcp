@@ -29,6 +29,8 @@ export function bareIdOf(name: string): string | undefined {
 
 export const STATUSES: readonly Status[] = ['open', 'claimed', 'resolved', 'dropped'];
 
+export const KINDS: readonly Kind[] = ['build', 'decision'];
+
 /**
  * A Ticket without its body — everything a Board line needs. Bodies are fetched
  * separately, so a Board never pays for prose it does not show.
@@ -64,6 +66,11 @@ export interface TicketSummary {
    * Effort, a full `<effort>.<name>`, or an id resolved repo-wide.
    */
   readonly blockedBy: readonly string[];
+  /**
+   * Tags, as written: no folding, trimming or deduplication. They mean nothing
+   * to Status, Edges or the Frontier. Empty when the Ticket carries none.
+   */
+  readonly tags: readonly string[];
   /** The slug of the Effort that owns this Ticket. */
   readonly effort: string;
   /**
@@ -72,24 +79,10 @@ export interface TicketSummary {
    */
   readonly orderHint: number | undefined;
   /**
-   * A Ticket whose file has no parseable fence: no frontmatter, or a fence whose
-   * YAML is not a mapping. Evaluated on every read, never provenance. Its title,
-   * status, and Edges are inferred from prose, which an agent should distrust. A
-   * fence that parses is never Foreign, whatever it holds; a status that will not
-   * map is flagged by `unrecognizedStatus` instead.
-   */
-  readonly foreign: boolean;
-  /**
    * Whether the fence carries a key outside the schema. Known from the scan, so
    * a Board can count these; the keys themselves travel only on {@link Ticket}.
    */
   readonly hasUnimportedKeys: boolean;
-  /** The raw status text of a Ticket whose value did not map, fenced or prose. */
-  readonly unrecognizedStatus: string | undefined;
-  /** Prose sub-slice references (`T38.1`) coarsened to a Ticket of the same Effort. */
-  readonly collapsedRefs: readonly string[];
-  /** Prose sub-slice references kept as declared, their parent not a Ticket of this Effort. */
-  readonly keptSubSlices: readonly string[];
   /**
    * An opaque token for what was read. A write passes back the one it read and
    * is refused if the stored Ticket has moved on. The markdown driver builds it
@@ -144,6 +137,12 @@ export interface Effort {
    * Board that opens with nothing leaves every Ticket line below uninterpretable.
    */
   readonly specOpening: string | undefined;
+  /**
+   * What the Effort's known locations hold that is not a Ticket but should be
+   * looked at: marked files excluded for a fault, unmarked files that look like
+   * Tickets. Computed on every scan, never stored.
+   */
+  readonly diagnostics: readonly Diagnostic[];
 }
 
 /**
@@ -166,12 +165,16 @@ export interface TicketEdit {
   readonly answer?: string;
   /** Replaces the Edge list outright. An empty list clears it. */
   readonly blockedBy?: readonly string[];
+  /** Replaces the tags outright. An empty list removes the key. */
+  readonly tags?: readonly string[];
   /** Appended to the comment log, verbatim. Nothing is added around it. */
   readonly comment?: string;
   /** Acceptance criteria to tick, addressed by their text. */
   readonly tick?: readonly string[];
   /** Unimported frontmatter keys to delete. A schema key or an absent one fails the write. */
   readonly dropKeys?: readonly string[];
+  /** Top-level keys outside the schema, each set to its JSON value whole. */
+  readonly extra?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -189,6 +192,10 @@ export interface TicketDraft {
   readonly triage: TriageRole | undefined;
   /** Edges, as {@link TicketSummary.blockedBy} stores them. A sibling draft is named by its {@link name}. */
   readonly blockedBy: readonly string[];
+  /** Written as given; none writes no key. */
+  readonly tags: readonly string[];
+  /** Top-level keys outside the schema, appended after the schema fields. */
+  readonly extra: Readonly<Record<string, unknown>>;
   /** The prose, written verbatim. A draft with none produces a Ticket with none. */
   readonly body: string | undefined;
 }
@@ -244,53 +251,96 @@ export interface SpecDocument {
   readonly revision: string;
 }
 
-/** How a migration call runs. Filenames never change (T69). */
-export interface MigrateOptions {
-  /** Report every change and write nothing. The report names what a real run names. */
-  readonly preview: boolean;
+/** What a {@link Diagnostic} does to the file it names. */
+export type DiagnosticEffect = 'excluded' | 'suggestion';
+
+/**
+ * Why a file in a Ticket location is not a Ticket, or may be one left unmarked,
+ * and what each does to its file. `excluded` codes name a marked file kept off
+ * every Board, the Frontier, Edge resolution and every write; `suggestion`
+ * names an unmarked file that looks like a Ticket. A file that is neither — a
+ * README, notes — has none. The one list of codes.
+ */
+export const DIAGNOSTIC_EFFECTS = {
+  'yaml-unparseable': 'excluded',
+  'missing-key': 'excluded',
+  'invalid-value': 'excluded',
+  'ticket-outside-issues': 'excluded',
+  'directory-in-issues': 'excluded',
+  'symlinked-issues': 'excluded',
+  'symlinked-header-doc': 'excluded',
+  unreadable: 'excluded',
+  'unmarked-ticket-like': 'suggestion',
+} as const satisfies Record<string, DiagnosticEffect>;
+
+export type DiagnosticCode = keyof typeof DIAGNOSTIC_EFFECTS;
+
+export interface Diagnostic {
+  readonly code: DiagnosticCode;
+  readonly effect: DiagnosticEffect;
+  /** Workspace-root-relative, `/`-separated. */
+  readonly file: string;
+  /** The frontmatter key at fault, where one is. */
+  readonly key?: string;
+  readonly expected?: string;
+  readonly found?: string;
+  /** What to do by hand. The server never repairs a file. */
+  readonly fix: string;
+}
+
+/** How a frontmatter value is checked: the marker's one value, a scalar, one of a list, or a list. */
+export type FieldType = 'marker' | 'text' | 'enum' | 'list';
+
+/**
+ * One frontmatter key of a Ticket, as the validator enforces it. The driver
+ * holds the list; the contract a caller is shown is that same list.
+ */
+export interface FieldDefinition {
+  readonly key: string;
+  readonly type: FieldType;
+  /** Missing or blank excludes the file. */
+  readonly required: boolean;
+  /** The marker's one value, or an enum's values. */
+  readonly values?: readonly string[];
+  /** What each entry of a list names. */
+  readonly items?: string;
+  /** A list whose every entry must be a non-blank scalar; otherwise null and blank entries are dropped. */
+  readonly nonBlankEntries?: boolean;
+  /** Exactly what validation checks and how a value is read. */
+  readonly checked: string;
+  /** Guidance no validation enforces. */
+  readonly convention?: string;
+  /** What the example Ticket carries for it; a key without one is left out of the example. */
+  readonly example?: string | readonly string[];
+}
+
+/** One supported path and what it is for. */
+export interface LayoutPath {
+  readonly path: string;
+  readonly role: string;
+}
+
+/** A placement or file state the scan diagnoses, and the code it gets. */
+export interface UnsupportedPlacement {
+  readonly code: DiagnosticCode;
+  readonly effect: DiagnosticEffect;
+  readonly where: string;
 }
 
 /**
- * One Ticket a migration would write, or did — or, in a preview, one listed
- * only for its conflict, with neither `normalized` nor `edgesResolved` set.
+ * What a Ticket must be and where it must live, as the driver enforces it —
+ * built from the definitions validation and the scan read, never copied.
  */
-export interface MigrationChange {
-  /** The Ticket's name, which migration never changes. */
-  readonly name: string;
-  readonly title: string;
-  /** True when the file had no parseable fence, so it gains schema frontmatter. */
-  readonly normalized: boolean;
-  /** True when a bare sort-order Edge was rewritten to the name of the Ticket it meant. */
-  readonly edgesResolved: boolean;
-  /** The Ticket's basename, unchanged by migration. */
-  readonly filename: string;
-  /** Edges as they are written. */
-  readonly blockedBy: readonly string[];
-  /**
-   * Preview only: what this Ticket shares with another, and every Ticket file
-   * claiming it, this one included. A real run refuses with DuplicateId instead.
-   */
-  readonly duplicate:
-    | { readonly kind: 'id' | 'name'; readonly files: readonly string[] }
-    | undefined;
-}
-
-/** The result of migrating one Effort — enough for the tool to render a report. */
-export interface MigrationReport {
-  readonly effort: string;
-  readonly preview: boolean;
-  /** The Effort's Ticket directory relative to the workspace root, `/`-separated. */
-  readonly directory: string;
-  readonly changes: readonly MigrationChange[];
-  /** How many of the Effort's Tickets are not written, those listed only for a conflict included. */
-  readonly unchanged: number;
-  /** Written Edges landing on another Effort's Ticket, as `T9@beta` — likelier a misparse than intent. */
-  readonly crossEffortEdges: readonly string[];
-  /**
-   * Bare sort-order Edges (`01`) of the Effort left as declared: no one other
-   * Ticket's file carries the prefix under a name of its own.
-   */
-  readonly unresolvedSortOrders: readonly string[];
-  /** Sub-slice references (`T1.4`) written as declared because their parent is not in this Effort. */
-  readonly keptSubSlices: readonly string[];
+export interface TrackerContract {
+  readonly fields: readonly FieldDefinition[];
+  /** What a key outside {@link fields} is. */
+  readonly unimported: string;
+  /** Raised whenever a path, placement or rule below changes meaning. */
+  readonly layoutVersion: number;
+  readonly paths: readonly LayoutPath[];
+  readonly unsupported: readonly UnsupportedPlacement[];
+  readonly ignored: readonly string[];
+  readonly symlinks: string;
+  /** A Ticket file that validates, and the path it would sit at. */
+  readonly example: { readonly path: string; readonly contents: string };
 }

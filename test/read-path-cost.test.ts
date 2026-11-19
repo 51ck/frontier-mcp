@@ -2,7 +2,12 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { cleanupFixtures, connectFrontier, makeForeignWorkspace } from './support/harness.ts';
+import {
+  cleanupFixtures,
+  connectFrontier,
+  makeLegacyWorkspace,
+  makeMarkedWorkspace,
+} from './support/harness.ts';
 import { tokens } from './support/tokens.ts';
 
 afterEach(cleanupFixtures);
@@ -76,7 +81,11 @@ async function costOfReadingWhole(root: string, effort: string): Promise<number>
 
 describe('the cost of a Board', () => {
   it('reproduces the spec measurement of what reading an Effort whole costs', async () => {
-    const root = await makeForeignWorkspace({
+    const legacy = await makeLegacyWorkspace({
+      telegram: 'sobrina-telegram',
+      'ship-0-5-0': 'tag-customizer-ship-0-5-0',
+    });
+    const marked = await makeMarkedWorkspace({
       telegram: 'sobrina-telegram',
       'ship-0-5-0': 'tag-customizer-ship-0-5-0',
     });
@@ -84,12 +93,16 @@ describe('the cost of a Board', () => {
     // The spec's Problem Statement: telegram is 15 Tickets / 32.7 KB ~ 8.2k
     // tokens, ship-0-5-0 is 7 Tickets / 52.7 KB ~ 13k. These are the numbers the
     // whole project argues from, so they are pinned, not merely bounded.
-    expect(await costOfReadingWhole(root, 'telegram')).toBeCloseTo(8200, -2.5);
-    expect(await costOfReadingWhole(root, 'ship-0-5-0')).toBeCloseTo(13100, -2.5);
+    expect(await costOfReadingWhole(legacy, 'telegram')).toBeCloseTo(8200, -2.5);
+    expect(await costOfReadingWhole(legacy, 'ship-0-5-0')).toBeCloseTo(13100, -2.5);
+    // The same Tickets with schema frontmatter and the marker, which every
+    // Board below is measured on: 8,661 and 13,459, the frontmatter's cost.
+    expect(await costOfReadingWhole(marked, 'telegram')).toBeCloseTo(8700, -2.5);
+    expect(await costOfReadingWhole(marked, 'ship-0-5-0')).toBeCloseTo(13500, -2.5);
   });
 
   it('answers the same question for a small, pinned fraction of that', async () => {
-    const root = await makeForeignWorkspace({
+    const root = await makeMarkedWorkspace({
       telegram: 'sobrina-telegram',
       'ship-0-5-0': 'tag-customizer-ship-0-5-0',
     });
@@ -98,38 +111,50 @@ describe('the cost of a Board', () => {
     const measured = await Promise.all(
       (
         [
-          ['telegram', 15],
-          ['ship-0-5-0', 30],
+          ['telegram', 15, 15],
+          ['ship-0-5-0', 30, 7],
         ] as const
-      ).map(async ([effort, floor]) => ({
-        effort,
-        floor,
-        board: tokens(await frontier.call('get_board', { effort })),
-        whole: await costOfReadingWhole(root, effort),
-      })),
+      ).map(async ([effort, floor, count]) => {
+        const text = await frontier.call('get_board', { effort });
+        return {
+          floor,
+          count,
+          listed: text.split('\n').filter(line => /^(> )?\S+ {2}/.test(line)).length,
+          board: tokens(text),
+          whole: await costOfReadingWhole(root, effort),
+        };
+      }),
     );
 
-    for (const { board, whole, floor } of measured) {
+    for (const { board, whole, floor, count, listed } of measured) {
+      // Every Ticket is on the Board: one that lost some would pass both bounds below.
+      expect(listed).toBe(count);
+
       // The criterion is a comparison, so it is asserted as one: the Board is
       // measured *against* reading the same Effort whole, in one assertion.
       expect(whole / board).toBeGreaterThan(floor);
 
       // And pinned, not merely bounded — a Board that doubled would still clear
       // a ratio floor on an Effort this expensive, and quietly giving back the
-      // saving is the regression this file exists to catch. Measured: 473 for
-      // telegram, whose Tickets carry ids, and 386 for ship-0-5-0, whose seven
+      // saving is the regression this file exists to catch. Measured: 432 for
+      // telegram, whose Tickets carry ids, and 378 for ship-0-5-0, whose seven
       // are named by their files.
       expect(board).toBeLessThan(500);
     }
   });
 
   it('holds for an Effort of named Tickets, at the same bodies', async () => {
-    const root = await makeForeignWorkspace({ telegram: 'sobrina-telegram' });
+    const root = await makeMarkedWorkspace({ telegram: 'sobrina-telegram' });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
     const issues = join(root, '.scratch', 'telegram', 'issues');
     const files = (await readdir(issues)).toSorted();
-    const bodies = await Promise.all(files.map(async file => readFile(join(issues, file), 'utf8')));
+    // Prose only: the fixture's own frontmatter is not part of what create_tickets is given.
+    const bodies = await Promise.all(
+      files.map(async file =>
+        (await readFile(join(issues, file), 'utf8')).replace(/^---\n[\s\S]*?\n---\n/, ''),
+      ),
+    );
 
     await frontier.call('create_tickets', {
       effort: 'telegram-named',
@@ -145,7 +170,7 @@ describe('the cost of a Board', () => {
     const board = await frontier.call('get_board', { effort: 'telegram-named' });
     const whole = await costOfReadingWhole(root, 'telegram-named');
 
-    // Every line opens with a name and no Ticket is Foreign or unnamed.
+    // Every line opens with a name and no Ticket is unnamed.
     for (const [name, title] of NAMED_TELEGRAM) expect(board).toContain(`${name}  ${title}`);
     expect(board).not.toContain('warnings:');
 
@@ -156,16 +181,33 @@ describe('the cost of a Board', () => {
       board,
     );
 
-    // Measured: 354 tokens against 8,588 read whole, 24x; the id rendering
+    // Measured: 354 tokens against 8,651 read whole, 24x; the id rendering
     // is 244. Fifteen names and twenty-four Edges cost 110 tokens, under three
     // a reference, and the Board stays below either fixture's.
     expect(whole / tokens(board)).toBeGreaterThan(20);
     expect(tokens(board)).toBeLessThan(400);
     expect(tokens(board) / tokens(asIds)).toBeLessThan(1.5);
+
+    // What the Board would cost if each line showed two tags, rendered as
+    // get_tickets does. Boards show none; that choice is frontier-search's.
+    // Measured: 81 tokens, 354 to 435, about 5 a line.
+    let lines = 0;
+    const tagged = board
+      .split('\n')
+      .map(line => {
+        if (!NAMED_TELEGRAM.some(([name]) => line.replace(/^> /, '').startsWith(`${name}  `))) {
+          return line;
+        }
+        lines += 1;
+        return `${line}  tags=telegram,backend`;
+      })
+      .join('\n');
+    expect(lines).toBe(NAMED_TELEGRAM.length);
+    expect(tokens(tagged) - tokens(board)).toBeCloseTo(81, -1.5);
   });
 
   it('does not grow when an Effort carries far longer bodies', async () => {
-    const root = await makeForeignWorkspace({
+    const root = await makeMarkedWorkspace({
       telegram: 'sobrina-telegram',
       'ship-0-5-0': 'tag-customizer-ship-0-5-0',
     });
@@ -185,9 +227,40 @@ describe('the cost of a Board', () => {
   });
 });
 
+describe('the cost of check_tracker', () => {
+  it('costs less schema than the migrate_effort it replaced, and a fixed result', async () => {
+    const root = await makeMarkedWorkspace({
+      telegram: 'sobrina-telegram',
+      'ship-0-5-0': 'tag-customizer-ship-0-5-0',
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+    const { tools } = await frontier.client.listTools();
+    const schema = tokens(JSON.stringify(tools.find(tool => tool.name === 'check_tracker')));
+
+    // migrate_effort's tool entry measured 181 tokens on the wire before it was
+    // replaced; the slot is paid in every session, so the successor must not
+    // cost more. Measured: 170.
+    expect(schema).toBeLessThanOrEqual(181);
+    expect(schema).toBeCloseTo(170, -1.5);
+
+    // The full result on the marked fixtures, which hold no diagnostic: the
+    // contract alone. Measured: 1350 — about three Boards, paid only when called.
+    // The extra keys' rules took it from 1266.
+    // It does not depend on the workspace: the legacy fixture, holding no
+    // Ticket and nothing diagnosed, returns the same text.
+    const full = await frontier.call('check_tracker');
+    expect(full).toMatch(/^diagnostics: none, nothing to fix$/m);
+    expect(tokens(full)).toBeCloseTo(1350, -1.5);
+    const legacy = await makeLegacyWorkspace({ telegram: 'sobrina-telegram' });
+    expect(await (await connectFrontier({ cwd: legacy, env: {} })).call('check_tracker')).toBe(
+      full,
+    );
+  });
+});
+
 describe('reads', () => {
   it('never modify a file, so querying the tracker is not a source of git noise', async () => {
-    const root = await makeForeignWorkspace({
+    const root = await makeMarkedWorkspace({
       telegram: 'sobrina-telegram',
       'ship-0-5-0': 'tag-customizer-ship-0-5-0',
     });
@@ -203,5 +276,20 @@ describe('reads', () => {
 
     expect(before.size).toBeGreaterThan(20);
     expect([...after.entries()]).toEqual([...before.entries()]);
+  });
+});
+
+describe('the cost of extra', () => {
+  it('adds one argument to create_tickets and update_ticket, measured on the wire', async () => {
+    const root = await makeMarkedWorkspace({ telegram: 'sobrina-telegram' });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+    const { tools } = await frontier.client.listTools();
+    const entry = (name: string) => tokens(JSON.stringify(tools.find(tool => tool.name === name)));
+
+    // Paid in every session. Measured before extra: create_tickets 460,
+    // update_ticket 957; after: 525 and 1042, +65 and +85. The values are
+    // checked in code, not in the schema, which would add the JSON grammar.
+    expect(entry('create_tickets')).toBeCloseTo(525, -1.5);
+    expect(entry('update_ticket')).toBeCloseTo(1042, -1.5);
   });
 });

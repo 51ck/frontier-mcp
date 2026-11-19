@@ -58,8 +58,10 @@ describe('a file with no sort-order prefix', () => {
   it('is named by its whole stem, whatever order it lands on', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/spec.md': spec('Alpha'),
-      '.scratch/alpha/issues/02-b.md': '# 02 — Prefixed\n\nStatus: open\n\nPrefixed prose.\n',
-      '.scratch/alpha/issues/a.md': '# Unprefixed\n\nStatus: open\n\nUnprefixed prose.\n',
+      '.scratch/alpha/issues/02-b.md':
+        '---\nfrontier: ticket\ntitle: Prefixed\nstatus: open\n---\n\nPrefixed prose.\n',
+      '.scratch/alpha/issues/a.md':
+        '---\nfrontier: ticket\ntitle: Unprefixed\nstatus: open\n---\n\nUnprefixed prose.\n',
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 

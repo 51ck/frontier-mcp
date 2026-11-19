@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import type { Effort, TicketSummary } from '../domain.ts';
+import { filesWith } from './diagnostics.ts';
 import { workspaceLine } from './workspace-line.ts';
 
 /**
@@ -37,8 +38,12 @@ export function renderEfforts(
     for (const effort of efforts) {
       const docs = effort.headerDocs.length === 0 ? 'none' : effort.headerDocs.join(',');
       const size = takeable.get(effort.slug) ?? 0;
+      const excluded = filesWith(effort.diagnostics, 'excluded');
+      const unmarked = filesWith(effort.diagnostics, 'suggestion');
       lines.push(
-        `${effort.slug}  tickets=${effort.ticketCount}  docs=${docs}  frontier=${String(size)}`,
+        `${effort.slug}  tickets=${effort.ticketCount}  docs=${docs}  frontier=${String(size)}` +
+          (excluded > 0 ? `  excluded=${String(excluded)}` : '') +
+          (unmarked > 0 ? `  unmarked=${String(unmarked)}` : ''),
       );
     }
   }

@@ -9,9 +9,11 @@ afterEach(cleanupFixtures);
 
 const FILE = '.scratch/alpha/issues/01-foreign.md';
 
+/** A marked fence; `status: open` unless the fields say otherwise. */
 function fenced(fields: Record<string, string>, body = 'Body prose.'): string {
-  const lines = Object.entries(fields).map(([key, value]) => `${key}: ${value}`);
-  return `---\n${lines.join('\n')}\n---\n\n${body}\n`;
+  const all = { status: 'open', ...fields };
+  const lines = Object.entries(all).map(([key, value]) => `${key}: ${value}`);
+  return `---\nfrontier: ticket\n${lines.join('\n')}\n---\n\n${body}\n`;
 }
 
 function marked(board: string): string[] {
@@ -32,7 +34,7 @@ const UNIMPORTED =
   'update_ticket drop_keys removes them.';
 
 describe('a fence with a key outside the schema on read', () => {
-  it('counts a fence with no id and a stray key as holding Unimported keys, not as Foreign', async () => {
+  it('counts a fence with no id and a stray key as holding Unimported keys', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
       [FILE]: fenced({ labels: 'bug', title: 'GitHub export' }),
@@ -42,28 +44,10 @@ describe('a fence with a key outside the schema on read', () => {
     const board = await frontier.call('get_board', { effort: 'alpha' });
 
     expect(board).toContain(`  1/1 ${UNIMPORTED}`);
-    expect(board).not.toContain('Foreign');
     expect(ticketLine(board)).toMatch(/^> foreign  GitHub export  /);
-    expect(await frontier.call('get_tickets', { ids: ['foreign'] })).not.toMatch(/  foreign$/m);
   });
 
-  it('surfaces fenced status: closed as unrecognized and keeps it off the Frontier', async () => {
-    const root = await makeFixtureTree({
-      '.scratch/alpha/map.md': map('Somewhere.'),
-      [FILE]: fenced({ title: 'Closed export', status: 'closed' }),
-    });
-    const frontier = await connectFrontier({ cwd: root, env: {} });
-
-    const board = await frontier.call('get_board', { effort: 'alpha' });
-
-    expect(ticketLine(board)).toContain('/open');
-    expect(board).toContain('unrecognized status');
-    expect(board).toContain('kept off the Frontier');
-    expect(board).toContain('foreign "closed"');
-    expect(marked(board)).toEqual([]);
-  });
-
-  it('keeps a fence with a stray key and status: closed off the Frontier', async () => {
+  it('excludes a fence with a stray key and status: closed rather than counting its keys', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
       [FILE]: fenced({ github: '123', title: 'Both problems', status: 'closed' }),
@@ -72,9 +56,8 @@ describe('a fence with a key outside the schema on read', () => {
 
     const board = await frontier.call('get_board', { effort: 'alpha' });
 
-    expect(board).toContain(`  1/1 ${UNIMPORTED}`);
-    expect(board).not.toContain('are Foreign');
-    expect(board).toContain('unrecognized status');
+    expect(board).not.toContain(UNIMPORTED);
+    expect(board).toContain('invalid-value: ');
     expect(marked(board)).toEqual([]);
   });
 
@@ -106,7 +89,8 @@ const HEADING = '## Unimported frontmatter';
 
 describe('get_tickets on a fence with Unimported keys', () => {
   it('appends only the unimported entries of a fence with no id, each as the file has it', async () => {
-    const raw = 'labels: [bug, "ui"]   # trailing comment\ntitle: GitHub export\nnumber: 0042';
+    const raw =
+      'frontier: ticket\nlabels: [bug, "ui"]   # trailing comment\ntitle: GitHub export\nstatus: open\nnumber: 0042';
     const contents = `---\n${raw}\n---\n\nBody prose.\n`;
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
@@ -124,7 +108,8 @@ describe('get_tickets on a fence with Unimported keys', () => {
   });
 
   it('outruns a backtick fence inside an entry of a fence with no id', async () => {
-    const raw = 'title: GitHub export\nlabels: bug\nnote: |\n  ```\n  code\n  ````';
+    const raw =
+      'frontier: ticket\ntitle: GitHub export\nstatus: open\nlabels: bug\nnote: |\n  ```\n  code\n  ````';
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
       [FILE]: `---\n${raw}\n---\n\nBody prose.\n`,
@@ -179,26 +164,9 @@ describe('get_tickets on a fence with Unimported keys', () => {
     expect(await frontier.call('get_board', { effort: 'alpha' })).toContain(`  1/1 ${UNIMPORTED}`);
   });
 
-  it('is left alone by migrate_effort, which mints no id and keeps the stray keys', async () => {
-    const root = await makeFixtureTree({
-      '.scratch/alpha/map.md': map('Somewhere.'),
-      [FILE]: fenced({ labels: 'bug', title: 'GitHub export' }),
-    });
-    const frontier = await connectFrontier({ cwd: root, env: {} });
-    const before = await readFile(join(root, FILE), 'utf8');
-
-    const report = await frontier.call('migrate_effort', { effort: 'alpha', preview: false });
-
-    expect(report).toBe('alpha: migrated 0, unchanged 1\n(nothing to migrate)');
-    expect(await readFile(join(root, FILE), 'utf8')).toBe(before);
-    const out = await frontier.call('get_tickets', { ids: ['foreign'] });
-    expect(out).toContain('GitHub export');
-    expect(out.endsWith(`${HEADING}\n\n\`\`\`yaml\nlabels: bug\n\`\`\``)).toBe(true);
-  });
-
   it('shows a hand-annotated Ticket its stray entries verbatim, not id or status', async () => {
     const contents =
-      '---\nid: T1\nlabels: [bug,  "ui"]  # kept\ntitle: Annotated\nstatus: open\nmilestone:\n  name: v2\n  due: 2026-12-01\nblocked_by: []\n---\n\nBody prose.\n';
+      '---\nfrontier: ticket\nid: T1\nlabels: [bug,  "ui"]  # kept\ntitle: Annotated\nstatus: open\nmilestone:\n  name: v2\n  due: 2026-12-01\nblocked_by: []\n---\n\nBody prose.\n';
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
       '.scratch/alpha/issues/01-T1-annotated.md': contents,
@@ -222,7 +190,7 @@ describe('get_tickets on a fence with Unimported keys', () => {
     ['a non-scalar key', '[a, b]: c'],
     ['an explicit key', '? labels\n: bug'],
   ])('shows the whole fence when %s cannot be cut out cleanly', async (_, entry) => {
-    const fence = `id: T1\ntitle: A\n${entry}`;
+    const fence = `frontier: ticket\nid: T1\ntitle: A\nstatus: open\n${entry}`;
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
       '.scratch/alpha/issues/01-T1-a.md': `---\n${fence}\n---\n\nBody.\n`,
@@ -237,7 +205,8 @@ describe('get_tickets on a fence with Unimported keys', () => {
   it('outruns a backtick run inside an unimported entry', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
-      '.scratch/alpha/issues/01-T1-a.md': '---\nid: T1\ntitle: A\nnote: "````x"\n---\n\nBody.\n',
+      '.scratch/alpha/issues/01-T1-a.md':
+        '---\nfrontier: ticket\nid: T1\ntitle: A\nstatus: open\nnote: "````x"\n---\n\nBody.\n',
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
@@ -249,7 +218,8 @@ describe('get_tickets on a fence with Unimported keys', () => {
   it('never names an unimported key on a Board', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
-      '.scratch/alpha/issues/01-T1-a.md': '---\nid: T1\ntitle: A\nlabels: bug\n---\n\nBody.\n',
+      '.scratch/alpha/issues/01-T1-a.md':
+        '---\nfrontier: ticket\nid: T1\ntitle: A\nstatus: open\nlabels: bug\n---\n\nBody.\n',
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
@@ -260,8 +230,8 @@ describe('get_tickets on a fence with Unimported keys', () => {
   });
 });
 
-describe('Foreign and Unimported are counted apart', () => {
-  it('counts fenceless files as Foreign and stray keys as Unimported, with or without an id', async () => {
+describe('the Unimported count', () => {
+  it('counts stray keys with or without an id, and never a file that is not a Ticket', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
       '.scratch/alpha/issues/01-a.md': fenced({ labels: 'bug', title: 'Export A' }),
@@ -276,12 +246,8 @@ describe('Foreign and Unimported are counted apart', () => {
     const board = await frontier.call('get_board', { effort: 'alpha' });
     const warnings = board.slice(board.indexOf('warnings:')).split('\n');
 
-    expect(warnings).toEqual([
-      'warnings:',
-      '  2/5 Tickets are Foreign — title, status and Edges are inferred, not read from schema ' +
-        'frontmatter. Run migrate_effort to normalize.',
-      `  2/5 ${UNIMPORTED}`,
-    ]);
+    // 03 is prose and 04 is unmarked: neither is a Ticket, neither is counted.
+    expect(warnings).toEqual(['warnings:', `  2/3 ${UNIMPORTED}`]);
   });
 
   it('shows no Unimported line when no Ticket holds a key outside the schema', async () => {
@@ -297,7 +263,7 @@ describe('Foreign and Unimported are counted apart', () => {
 });
 
 const stray = (id: string | undefined): string =>
-  `---\n${id === undefined ? '' : `id: ${id}\n`}title: Same\nlabels: [bug,  "ui"]  # kept\nstatus: open\nmilestone:\n  name: v2\n---\n\nBody prose.\n`;
+  `---\nfrontier: ticket\n${id === undefined ? '' : `id: ${id}\n`}title: Same\nlabels: [bug,  "ui"]  # kept\nstatus: open\nmilestone:\n  name: v2\n---\n\nBody prose.\n`;
 
 async function reported(file: string, id: string | undefined, name: string) {
   const root = await makeFixtureTree({
@@ -326,8 +292,6 @@ describe('a stray key with and without an id', () => {
     const withId = await reported('01-T7-plain.md', 'T7', 'T7');
 
     expect(bare.board).toContain(`  1/1 ${UNIMPORTED}`);
-    expect(bare.board).not.toContain('Foreign');
-    expect(bare.shown).not.toMatch(/  foreign$/m);
     expect(
       bare.shown.endsWith(
         `${HEADING}\n\n\`\`\`yaml\nlabels: [bug,  "ui"]  # kept\nmilestone:\n  name: v2\n\`\`\``,
@@ -336,7 +300,9 @@ describe('a stray key with and without an id', () => {
     expect(bare.partly).toContain(`  1/1 ${UNIMPORTED}`);
     expect(bare.cleared).not.toContain('warnings:');
     expect(bare.after).not.toContain(HEADING);
-    expect(bare.written).toBe('---\ntitle: Same\nstatus: open\n---\n\nBody prose.\n');
+    expect(bare.written).toBe(
+      '---\nfrontier: ticket\ntitle: Same\nstatus: open\n---\n\nBody prose.\n',
+    );
 
     expect({ ...withId, written: withId.written.replace('id: T7\n', '') }).toEqual(bare);
   });

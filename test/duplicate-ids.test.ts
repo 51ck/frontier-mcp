@@ -114,25 +114,6 @@ describe('a duplicate id', () => {
     );
   });
 
-  it('migrate_effort refuses when an inferred id already exists elsewhere', async () => {
-    const root = await makeFixtureTree({
-      '.git/HEAD': '',
-      '.scratch/alpha/map.md': map('Somewhere.'),
-      '.scratch/beta/map.md': map('Elsewhere.'),
-      '.scratch/alpha/issues/01-foreign.md': '# T5 — Foreign claimant\n\nStatus: open\n\nBody.\n',
-      [B]: ticket('T5', 'Schema claimant'),
-    });
-    const frontier = await connectFrontier({ cwd: root, env: {} });
-    const foreign = join(root, '.scratch/alpha/issues/01-foreign.md');
-    const before = await readFile(foreign, 'utf8');
-
-    const error = await frontier.callExpectingError('migrate_effort', { effort: 'alpha' });
-
-    expect(error).toContain('Nothing was written: T5 is carried by 2 Ticket files');
-    expect(error).toContain('alpha/issues/01-foreign.md, beta/issues/01-T5-second.md');
-    expect(await readFile(foreign, 'utf8')).toBe(before);
-  });
-
   it('keeps every open claimant of a duplicated id off the Frontier, since none can be taken', async () => {
     const { frontier } = await crossEffort();
 
@@ -294,52 +275,5 @@ describe('a duplicate id', () => {
       blocked_by: ['T5'],
     });
     expect(error).toContain('T7 -> T5 -> T7');
-  });
-
-  it('migrate_effort preview reports an inferred duplicate beside the rest of the plan, writing nothing', async () => {
-    const root = await makeFixtureTree({
-      '.git/HEAD': '',
-      '.scratch/alpha/map.md': map('Somewhere.'),
-      '.scratch/beta/map.md': map('Elsewhere.'),
-      '.scratch/alpha/issues/01-foreign.md': '# T5 — Foreign claimant\n\nStatus: open\n\nBody.\n',
-      '.scratch/alpha/issues/02-plain.md': '# Untitled work\n\nStatus: open\n\nBody.\n',
-      [B]: ticket('T5', 'Schema claimant'),
-    });
-    const frontier = await connectFrontier({ cwd: root, env: {} });
-    const foreign = join(root, '.scratch/alpha/issues/01-foreign.md');
-    const before = await readFile(foreign, 'utf8');
-
-    const preview = await frontier.call('migrate_effort', { effort: 'alpha', preview: true });
-
-    expect(preview).toContain('preview — would migrate 2');
-    expect(preview).toContain(
-      '[T5]  Foreign claimant  normalize  duplicate id, carried by ' +
-        'alpha/issues/01-foreign.md, beta/issues/01-T5-second.md — a real run refuses',
-    );
-    expect(preview).toContain('[plain]  Untitled work  normalize\n');
-    expect(await readFile(foreign, 'utf8')).toBe(before);
-    expect(await frontier.callExpectingError('migrate_effort', { effort: 'alpha' })).toContain(
-      'Nothing was written: T5 is carried by 2 Ticket files',
-    );
-  });
-});
-
-describe('a refused update on a Foreign Ticket', () => {
-  it.each([
-    ['resolving one already resolved', 'Status: resolved', { resolve: { gist: 'again' } }],
-    ['releasing one nobody holds', 'Status: open', { release: true }],
-  ])('leaves the file byte-identical when %s', async (_name, status, request) => {
-    const file = '.scratch/alpha/issues/01-foreign.md';
-    const root = await makeFixtureTree({
-      '.git/HEAD': '',
-      '.scratch/alpha/map.md': map('Somewhere.'),
-      [file]: `# T5 — Foreign\n\n${status}\n\nBody.\n`,
-    });
-    const frontier = await connectFrontier({ cwd: root, env: {} });
-    const before = await readFile(join(root, file), 'utf8');
-
-    await frontier.callExpectingError('update_ticket', { id: 'T5', ...request });
-
-    expect(await readFile(join(root, file), 'utf8')).toBe(before);
   });
 });
