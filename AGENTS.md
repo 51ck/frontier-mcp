@@ -770,6 +770,10 @@ When the user requests a durable behavior change, record it here or in the relev
   [frontier-ids](./.scratch/frontier-ids/map.md) and [ids-patterns](./.scratch/ids-patterns/map.md)
   (the 1.x minted id and its pattern, both superseded by ADR 0008),
   [ticket-names](./.scratch/ticket-names/map.md) (naming a Ticket by its path, 2.0),
+  [ticket-contract](./.scratch/ticket-contract/map.md) (a Ticket recognized by an explicit marker,
+  validated, in a supported location; replaces the prose parser and migration),
+  [frontier-search](./.scratch/frontier-search/map.md) (finding and filtering Tickets by Status,
+  tags and text; its builds stay in `frontier-v1`),
   [frontier-onboarding](./.scratch/frontier-onboarding/map.md) (how a consumer adopts the product),
   [frontier-launch](./.scratch/frontier-launch/map.md) (the go-to-market plan), and
   [migration-field-report](./.scratch/migration-field-report/spec.md) (findings from migrating a
