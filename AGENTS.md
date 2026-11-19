@@ -117,10 +117,11 @@ Design decisions settled and binding until an ADR revises them:
 - **Every tool states the side effects that are meaningful for it.** `destructiveHint` and
   `openWorldHint` both default to *true* when omitted, so silence declared a purely-local `.scratch/`
   editor open-world and the additive `create_tickets` destructive. All eight tools set
-  `openWorldHint: false`. The five writers also set `destructiveHint` — `false` on `create_tickets`
-  alone, `true` out loud on the four that replace or remove, so that the one `false` reads as a
-  decision rather than an oversight. The three readers set neither `destructiveHint` nor
-  `idempotentHint`: both are meaningless under `readOnlyHint: true`. Pinned in `test/ship.test.ts`.
+  `openWorldHint: false`. The four writers also set `destructiveHint` — `false` on `create_tickets`
+  alone, `true` out loud on the three that replace or remove, so that the one `false` reads as a
+  decision rather than an oversight. The four readers — `migrate_effort` among them since it writes
+  nothing (ADR 0009) — set neither `destructiveHint` nor `idempotentHint`: both are meaningless under
+  `readOnlyHint: true`. Pinned in `test/ship.test.ts`.
 - **Nothing is minted, and nothing configures an id**
   ([ADR 0008](./docs/adr/0008-a-ticket-is-named-by-its-path.md)). There is no id pattern, minting
   plan, id-shape predicate or guard file: whether a string is a Ticket's id is a lookup in
@@ -152,17 +153,62 @@ Design decisions settled and binding until an ADR revises them:
   something other than a string is taken as its source text, by one rule in `ticket.ts`, so
   `id: 02` and an Edge `[02]` name each other rather than the number 2 — at the accepted cost that
   a quoted `"2"` no longer matches an id written `02`. An alias is followed to its scalar; a null
-  entry is still no Edge. A write quotes such a name.
+  entry is still no Edge. A write quotes such a name. Validation reads every schema scalar by the
+  same rule, so a tagged one (`id: !!timestamp 2026-11-19`, which YAML gives as a date) validates
+  and reads as its source text; only a mapping or list is not a scalar.
 - **Type what gets surgically mutated; leave the rest opaque.** The Map has typed sections because
   wayfinder edits them section by section. The Spec is an opaque body because nothing edits it.
 - **Derive, don't store, what tickets already know.** The Map's Decisions-so-far renders from resolved
   tickets, one named by its file included, under its bare name. The frontier is computed. Neither is written to disk as state. See
   [ADR 0002](./docs/adr/0002-map-decisions-derived-from-tickets.md).
-- **Lenient on read, strict on write.** Foreign files — no fence, or a fence whose YAML does not
-  parse as a mapping — parse best-effort from prose and are flagged Foreign. Any write normalizes
-  one. A fence that parses is never Foreign; a key in it outside the schema is an Unimported key,
-  governed by its own rendering rule below. Reads never mutate files. See
-  [ADR 0007](./docs/adr/0007-conversion-is-lazy-and-foreign-is-a-conformance-predicate.md).
+- **A Ticket is marked, valid, and in `issues/`** ([ADR 0009](./docs/adr/0009-a-ticket-is-recognized-by-an-explicit-marker.md)).
+  A file is a Ticket when it is a `.md` directly in `<storage>/<effort>/issues/` whose fence carries
+  the top-level line `frontier: ticket`, quoting allowed, detected on the fence's text before YAML
+  is parsed. Top level is column 0 of a block-mapping fence, so an indented root mapping or a
+  flow-mapping fence cannot be marked; a leading UTF-8 BOM is skipped, and a write keeps it. A
+  marked file is excluded from the Board, the Frontier, Edge resolution as a target and every write
+  when its fence does not parse as a mapping, `title` or `status` is missing or blank, `status`, a
+  set `kind` or a set `triage` is outside its values (blank included; null is unset), a set
+  `blocked_by` is not a list of scalars (null is no Edges), a set `title`, `status`, `id`, `type`,
+  `answer_gist`, `dropped_reason`, `claimed_by` or `claimed_at` is not a scalar (`invalid-value`
+  naming that key), or `frontier` holds anything but `ticket`. A value the validator cannot handle, such as a circular anchor, excludes its own file
+  and fails nothing else; a Diagnostic's `found` is cut to 80 characters. Every other field keeps its default; a lifecycle gap
+  stays a counted warning. Validation is `classifyTicketFile` in `src/storage/markdown/ticket.ts`.
+  A key outside the schema is an Unimported key, governed by its own rendering rule below. Nothing
+  is ever parsed from prose, and no file is normalized, migrated, marked or moved by the server.
+  Reads never mutate files. A file in `issues/` the scan cannot open (`EACCES`, `EPERM`) is
+  diagnosed `unreadable` and fails nothing else, so a Ticket never vanishes unseen; a loose `.md`
+  read only for the marker reads as unmarked when it cannot be opened.
+- **Only known locations are inspected.** The driver lists the storage directory, each Effort
+  directory and each `issues/`, and nothing else. A directory inside `issues/` is noticed from its
+  entry and never entered; no other directory of an Effort is read. The `.md` files directly in an
+  Effort directory, `map.md` and `spec.md` aside, are read for the marker alone, and so are those of
+  any other directory under the storage directory: one holding a marked file is scanned only so
+  that file is diagnosed `ticket-outside-issues` and found by name. It is not an Effort — never in
+  `list_efforts`, never a Board, and no write lands in it, except that a write with `create: true`
+  and its exact spelling (`create_tickets`, `edit_map` or `spec`) starts the Effort there, creating
+  `issues/`. The one symbolic link followed is the storage directory itself; a linked
+  `frontier.yml` is not read. These link checks are made before each operation and are not atomic
+  against a concurrent swap of a directory for a link, which is accepted for a local server running
+  with its user's own rights (T59). A linked Effort directory is not an Effort: no
+  read or write follows it — a caller naming one gets `SymlinkedEffort` — and every Board names
+  the links in one `symlinked-effort` warning line. A linked `issues` is never followed by a read, a write lookup or `create_tickets`, and is diagnosed
+  `symlinked-issues`. A `map.md` or `spec.md` that is a link is neither read nor written by any
+  path, the resolve/drop Map refresh included: `spec` and `edit_map` refuse with
+  `SymlinkedHeaderDoc`, the refresh reports its stale-blocks warning, and the Board shows the
+  Effort without that doc, diagnosed `symlinked-header-doc`. Linux's per-directory watcher watches exactly this set.
+- **Diagnostics are one shape, above the seam.** `Diagnostic` in `src/domain.ts`: `{ code, effect,
+  file, key?, expected?, found?, fix }`, `file` workspace-root-relative and `/`-separated. They
+  cross the seam on `Effort.diagnostics`, computed by the scan, and by name through
+  `StorageDriver.diagnosticsFor()`, which answers every name of one call from one walk;
+  `readTickets()` returns the same answer for the names it missed from its own walk, so
+  `get_tickets` walks once. `excluded` codes are `yaml-unparseable`, `missing-key`,
+  `invalid-value`, `ticket-outside-issues`, `directory-in-issues`, `symlinked-issues`,
+  `symlinked-header-doc` and `unreadable`; the one
+  `suggestion` is
+  `unmarked-ticket-like`, for an unmarked `issues/` file whose fence parses as a mapping holding
+  the keys `title` and `status`, whatever their values. Other unmarked Markdown is ignored silently: not counted, not diagnosed,
+  never written.
 - **A write never reformats what it did not touch.** Frontmatter round-trips through the `yaml`
   package's document API, not a frontmatter library that re-serializes the whole block. See
   [ADR 0003](./docs/adr/0003-frontmatter-round-trips-through-a-yaml-document.md).
@@ -184,7 +230,8 @@ Structure served:
     └── <name>.md     # tickets; an older file may carry an `NN-` prefix
 ```
 
-Anything else in an effort directory is ignored, never an error.
+A Ticket is a marked file in `issues/`; any other file or directory there, or beside the Header docs,
+is ignored or diagnosed, never an error, and never read below that level.
 
 ## Work Guidance
 
@@ -216,7 +263,11 @@ Stack, settled:
   Node's JavaScript emulation, which from 24.22.0 throws `ENOTDIR` inside its own event callback
   when a watched directory is replaced by a same-named file — uncatchable, so the server died
   (T99, nodejs/node#66791). There the watcher keeps one non-recursive watch per directory and
-  re-syncs that set before each debounced invalidation.
+  re-syncs that set before each debounced invalidation. The set is the storage directory, each
+  Effort directory and each `issues/` — what the scan lists, never deeper. `watcherPerDirectory`
+  exists so `test/watcher.test.ts` runs that mode on macOS; it accepts only `true`, so no option
+  can select the recursive watch where it is not native. Which directories it leaves unwatched is
+  not observable through the harness and is held by code inspection alone.
 - **`tsc` alone** for the build, no bundler. The SDK stopped being a heavy dependency at the scoped
   split: `/server` brings a runtime closure of three packages — itself, `/core` and zod — where the
   v1 monolith brought 91, express and hono among them. There is nothing left that bundling would
@@ -306,16 +357,16 @@ Source layout:
 
 | Path | Holds |
 | --- | --- |
-| `src/domain.ts` | The CONTEXT.md vocabulary as types. Naming here is bound by the glossary, including its `_Avoid_` lines. Ids are opaque strings here, and have no shape to test. |
+| `src/domain.ts` | The CONTEXT.md vocabulary as types. Naming here is bound by the glossary, including its `_Avoid_` lines. Ids are opaque strings here, and have no shape to test. The `Diagnostic` shape lives here too. |
 | `src/frontier.ts` | The Frontier computation. Takes every Ticket in the workspace, because an Edge can lead into another Effort. |
 | `src/names.ts` | How a string names a Ticket: Edge and tool-input resolution, duplicate claimants, the form a supplied Edge is stored in or refused for, and the graph nodes cycle checks walk. The Frontier, the Board, the tool lookups and the markdown driver's file lookup all resolve through it. |
 | `src/board-order.ts` | Board order, derived from the Edges on each Board, and the prefix-then-name tie-break the driver's scan also sorts by. |
 | `src/edges.ts` | Cycle detection over the Edge graph. Above the seam, because a cycle is a rule about the domain rather than about storage — the same reason the Status model is checked in the tool layer. |
 | `src/storage/driver.ts` | The ADR 0001 seam, its edit vocabulary, and its typed failures. A driver is the workspace cached and live, so `close()` sits here beside the reads and writes. |
-| `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout, which it takes as a construction parameter — `frontmatter.ts` splits the fence, `ticket.ts` parses a Ticket, `legacy.ts` infers one from prose when there is no parseable fence (named for that one shape, not for Foreign), `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` writes a new batch at the paths its names imply, `migrate.ts` normalizes an Effort at once, `schema.ts` is the one list of schema frontmatter keys, `write.ts` renames it into place, `watcher.ts` tells the driver another process moved the workspace under it. |
+| `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout, which it takes as a construction parameter — `frontmatter.ts` splits the fence, `ticket.ts` classifies a file as a Ticket, excluded, an unmarked look-alike or nothing, `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` writes a new batch at the paths its names imply, `schema.ts` is the one list of schema frontmatter keys and the marker, `write.ts` renames it into place, `watcher.ts` tells the driver another process moved the workspace under it. |
 | `src/workspace.ts` | Workspace resolution — the only module above the driver that reads a *served* repository, and only to locate its root. `.scratch` is a marker only as a directory; `.git` counts as a file too, so a worktree or submodule resolves to itself rather than to the repository enclosing it. |
 | `src/driver-registry.ts` | One driver per resolved workspace, and the `closeAll()` that shuts them. A lookup, not a layer: it hands back the driver itself, so no read or write passes through it. |
-| `src/tools/` | One module per tool: its input schema, its description, and how its result renders. `workspace-line.ts` is the exception — the single rendering of which repository a call served, shared by `list_efforts` and every write. |
+| `src/tools/` | One module per tool: its input schema, its description, and how its result renders. `workspace-line.ts` and `diagnostics.ts` are the exceptions — the single renderings of which repository a call served, shared by `list_efforts` and every write, and of Diagnostics, shared by the Board, `list_efforts`, `get_tickets` and `update_ticket`. |
 | `src/server.ts` | Wires the above into an `McpServer`. |
 | `src/tracker-doc.ts` | Loads the shipped tracker configuration document for the `tracker-doc` MCP resource, from beside `dist/` in the installed package rather than from the working directory. |
 | `src/index.ts` | The package's library surface. Deliberately narrow — below-seam modules are not exported. |
@@ -341,12 +392,21 @@ Rendering rules that are load-bearing, not cosmetic:
   against the wrong repository as the right one, and it is the one result a caller cannot check from
   what it got back. A read needs no such line: the wrong repository returns visibly wrong content.
   What decides is *whether the call wrote*, not whether the tool can — `edit_map` with no section
-  fields, `spec` with no content, and `migrate_effort` in preview are reads, and pay nothing.
+  fields, `spec` with no content, and `migrate_effort` are reads, and pay nothing.
   Measured at ~10 tokens on a typical checkout; a forty-write session costs less than one Board.
-- **Warnings are grouped, never itemized per Ticket.** An Effort of Foreign Tickets carries a dangling Edge
-  on nearly every Ticket; itemizing produced a warnings block longer than the Board it annotated,
-  which undoes the saving the Board exists to deliver.
-- **A foreign blocker with an id renders `T9@beta`, one named by its file `beta.token-cache`, a
+- **Warnings are grouped, never itemized per Ticket or file.** An Effort of migrated Tickets carries a
+  dangling Edge on nearly every Ticket, and one left unmarked after an upgrade has a look-alike per
+  file; itemizing produced a warnings block longer than the Board it annotated, which undoes the
+  saving the Board exists to deliver.
+- **Diagnostics render grouped, counted and by name** (`src/tools/diagnostics.ts`). A Board shows
+  one warning line per code over its Effort's `diagnostics`, naming at most 3 files and counting the
+  rest. `list_efforts` suffixes an Effort `excluded=N` and `unmarked=N`, counting files, each only
+  when N is non-zero. A `symlinked-header-doc` diagnostic is shown on the Board only. `get_tickets` given a name a diagnosed file would have — its id when the
+  fence parsed and carried one, and its stem less any `NN-` prefix, bare or as `<effort>.<stem>` —
+  returns that file's diagnostics in place of `not found:`, for an unmarked look-alike's suggestion
+  and a marked file outside `issues/` as for an exclusion; `update_ticket` refuses with them and writes nothing. An
+  itemized listing is a later Ticket, not a ninth tool.
+- **A blocker in another Effort with an id renders `T9@beta`, one named by its file `beta.token-cache`, a
   local one bare.** The full name is valid input. The
   `@<effort>` is never input: a pasted `T9@beta` fails — `NoSuchTicket` on a write, the `not found:` line on
   `get_tickets` — and both name `T9` back.
@@ -362,18 +422,15 @@ Rendering rules that are load-bearing, not cosmetic:
   saying so. An Edge to a duplicated id is satisfied only when every claimant is resolved, and cycle
   checks follow every claimant's Edges: a duplicate never enlarges the Frontier. A Ticket whose own
   id is duplicated is never takeable, because every write to it is refused.
-- **Foreign and Unimported are counted apart, each in one grouped line.** A Ticket with no
-  parseable fence is counted in `are Foreign — … inferred`. A Ticket whose fence holds a key
-  outside the schema, with or without an `id`, is counted in `N/M Tickets hold Unimported keys`,
-  which names `get_tickets` and `update_ticket drop_keys` and lists no Ticket. Neither line shows
-  at a count of zero. The second crosses the seam as `TicketSummary.hasUnimportedKeys`, set from
-  the frontmatter the scan already parses.
+- **Unimported keys are counted in one grouped line.** A Ticket whose fence holds a key outside the
+  schema, with or without an `id`, is counted in `N/M Tickets hold Unimported keys`, which names
+  `get_tickets` and `update_ticket drop_keys` and lists no Ticket, and does not show at zero. It
+  crosses the seam as `TicketSummary.hasUnimportedKeys`, set from the frontmatter the scan already
+  parses.
 - **A lifecycle Status missing its field is counted, per Status** (T85): `N/M resolved Tickets
   carry no answer_gist`, likewise `dropped` / `dropped_reason` and `claimed` / `claimed_by` and `claimed_at`. M is
-  that Status's count; no Tickets are listed. A Ticket with no parseable fence is left out of all of them,
-  since its answer is prose. Computed from the cached scan. `list_efforts` stays silent on it.
-- **An unrecognized status is counted in the warnings block and is never takeable.** The Board line
-  may still show `/open`, but the Ticket is kept off the Frontier until a write normalizes it.
+  that Status's count; no Tickets are listed. Computed from the cached scan. `list_efforts` stays
+  silent on it.
 - **A `create_tickets` result lists each Ticket by full name**, `<effort>.<name>`, with its Edges as
   the Board renders them, so a dangling one shows as `name?` at once. It carries no warning: the
   ignored-`frontier.yml` line belongs to Boards.
@@ -387,8 +444,8 @@ Rendering rules that are load-bearing, not cosmetic:
   Ticket waits on another, the smallest Ticket that is itself on a cycle is listed, so one merely
   downstream of a cycle still follows its blocker. So an Effort whose Edges agree with its
   prefixes lists by prefix, and one whose Edge points at a higher prefix lists the blocker first.
-  `boardOrder` in `src/board-order.ts` applies it to a Board only; the scan, the Map's generated
-  blocks and the `migrate_effort` report use the tie-break alone.
+  `boardOrder` in `src/board-order.ts` applies it to a Board only; the scan and the Map's generated
+  blocks use the tie-break alone.
 - **Every Ticket is nameable.** A Board line opens with the Ticket's bare name — its id, or its
   file's name. `get_tickets` and a write result head it with the id or the full `<effort>.<name>`.
   The `<effort>#<order>` handle is neither produced nor accepted.
@@ -397,17 +454,17 @@ Rendering rules that are load-bearing, not cosmetic:
   `yaml` block whose backtick delimiter outruns any run inside it. Every Ticket shows only its
   unimported entries, each sliced from the file's own text, whether or not it carries an `id`; the
   whole fence shows only when an entry cannot be cut cleanly (a non-scalar or explicit key).
-  Conforming Tickets gain nothing. No ordinary write removes them: a comment, a claim and
-  `migrate_effort` all keep the stray keys. Only `update_ticket` `drop_keys` removes one (T103), cutting each named
+  Conforming Tickets gain nothing. No ordinary write removes them: a comment and a claim keep the
+  stray keys. Only `update_ticket` `drop_keys` removes one (T103), cutting each named
   entry out of the fence's text — block scalars, nested maps and sequences whole, a comment on its
   line with it, an own-line comment above it kept — so a drop alone leaves the rest byte-identical.
-  A schema key (`SchemaKeyNotDroppable`), an absent key (`NoSuchKey`) or a Ticket with no parseable
-  fence (`NoFrontmatterToDrop`, file left un-normalized) fails the whole call. The cut is read back
+  A schema key, the marker among them (`SchemaKeyNotDroppable`), or an absent key (`NoSuchKey`)
+  fails the whole call. The cut is read back
   before it is written, and refused with `KeyNotCleanlyDroppable` unless exactly the other entries
   survive with the values they had — an alias left without its anchor, a flow mapping sharing the
   entry's line, or an alias falling back to an earlier anchor of the same name would land a fence
-  that no longer parses, or one whose `status` quietly changed. A fence left with no key gets the schema block a fenceless
-  file gets, never an empty fence. Dropping a Ticket's
+  that no longer parses, or one whose `status` quietly changed. The marker, `title` and `status`
+  are never droppable, so a drop always leaves a fence. Dropping a Ticket's
   last Unimported key takes it out of the Board's Unimported count. There is no
   `no id` Board warning. The schema key list is single-sourced in `src/storage/markdown/schema.ts`.
 - **A missing storage directory explains itself; an empty one does not** (T105). Only when
@@ -417,20 +474,9 @@ Rendering rules that are load-bearing, not cosmetic:
   `src/workspace.ts`; existence crosses the seam as `StorageDriver.absentStorage()`, which never
   creates the directory. An empty `.scratch/` keeps `(no efforts)`, and no other result carries the
   `resolved by` suffix — a populated tracker is its own proof of the root.
-- **`migrate_effort` normalizes and mints nothing** (ADR 0008). It gives a file with no parseable
-  fence the schema block a write would give it, and rewrites a bare sort-order Edge to the name of
-  the Ticket whose file carries that prefix. A fenced file gaining only that goes through the
-  ordinary write path and gets what `update_ticket blocked_by` guarantees, not byte identity: keys,
-  their order, comments and every other value's content survive, while the fence's line endings
-  are normalized, the rewritten list is re-rendered, the body's outer blank lines are trimmed and
-  the file ends in one newline. Every Ticket keeps its name, so the preview and the real run
-  report the same lines, and an Edge into the Effort from elsewhere resolves afterwards as before.
-  The header counts only Tickets written and, when any, those `unchanged`; a Ticket a preview
-  lists for its conflict alone counts as unchanged. A Ticket needing neither
-  change gets no line and no write, and a run that writes nothing carries no workspace line. Each
-  line is flagged `normalize`, `edges` or both, labelled reference-style by name and resolved once
-  in a closing block of workspace-root-relative paths. Migration never renames a file: another
-  Effort's prose may link it by path, and the server cannot see that link.
+- **`migrate_effort` writes nothing** (ADR 0009). It stays registered so the surface stays at eight
+  tools until a later Ticket replaces it, takes its old arguments, and answers a fixed three lines
+  saying normalization is gone, without echoing the slug or reading the workspace.
 - **A Spec-only Effort opens with its Spec's first paragraph**, labelled `spec:` rather than
   `destination:`. Destination is a Map section; calling a Spec's opening one would be a lie in the
   vocabulary. Multi-line header prose has its continuation lines indented so it can never be read as
@@ -450,6 +496,11 @@ Write rules, equally load-bearing:
   rowversion. The check runs against the file immediately before the write, not against the cached
   scan, because the scan may be stale.
 - **A write never reorders frontmatter.** New fields are appended; only a block this driver creates is in schema order. `flowCollectionPadding: false` matters — without it an untouched `[a, b]` comes back `[ a, b ]`.
+- **A write lands only a file the scan reads as a Ticket.** `update_ticket` and `create_tickets`
+  classify the text they are about to write with `classifyTicketFile`, the scan's own validator,
+  before anything is staged or renamed; a file that would be excluded — a blank title, a marker
+  aliased to an edited anchor — is `WriteWouldExclude` and nothing is written, nothing of a batch.
+  Both tools also refuse a blank `title` at input.
 - **A write never touches a body section it does not own.** The answer replaces up to the next `##`, so the comment log survives.
 - **A Map value that would split its section is refused, never demoted.** A `##` line in
   `destination`, `notes`, `add_fog` or `rule_out` — matched by the reader's own section-break regex,
@@ -459,10 +510,7 @@ Write rules, equally load-bearing:
   to the reader, so the rest could never be graduated. Both name the argument, not the section.
 - **A write addressed to a duplicated id or name refuses** with `DuplicateId`, naming every file, before
   any other rule judges one claimant. `update_ticket` asks `StorageDriver.assertAddressable()`
-  first, which never writes. A real `migrate_effort` refuses the same way when an inferred id is
-  already carried elsewhere or an id-less Ticket of the Effort has a duplicated name, whether or not
-  it would write that file; its preview is a read, so it gives each such Ticket a line reporting the
-  conflict and still shows the plan. Nothing renumbers: a new id cannot reach the commit messages and
+  first, which never writes. Nothing renumbers: a new id cannot reach the commit messages and
   PR bodies already naming the old one, so a human renumbers all but one file by hand.
 - **A mismatch is never retried.** It is re-read only to produce a better message — usually
   "already claimed by X" — and then the original failure is raised. A mismatch may equally be
@@ -473,28 +521,12 @@ Write rules, equally load-bearing:
   Decisions-so-far / dropped Out-of-scope must not make a completed lifecycle change look like a
   failure. The tool returns success with a warning that those blocks may be stale; a later
   successful refresh or Map mutation catches them up.
-- **A prose sub-slice coarsens only within its own Effort, decided once at scan** (T82). The prose
-  parser keeps what was declared — `T38.1` and a plain `T38` separately — and the markdown driver
-  resolves each Effort after every file in it is parsed, so ids from prose headings count. `T38.1`
-  becomes `T38` only when `T38` is a Ticket of that Effort (`collapsedRefs`, the Board's coarsened
-  warning); otherwise it stays `T38.1` (`keptSubSlices`), dangles as `T38.1?` and keeps the Ticket
-  off the Frontier. A plain `T38` is always its own Edge. The Board, the Frontier, a lazy
-  normalization on any write and `migrate_effort` all write or show these resolved Edges, so
-  migrating never changes a Frontier through a sub-slice. A bare sort-order Edge is different: it
-  dangles (`01?`) until migration resolves it, which it does only to the one file whose name carries that
-  prefix (`01-…`), never to a position in the listing; that can put its Ticket on the Frontier. It
-  stays dangling when two files carry the prefix, when that file's name is not its alone, or when
-  the file is the Ticket's own (it would be an Edge to itself) — each named in a grouped report
-  line of sort-order Edges kept as declared — and digits that already name a Ticket are left
-  meaning that Ticket. The migration report, preview and real, ends with grouped
-  lines for sub-slices kept as declared (with the `update_ticket blocked_by` fix) and for written
-  Edges that land on another Effort (`T9@beta`), each naming ten and counting the rest.
-- **A write normalizes the Foreign file it touches**, and keeps the prose it inferred from
-  verbatim. A fence that parses is kept, Unimported keys included, per the rendering rule.
 - **Claims are flagged when stale, never auto-released.** 24h; use `release` to drop a claim explicitly.
 - **A batch creation is all or none.** Every name and Edge is checked before anything is written,
   above the seam and again by the driver on a fresh read, so one refused name or a cycle leaves the
   workspace untouched. Siblings name each other by `name`; a call still passing `key` is refused.
+- **A created Ticket opens its fence with `frontier: ticket`**, then the schema fields in schema
+  order, and is classified on read-back by the same validation as any file (ADR 0009).
 - **A created Ticket is `issues/<name>.md` with no `id` and no `NN-` prefix.** `newNameProblem` in
   `src/names.ts` holds the grammar — one to three hyphen-joined words of lowercase ASCII letters
   and digits, a letter first, at most 24 characters — and the reserved words: `lock`, the YAML
@@ -534,7 +566,7 @@ Write rules, equally load-bearing:
   scan it renders them from fails.
 - **A caller's Effort slug is one directory name, or the call is refused.** `effortDir` in the
   markdown driver is the only place a caller's slug becomes a path, for `create_tickets`,
-  `edit_map`, `spec` and `migrate_effort`, on reads as much as writes — the slug is joined under
+  `edit_map` and `spec`, on reads as much as writes — the slug is joined under
   the storage directory, so `../../x` wrote outside the workspace. Empty, a leading dot (so `.` and
   `..`), `/` or `\`, or any control character (`\p{Cc}`: NUL, the rest of C0, DEL, C1) fails with
   `InvalidEffortSlug`, naming the slug, before a path is built. `get_board` looks a slug up among
@@ -575,12 +607,6 @@ in the graph:
 - **A Triage role never moves the Frontier.** Only Status and Edges decide what is takeable, so
   `/triage` and the graph never compete for one field. A `wontfix` Ticket stays takeable and is named
   in the warnings block instead, leaving the judgement to the reader.
-
-`superseded` and `deferred` are a different matter: read from a Foreign file's `Status:` line they map to
-`dropped`, and so do orphan their dependents. That is not inconsistent with the rule above — they are
-Statuses being inferred, where `wontfix` is a Triage role being respected as one. Inference gets to
-lean conservative because it is guessing; a role the caller set explicitly does not, because it was
-never a guess.
 
 ## Verification
 
@@ -677,21 +703,21 @@ process for one of these two reasons — genuine concurrency, or a defect below 
 entirely — not merely because a test would be more convenient to write out-of-process.
 
 `test/fixtures/legacy/` holds two Efforts copied **verbatim** out of sobrina and tag-customizer.
-Never tidy them, and refresh them by re-copying rather than editing: they are the real input, and
-every awkward shape in them is a case the parser has to survive — `T31` ids in headings,
-tag-customizer Tickets with no id at all, `Blocked by: —`, bare `Blocked by: 01, 02` sort orders,
-sub-slice references like `T38.1`, `Status:` lines with trailing prose, and a `research/` directory
-the schema does not recognize.
+Never tidy them, and refresh them by re-copying rather than editing. Every file in them is fenceless,
+so under ADR 0009 they hold no Ticket: they are negative input, and `test/ticket-marker.test.ts`
+pins that both produce no Ticket and no diagnostic and stay byte-identical after every tool. They
+also carry the spec's read-whole token measurements.
 
-Shapes the parser handles that these two Efforts happen **not** to contain — struck-through Edges,
-`Status: done` / `fixed` / `superseded`, bold field labels — are covered by synthetic files in
-`test/prose-shapes.test.ts`. Put new shapes there; never add them to the fixtures.
+`test/fixtures/marked/` holds the same two Efforts migrated once by 2.x's `migrate_effort` and
+given `frontier: ticket` as each Ticket's first fence line: valid input of the same size, which the
+Board measurements in `test/read-path-cost.test.ts` run on. Generated, committed, never edited by
+hand; regenerate it from `legacy/` by the recipe in its `README.md` if that is refreshed.
 
 `docs/agents/issue-tracker.md` opens with `Tracker doc revision <n>`, pinned in form only by
 `test/ship.test.ts`; raise it by hand whenever the doc's contract changes.
 
-`test/read-path-cost.test.ts` asserts the spec's token measurements, and what a Board of named
-Tickets costs against the same Board rendered in ids. They are the argument for the project
+`test/read-path-cost.test.ts` asserts the spec's token measurements on `legacy/`, what a Board costs
+on `marked/`, and what a Board of named Tickets costs against the same Board rendered in ids. They are the argument for the project
 existing, so they are checked rather than restated.
 
 ## Agent skills

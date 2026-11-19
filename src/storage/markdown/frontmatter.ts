@@ -5,14 +5,14 @@ import { parse } from 'yaml';
  * Per ADR 0003 the writes in T3 mutate a parsed YAML document rather than
  * re-emitting an object, so this file deliberately stops at splitting.
  */
-const FENCE = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
+// A leading UTF-8 BOM is what some editors save; it is not content.
+const FENCE = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 
 export interface Split {
   /**
    * Whether the file opened with a `---` fence at all. Distinct from
    * {@link Split.fields} being undefined, which also happens when a fence is
-   * present but its YAML will not parse — a write must normalize that file
-   * rather than treat the fence as body prose and duplicate it.
+   * present but its YAML will not parse.
    */
   readonly hasFence: boolean;
   /** The fence's raw YAML, unparsed. Undefined when there was no fence. */
@@ -21,6 +21,11 @@ export interface Split {
   readonly fields: Record<string, unknown> | undefined;
   /** Everything after the fence, verbatim. The whole file when there is none. */
   readonly body: string;
+}
+
+/** The fence's raw YAML without parsing it, or undefined when the file opens with none. */
+export function fenceText(contents: string): string | undefined {
+  return FENCE.exec(contents)?.[1];
 }
 
 export function splitFrontmatter(contents: string): Split {
@@ -38,9 +43,9 @@ export function splitFrontmatter(contents: string): Split {
 }
 
 /**
- * Reads are lenient: frontmatter that is not a YAML mapping — malformed, or a
- * scalar, or a list — reads as no frontmatter at all, and the file falls through
- * to the prose parser rather than failing the whole scan.
+ * Frontmatter that is not a YAML mapping — malformed, or a scalar, or a list —
+ * reads as no fields rather than failing the whole scan. Whether that excludes
+ * a file is the marker's question (ADR 0009), answered on the raw text.
  */
 function parseFields(yaml: string): Record<string, unknown> | undefined {
   try {

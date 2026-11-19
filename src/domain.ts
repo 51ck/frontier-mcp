@@ -72,24 +72,10 @@ export interface TicketSummary {
    */
   readonly orderHint: number | undefined;
   /**
-   * A Ticket whose file has no parseable fence: no frontmatter, or a fence whose
-   * YAML is not a mapping. Evaluated on every read, never provenance. Its title,
-   * status, and Edges are inferred from prose, which an agent should distrust. A
-   * fence that parses is never Foreign, whatever it holds; a status that will not
-   * map is flagged by `unrecognizedStatus` instead.
-   */
-  readonly foreign: boolean;
-  /**
    * Whether the fence carries a key outside the schema. Known from the scan, so
    * a Board can count these; the keys themselves travel only on {@link Ticket}.
    */
   readonly hasUnimportedKeys: boolean;
-  /** The raw status text of a Ticket whose value did not map, fenced or prose. */
-  readonly unrecognizedStatus: string | undefined;
-  /** Prose sub-slice references (`T38.1`) coarsened to a Ticket of the same Effort. */
-  readonly collapsedRefs: readonly string[];
-  /** Prose sub-slice references kept as declared, their parent not a Ticket of this Effort. */
-  readonly keptSubSlices: readonly string[];
   /**
    * An opaque token for what was read. A write passes back the one it read and
    * is refused if the stored Ticket has moved on. The markdown driver builds it
@@ -144,6 +130,12 @@ export interface Effort {
    * Board that opens with nothing leaves every Ticket line below uninterpretable.
    */
   readonly specOpening: string | undefined;
+  /**
+   * What the Effort's known locations hold that is not a Ticket but should be
+   * looked at: marked files excluded for a fault, unmarked files that look like
+   * Tickets. Computed on every scan, never stored.
+   */
+  readonly diagnostics: readonly Diagnostic[];
 }
 
 /**
@@ -244,53 +236,35 @@ export interface SpecDocument {
   readonly revision: string;
 }
 
-/** How a migration call runs. Filenames never change (T69). */
-export interface MigrateOptions {
-  /** Report every change and write nothing. The report names what a real run names. */
-  readonly preview: boolean;
-}
+/** What a {@link Diagnostic} does to the file it names. */
+export type DiagnosticEffect = 'excluded' | 'suggestion';
 
 /**
- * One Ticket a migration would write, or did — or, in a preview, one listed
- * only for its conflict, with neither `normalized` nor `edgesResolved` set.
+ * Why a file in a Ticket location is not a Ticket, or may be one left unmarked.
+ * `excluded` codes name a marked file kept off every Board, the Frontier, Edge
+ * resolution and every write; `suggestion` names an unmarked file that looks
+ * like a Ticket. A file that is neither — a README, notes — has none.
  */
-export interface MigrationChange {
-  /** The Ticket's name, which migration never changes. */
-  readonly name: string;
-  readonly title: string;
-  /** True when the file had no parseable fence, so it gains schema frontmatter. */
-  readonly normalized: boolean;
-  /** True when a bare sort-order Edge was rewritten to the name of the Ticket it meant. */
-  readonly edgesResolved: boolean;
-  /** The Ticket's basename, unchanged by migration. */
-  readonly filename: string;
-  /** Edges as they are written. */
-  readonly blockedBy: readonly string[];
-  /**
-   * Preview only: what this Ticket shares with another, and every Ticket file
-   * claiming it, this one included. A real run refuses with DuplicateId instead.
-   */
-  readonly duplicate:
-    | { readonly kind: 'id' | 'name'; readonly files: readonly string[] }
-    | undefined;
-}
+export type DiagnosticCode =
+  | 'yaml-unparseable'
+  | 'missing-key'
+  | 'invalid-value'
+  | 'ticket-outside-issues'
+  | 'directory-in-issues'
+  | 'symlinked-issues'
+  | 'symlinked-header-doc'
+  | 'unreadable'
+  | 'unmarked-ticket-like';
 
-/** The result of migrating one Effort — enough for the tool to render a report. */
-export interface MigrationReport {
-  readonly effort: string;
-  readonly preview: boolean;
-  /** The Effort's Ticket directory relative to the workspace root, `/`-separated. */
-  readonly directory: string;
-  readonly changes: readonly MigrationChange[];
-  /** How many of the Effort's Tickets are not written, those listed only for a conflict included. */
-  readonly unchanged: number;
-  /** Written Edges landing on another Effort's Ticket, as `T9@beta` — likelier a misparse than intent. */
-  readonly crossEffortEdges: readonly string[];
-  /**
-   * Bare sort-order Edges (`01`) of the Effort left as declared: no one other
-   * Ticket's file carries the prefix under a name of its own.
-   */
-  readonly unresolvedSortOrders: readonly string[];
-  /** Sub-slice references (`T1.4`) written as declared because their parent is not in this Effort. */
-  readonly keptSubSlices: readonly string[];
+export interface Diagnostic {
+  readonly code: DiagnosticCode;
+  readonly effect: DiagnosticEffect;
+  /** Workspace-root-relative, `/`-separated. */
+  readonly file: string;
+  /** The frontmatter key at fault, where one is. */
+  readonly key?: string;
+  readonly expected?: string;
+  readonly found?: string;
+  /** What to do by hand. The server never repairs a file. */
+  readonly fix: string;
 }

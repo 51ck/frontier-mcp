@@ -1,12 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { map, ticket } from './support/fixtures.ts';
-import {
-  cleanupFixtures,
-  connectFrontier,
-  makeFixtureTree,
-  makeForeignWorkspace,
-} from './support/harness.ts';
+import { cleanupFixtures, connectFrontier, makeFixtureTree } from './support/harness.ts';
 
 afterEach(cleanupFixtures);
 
@@ -135,7 +130,7 @@ describe('lifecycle Tickets missing their field (T85)', () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
       '.scratch/alpha/issues/01-a.md':
-        '---\ntitle: A\nlabels: bug\nstatus: resolved\n---\n\nBody.\n',
+        '---\nfrontier: ticket\ntitle: A\nlabels: bug\nstatus: resolved\n---\n\nBody.\n',
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
@@ -144,19 +139,7 @@ describe('lifecycle Tickets missing their field (T85)', () => {
     );
   });
 
-  it('counts the resolved Tickets a migration leaves without a gist', async () => {
-    const root = await makeForeignWorkspace({ telegram: 'sobrina-telegram' });
-    const frontier = await connectFrontier({ cwd: root, env: {} });
-    expect(await frontier.call('get_board', { effort: 'telegram' })).not.toContain('carry no');
-
-    await frontier.call('migrate_effort', { effort: 'telegram' });
-
-    expect(await frontier.call('get_board', { effort: 'telegram' })).toContain(
-      '15/15 resolved Tickets carry no answer_gist',
-    );
-  });
-
-  it('does not count a fenceless Foreign Ticket, whose answer is prose', async () => {
+  it('does not count a fenceless file, which is not a Ticket', async () => {
     const root = await makeFixtureTree({
       '.scratch/alpha/map.md': map('Somewhere.'),
       '.scratch/alpha/issues/01-a.md': '# T1 — Prose\n\nStatus: done\n',

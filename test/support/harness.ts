@@ -36,23 +36,31 @@ export async function makeFixtureTree(tree: FixtureTree): Promise<string> {
 
 /**
  * A workspace built from Efforts copied verbatim out of the real repos, keyed
- * slug -> directory name under `test/fixtures/legacy/`. These files are the
- * actual input Frontier has to survive; hand-written fixtures would be more
- * polite than the real thing.
+ * slug -> directory name under `test/fixtures/legacy/`. Every file in them is
+ * fenceless, so under ADR 0009 they hold no Ticket: they are negative input.
  */
-export async function makeForeignWorkspace(efforts: Record<string, string>): Promise<string> {
+export async function makeLegacyWorkspace(efforts: Record<string, string>): Promise<string> {
+  return copyFixtures('legacy', efforts);
+}
+
+/**
+ * The same two Efforts as {@link makeLegacyWorkspace}, migrated once by 2.x and
+ * marked, so the Tickets they hold are valid under ADR 0009. Committed as
+ * generated; never edited by hand.
+ */
+export async function makeMarkedWorkspace(efforts: Record<string, string>): Promise<string> {
+  return copyFixtures('marked', efforts);
+}
+
+async function copyFixtures(set: 'legacy' | 'marked', efforts: Record<string, string>) {
   const root = await makeTempRoot();
 
   await mkdir(join(root, '.git'), { recursive: true });
   await Promise.all(
     Object.entries(efforts).map(async ([slug, fixture]) =>
-      cp(
-        join(import.meta.dirname, '..', 'fixtures', 'legacy', fixture),
-        join(root, '.scratch', slug),
-        {
-          recursive: true,
-        },
-      ),
+      cp(join(import.meta.dirname, '..', 'fixtures', set, fixture), join(root, '.scratch', slug), {
+        recursive: true,
+      }),
     ),
   );
 

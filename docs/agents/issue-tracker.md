@@ -1,6 +1,6 @@
 # Issue tracker — FrontierMCP and file fallback
 
-Tracker doc revision 8. To check a vendored copy, compare this number with the one in the
+Tracker doc revision 10. To check a vendored copy, compare this number with the one in the
 `frontier://tracker-doc` resource of the server you run; a lower number, or no revision line, is
 stale.
 
@@ -36,8 +36,8 @@ reports no Efforts — that is the worktree being served correctly, not the trac
 **Every call that writes opens with `root: <path>`**, naming the repository it just changed. Read it
 — a Ticket's name is unique within a repository, not across them, so `T10 updated` looks the same
 whichever repository answered, and this line is the only part of the result that tells you. Reads do not carry it, and neither do the
-read paths of write-capable tools: `edit_map` with no section fields, `spec` with no `content`, and
-`migrate_effort` with `preview`.
+read paths of write-capable tools: `edit_map` with no section fields and `spec` with no `content`.
+`migrate_effort` never writes.
 
 A repo with no `.scratch/` yet is not an error. Create an Effort by writing to it with `create: true`
 on `create_tickets`, `edit_map`, or `spec`.
@@ -48,14 +48,14 @@ Eight tools permanently. Optional arguments extend an existing tool; there is no
 
 | Tool | Use when |
 | --- | --- |
-| `list_efforts` | Orient — list Efforts with Ticket counts, header doc kinds, and Frontier size. A repository with no `.scratch/` at all gets `no tracker here`, the marker that located the root, and a `start one` line to copy; an empty `.scratch/` still reads `(no efforts)`. |
+| `list_efforts` | Orient — list Efforts with Ticket counts, header doc kinds, and Frontier size; `excluded=N` and `unmarked=N` when an Effort holds files that are not Tickets (see [Diagnostics](#diagnostics)). A repository with no `.scratch/` at all gets `no tracker here`, the marker that located the root, and a `start one` line to copy; an empty `.scratch/` still reads `(no efforts)`. |
 | `get_board` | See the whole Effort cheaply — Destination, one summary line per Ticket, Frontier marked. Never returns bodies. |
-| `get_tickets` | Fetch full bodies for specific Tickets, by name or id, after the Board tells you which matter. |
+| `get_tickets` | Fetch full bodies for specific Tickets, by name or id, after the Board tells you which matter. Given the name of an excluded file, returns its diagnostics. |
 | `create_tickets` | Publish a breakdown in one call. You give each Ticket its `name`; Edges may name a sibling from the same call. All are written or none. |
 | `update_ticket` | Claim, resolve, drop, reopen, release, set title/kind/type, set triage, replace Edges, comment, tick acceptance criteria, or `drop_keys` to delete Unimported frontmatter keys. One Ticket per call. |
 | `edit_map` | Edit Map sections — Destination, Notes, fog, Out of scope. Decisions-so-far regenerates from resolved Tickets. |
 | `spec` | Read or write a Spec as a whole document. |
-| `migrate_effort` | Normalize an Effort: give Foreign Tickets — files with no parseable frontmatter — the schema block, and rewrite bare sort-order Edges (`01`) to names. Names and filenames never change. Preview writes nothing. |
+| `migrate_effort` | Retired: writes nothing and says so. The server never adds the marker; add it by hand. |
 
 ### Typical agent flow
 
@@ -80,7 +80,6 @@ Eight tools permanently. Optional arguments extend an existing tool; there is no
 | release a stale claim | `update_ticket` with `{ release: true }` |
 | edit the Map | `edit_map` |
 | write or read the Spec | `spec` |
-| normalize foreign files | `migrate_effort` |
 
 ### Names and references
 
@@ -127,6 +126,33 @@ A Board counts `resolved` Tickets with no `answer_gist`, `dropped` with no `drop
 Claims are compare-and-set — a parallel session that already holds the Ticket wins. Writes carry the
 `revision` from the last read; a mismatch is refused, never retried over the caller's edit.
 
+## Diagnostics
+
+A file in a Ticket location that is not a valid Ticket is never written, never shown as a Ticket,
+and never satisfies an Edge. What the server noticed about it is a diagnostic:
+
+| Code | Effect | Raised for |
+| --- | --- | --- |
+| `yaml-unparseable` | excluded | a marked file whose frontmatter does not parse as a YAML mapping |
+| `missing-key` | excluded | a marked file with no `title` or no `status` |
+| `invalid-value` | excluded | `status` not one of the four, `kind` not `build`/`decision`, `triage` not one of the five roles (a blank `kind` or `triage` counts), `blocked_by` not a list of names, or `frontier` set to anything but `ticket` |
+| `ticket-outside-issues` | excluded | a marked `.md` directly in an Effort directory, other than `map.md` and `spec.md` |
+| `directory-in-issues` | excluded | a directory inside `issues/`, never entered |
+| `symlinked-issues` | excluded | an `issues` that is a symbolic link, never followed, read or written through |
+| `symlinked-header-doc` | excluded | a `map.md` or `spec.md` that is a symbolic link; `spec` and `edit_map` refuse it, and a resolve or drop leaves the Map's generated blocks stale with a warning |
+| `unreadable` | excluded | a `.md` in `issues/` the server cannot open, such as one at mode `000` |
+| `unmarked-ticket-like` | suggestion | an unmarked `.md` in `issues/` whose frontmatter holds the keys `title` and `status`, whatever their values |
+
+Each names the file (workspace-root-relative), and where one applies the key, what was expected and
+what was found, with the fix. A Board shows one line per code, naming three files and counting the
+rest. `get_tickets` on a name the file would have — its `id` if it carries one, its stem less any
+`NN-` prefix, or `<effort>.<stem>` — returns the diagnostics, for a suggestion as for an exclusion,
+and `update_ticket` on it refuses with them. A linked `map.md` or `spec.md` is reported on the
+Board only. Fix the file by hand; the server never
+repairs, marks or moves one. Any other unmarked Markdown — a README, notes — is ignored silently.
+An Effort directory that is a symbolic link is not an Effort: nothing reads or writes through it,
+and every Board names it in one `symlinked-effort` warning line.
+
 ## File conventions
 
 These conventions are canonical whether FrontierMCP is loaded or not. FrontierMCP reads and writes
@@ -136,6 +162,24 @@ the same files; a session without the server still produces valid Tickets by fol
 0008 in the frontier-mcp repository. Never scan for a next number and never write an `id:` field.
 When FrontierMCP is loaded, still create through `create_tickets`: it checks each name and Edge,
 which a file written straight to disk skips.
+
+### What is a Ticket
+
+A file is a Ticket when it is a `.md` file directly in `.scratch/<effort-slug>/issues/` and its
+frontmatter carries the top-level line `frontier: ticket` (quoting allowed). Top level means column
+0 of a block-mapping fence: a root mapping indented by spaces, or a fence written as one flow
+mapping (`{frontier: ticket, ...}`), cannot be marked. A UTF-8 BOM before the opening `---` is
+allowed. The marker has no version. Everything else is not a Ticket, and only these places are
+looked at: `.scratch/`, each Effort directory, and each `issues/`. A subdirectory of `issues/`, or
+any other directory of an Effort, is never read. `.scratch/` itself may be a symbolic link and is
+followed; a linked Effort directory, `issues/`, `map.md` or `spec.md` is not. A directory holding
+only a marked file outside `issues/` is not an Effort until a write with `create: true`
+(`create_tickets`, `edit_map` or `spec`) names it exactly, which creates its `issues/`.
+
+A marked file must also be valid: `title` and `status` present and not blank, and every value from
+the template below where it is set. A missing `kind` reads as `build`; other missing fields stay
+unset. `blocked_by:` with no value is the same as no `blocked_by`: no Edges. A write that would
+leave a file failing any of this is refused and writes nothing.
 
 ### Layout
 
@@ -156,7 +200,8 @@ which a file written straight to disk skips.
 
 ```yaml
 ---
-title: Parse tickets without frontmatter   # no id: the filename is the name
+frontier: ticket            # the marker: first line, exactly this
+title: Cache the auth token  # no id: the filename is the name
 kind: build                 # build | decision
 type: research              # decision only: research | prototype | grilling | task
 status: open                # open | claimed | resolved | dropped
@@ -169,7 +214,7 @@ dropped_reason:             # required when status: dropped
 ---
 ```
 
-Body shape follows whichever skill produced the Ticket: Problem / Done when / acceptance criteria for
+Only `frontier`, `title` and `status` are required. Body shape follows whichever skill produced the Ticket: Problem / Done when / acceptance criteria for
 `build`, `## Question` / `## Acceptance criteria` / `## Answer` for `decision`. Comments append at the
 bottom under `## Comments`.
 
@@ -209,4 +254,10 @@ When a skill says "publish to the issue tracker" and FrontierMCP is not loaded, 
 `.scratch/<effort-slug>/issues/<name>.md` (creating directories as needed) with frontmatter matching
 the template above. Choose the name as under [Names and references](#names-and-references), and
 check it is free yourself: no file in `issues/` has that stem, case and any `<digits>-` prefix
-ignored, and no Ticket carries it as an `id`.
+ignored, and no Ticket carries it as an `id`. Write `frontier: ticket` as the first frontmatter
+line: without it the file is not a Ticket.
+
+**A hand edit carries no revision check.** The server refuses a write whose revision has moved, but
+nothing refuses yours: an editor saving over a file the server, or another session, rewrote since
+you opened it overwrites that write without a word. Hand-edit Tickets — adding the marker to
+existing files after an upgrade included — only while you are the single writer.

@@ -1,9 +1,14 @@
 import { type Document, isAlias, isMap, isScalar, isSeq, parseDocument } from 'yaml';
-import type { Kind, Status, TicketSummary, UnimportedFrontmatter } from '../../domain.ts';
-import { STATUSES } from '../../domain.ts';
-import { parseProseBody } from './legacy.ts';
-import { splitFrontmatter } from './frontmatter.ts';
-import { SCHEMA_KEYS } from './schema.ts';
+import type {
+  Diagnostic,
+  Kind,
+  Status,
+  TicketSummary,
+  UnimportedFrontmatter,
+} from '../../domain.ts';
+import { STATUSES, TRIAGE_ROLES } from '../../domain.ts';
+import { fenceText, splitFrontmatter } from './frontmatter.ts';
+import { MARKER_KEY, MARKER_VALUE, SCHEMA_KEYS } from './schema.ts';
 
 /**
  * `<NN>-<rest>.md` — `NN` is a hint for Board order and nothing else. Digits
@@ -17,43 +22,84 @@ export interface TicketFile {
 }
 
 /**
- * Parse one Ticket file into everything but its prose. Schema-conformant files
- * read from their frontmatter; everything else falls through to the prose
- * parser and is flagged, because a server that is useless until its repo is
- * migrated never gets installed.
- *
- * The body is deliberately not returned: a scan reads every file in the
- * workspace, and almost nothing above the seam reads prose. {@link ticketBody}
+ * What one file in a Ticket location is (ADR 0009): a Ticket, a marked file
+ * excluded for its faults, an unmarked file worth a suggestion, or nothing the
+ * tracker has a word for — a README, notes — which is ignored silently.
+ */
+export type Classified =
+  | { readonly kind: 'ticket'; readonly ticket: TicketSummary }
+  | {
+      readonly kind: 'excluded';
+      /** Every name the file would answer to: its id when the fence parsed and carried one, and its stem. */
+      readonly names: readonly string[];
+      readonly problems: readonly Problem[];
+    }
+  | { readonly kind: 'unmarked-ticket-like' }
+  | { readonly kind: 'ignored' };
+
+/** A {@link Diagnostic} before the driver knows which file it is about. */
+export type Problem = Omit<Diagnostic, 'file' | 'effect'>;
+
+/**
+ * A top-level `frontier:` line, found on the fence's text before any YAML is
+ * parsed, so a marked file whose YAML is broken is diagnosed rather than read
+ * as unmarked. Only column 0 is top level; block scalars are always indented.
+ */
+const MARKER_LINE = /^(?:frontier|'frontier'|"frontier")[ \t]*:/m;
+
+/** Whether a file's fence carries the marker key at top level, whatever its value. */
+export function isMarked(contents: string): boolean {
+  const raw = fenceText(contents);
+  return raw !== undefined && MARKER_LINE.test(raw);
+}
+
+/**
+ * Classify one file of an `issues/` directory, reading everything but its
+ * prose. The body is deliberately not returned: a scan reads every file in
+ * the workspace, and almost nothing above the seam reads prose. {@link ticketBody}
  * takes it out of the same contents for the few Tickets actually being worked.
  */
-export function parseTicketSummary(
-  effort: string,
-  file: TicketFile,
-  revision: string,
-): ParsedTicket {
-  const { fields, raw } = splitFrontmatter(file.contents);
-  const orderHint = readOrderHint(file.filename);
+export function classifyTicketFile(effort: string, file: TicketFile, revision: string): Classified {
+  const { fields: parsedFields, raw } = splitFrontmatter(file.contents);
+  if (raw === undefined || !MARKER_LINE.test(raw)) {
+    // The keys being there is the resemblance; their values are the author's draft.
+    return parsedFields !== undefined &&
+      Object.hasOwn(parsedFields, 'title') &&
+      Object.hasOwn(parsedFields, 'status')
+      ? { kind: 'unmarked-ticket-like' }
+      : { kind: 'ignored' };
+  }
 
-  if (fields === undefined) return parseUnfenced(effort, orderHint, file, revision);
+  const stemName = nameFromFilename(file.filename);
+  if (parsedFields === undefined) {
+    return {
+      kind: 'excluded',
+      names: [stemName],
+      problems: [
+        {
+          code: 'yaml-unparseable',
+          expected: 'a YAML mapping',
+          fix: 'repair the frontmatter by hand so it parses as a YAML mapping',
+        },
+      ],
+    };
+  }
 
   let parsed: Document | undefined;
   const fence = (): Document => (parsed ??= parseDocument(raw ?? ''));
+  const fields = scalarsAsWritten(parsedFields, fence);
+  const id = readId(fields, fence);
 
-  const id = text(
-    asWritten(fields['id'], readAsOther(fields['id']) ? fence().get('id', true) : undefined, fence),
-  );
-  const rawStatus = text(fields['status']);
-  const mappedStatus = readStatus(rawStatus);
-  const unrecognizedStatus =
-    rawStatus !== undefined && mappedStatus === undefined ? rawStatus : undefined;
+  const problems = validate(fields);
+  if (problems.length > 0) return { kind: 'excluded', names: namesWith(id, stemName), problems };
 
   const ticket: TicketSummary = {
     id,
-    name: id ?? nameFromFilename(file.filename),
-    title: text(fields['title']) ?? '(untitled)',
-    kind: readKind(fields['kind']),
+    name: id ?? stemName,
+    title: text(fields['title']) ?? '',
+    kind: text(fields['kind']) === 'decision' ? 'decision' : 'build',
     type: text(fields['type']),
-    status: mappedStatus ?? 'open',
+    status: readStatus(text(fields['status'])) ?? 'open',
     triage: text(fields['triage']),
     answerGist: text(fields['answer_gist']),
     droppedReason: text(fields['dropped_reason']),
@@ -61,76 +107,153 @@ export function parseTicketSummary(
     claimedAt: text(fields['claimed_at']),
     blockedBy: readEdgeList(fields['blocked_by'], fence),
     effort,
-    orderHint,
-    foreign: false,
+    orderHint: readOrderHint(file.filename),
     hasUnimportedKeys: Object.keys(fields).some(key => !SCHEMA_KEYS.has(key)),
-    unrecognizedStatus,
-    collapsedRefs: [],
-    keptSubSlices: [],
     revision,
   };
-  return { ticket, subSlices: [] };
+  return { kind: 'ticket', ticket };
+}
+
+function readId(fields: Record<string, unknown>, fence: () => Document): string | undefined {
+  const value = fields['id'];
+  return text(asWritten(value, readAsOther(value) ? fence().get('id', true) : undefined, fence));
+}
+
+function namesWith(id: string | undefined, stemName: string): string[] {
+  return id === undefined || id.toLowerCase() === stemName.toLowerCase()
+    ? [stemName]
+    : [id, stemName];
 }
 
 /**
- * A Ticket as one file reads, before its Effort is known: prose sub-slice
- * references are still as declared, because only the siblings can say whether
- * `T38.1` names a slice of a Ticket here.
+ * Every name a diagnosed file answers to: its id when its fence parses and
+ * carries a readable one, and its stem. Never throws — a fence it cannot read
+ * leaves the stem alone.
  */
-export interface ParsedTicket {
-  readonly ticket: TicketSummary;
-  readonly subSlices: readonly string[];
+export function diagnosedNames(filename: string, contents: string): string[] {
+  const stemName = nameFromFilename(filename);
+  try {
+    const { fields, raw } = splitFrontmatter(contents);
+    if (fields === undefined) return [stemName];
+    let parsed: Document | undefined;
+    return namesWith(
+      readId(fields, () => (parsed ??= parseDocument(raw ?? ''))),
+      stemName,
+    );
+  } catch {
+    return [stemName];
+  }
 }
 
+/** Schema fields read as one line of text; a mapping or list there cannot be. */
+const TEXT_KEYS = ['id', 'type', 'answer_gist', 'dropped_reason', 'claimed_by', 'claimed_at'];
+
 /**
- * Decided once, over one Effort, so the Board, the Frontier, a lazy write and
- * migration all see the same Edges (T82). A prose `T38.1` coarsens to `T38`
- * only when `T38` is a Ticket of this Effort — ids read from prose headings
- * included, which is why this runs after every file is parsed. Otherwise it
- * stays as declared and dangles: a milestone label coarsened onto another
- * Effort's resolved `T1` grants an Edge the file never declared.
+ * The faults that exclude a marked file whose fence parses. Every other field
+ * keeps its default when missing — no `kind` reads as `build` — and a
+ * lifecycle gap such as `resolved` without `answer_gist` is a Board warning,
+ * not a fault.
  */
-export function resolveSubSlices(parsed: readonly ParsedTicket[]): TicketSummary[] {
-  const local = new Set(parsed.map(entry => entry.ticket.id).filter(id => id !== undefined));
-  return parsed.map(({ ticket, subSlices }) => {
-    if (subSlices.length === 0) return ticket;
-    const slices = new Set(subSlices);
-    const collapsed: string[] = [];
-    const kept: string[] = [];
-    const edges = ticket.blockedBy.map(edge => {
-      if (!slices.has(edge)) return edge;
-      const parent = edge.slice(0, edge.indexOf('.'));
-      // Its own id is no parent: `T5` blocked by `T5.2` would become a self-Edge.
-      if (!local.has(parent) || parent === ticket.id) {
-        kept.push(edge);
-        return edge;
-      }
-      collapsed.push(edge);
-      return parent;
+function validate(fields: Record<string, unknown>): Problem[] {
+  const problems: Problem[] = [];
+
+  if (fields[MARKER_KEY] !== MARKER_VALUE) {
+    problems.push({
+      code: 'invalid-value',
+      key: MARKER_KEY,
+      expected: MARKER_VALUE,
+      found: found(fields[MARKER_KEY]),
+      fix: `set ${MARKER_KEY}: ${MARKER_VALUE}`,
     });
-    return {
-      ...ticket,
-      blockedBy: [...new Set(edges)],
-      collapsedRefs: collapsed,
-      keptSubSlices: kept,
-    };
-  });
+  }
+  for (const key of ['title', 'status', ...TEXT_KEYS]) {
+    const value = fields[key];
+    if (value !== undefined && value !== null && !isPlain(value)) {
+      problems.push({
+        code: 'invalid-value',
+        key,
+        expected: key === 'status' ? STATUSES.join(' | ') : 'text',
+        found: found(value),
+        fix: `write ${key} as plain text`,
+      });
+    } else if ((key === 'title' || key === 'status') && text(value) === undefined) {
+      problems.push({
+        code: 'missing-key',
+        key,
+        expected: key === 'status' ? STATUSES.join(' | ') : 'non-empty text',
+        fix: `add ${key} to the frontmatter`,
+      });
+    }
+  }
+  // `status` absent or blank was reported above. `kind` and `triage` absent or
+  // null default; written but blank, they are a value outside the enum.
+  const oneOf = (key: string, allowed: readonly string[]) => {
+    const value = fields[key];
+    if (value === undefined || value === null) return;
+    if (key === 'status' && (text(value) === undefined || !isPlain(value))) return;
+    if (typeof value === 'string' && allowed.includes(value.trim())) return;
+    problems.push({
+      code: 'invalid-value',
+      key,
+      expected: allowed.join(' | '),
+      found: found(value),
+      fix: `set ${key} to one of ${allowed.join(', ')}`,
+    });
+  };
+  oneOf('status', STATUSES);
+  oneOf('kind', KINDS);
+  oneOf('triage', TRIAGE_ROLES);
+
+  const edges = fields['blocked_by'];
+  if (
+    edges !== undefined &&
+    edges !== null &&
+    (!Array.isArray(edges) || edges.some(entry => entry !== null && typeof entry === 'object'))
+  ) {
+    problems.push({
+      code: 'invalid-value',
+      key: 'blocked_by',
+      expected: 'a list of Ticket names',
+      found: found(edges),
+      fix: 'write blocked_by as a list, e.g. [T3, token-cache], or []',
+    });
+  }
+  return problems;
+}
+
+const KINDS: readonly Kind[] = ['build', 'decision'];
+
+/** Long enough to recognize a value, short enough that a Diagnostic stays one line. */
+const FOUND_LIMIT = 80;
+
+/**
+ * A value as a Diagnostic shows it: text as written, anything else as JSON,
+ * cut to {@link FOUND_LIMIT}. YAML anchors can make a value circular, which
+ * JSON cannot hold, so that falls back to a tag rather than throwing.
+ */
+function found(value: unknown): string {
+  let shown: string;
+  try {
+    shown = typeof value === 'string' ? value : (JSON.stringify(value) ?? String(value));
+  } catch {
+    shown = Array.isArray(value) ? '[circular list]' : '{circular mapping}';
+  }
+  shown = shown.replace(/\s+/g, ' ');
+  return shown.length > FOUND_LIMIT ? `${shown.slice(0, FOUND_LIMIT - 1)}…` : shown;
 }
 
 /**
- * A Ticket's prose. A schema file's body is what sits below the frontmatter; a
- * fenceless file has no fence, so its whole contents are the prose — the same
- * split {@link parseTicketSummary} makes, taken from the other side.
+ * A Ticket's prose: what sits below the frontmatter. Only a Ticket's body is
+ * ever read, and a Ticket always has a fence.
  */
 export function ticketBody(contents: string): string {
-  const { fields, body } = splitFrontmatter(contents);
-  return (fields === undefined ? contents : body).trim();
+  return splitFrontmatter(contents).body.trim();
 }
 
 /**
  * The frontmatter keys this schema does not import, and the file's own text for
  * them: only the unimported entries, each sliced from the source rather than
- * re-serialized. Undefined for a conforming Ticket and for a fenceless file.
+ * re-serialized. Undefined for a conforming Ticket.
  */
 export function unimportedFrontmatter(contents: string): UnimportedFrontmatter | undefined {
   const { fields, raw } = splitFrontmatter(contents);
@@ -165,46 +288,12 @@ function unimportedEntries(raw: string): string | undefined {
   return slices.join(raw.includes('\r\n') ? '\r\n' : '\n');
 }
 
-function parseUnfenced(
-  effort: string,
-  orderHint: number | undefined,
-  file: TicketFile,
-  revision: string,
-): ParsedTicket {
-  const inferred = parseProseBody(file.contents);
-
-  const ticket: TicketSummary = {
-    id: inferred.id,
-    name: inferred.id ?? nameFromFilename(file.filename),
-    title: inferred.title,
-    kind: inferred.kind,
-    type: inferred.type,
-    status: inferred.status,
-    triage: inferred.triage,
-    // A fenceless file records its answer as prose in the body, not as a field.
-    answerGist: undefined,
-    droppedReason: undefined,
-    claimedBy: undefined,
-    claimedAt: undefined,
-    blockedBy: inferred.blockedBy,
-    effort,
-    orderHint,
-    foreign: true,
-    hasUnimportedKeys: false,
-    unrecognizedStatus: inferred.unrecognizedStatus,
-    collapsedRefs: [],
-    keptSubSlices: [],
-    revision,
-  };
-  return { ticket, subSlices: inferred.subSlices };
-}
-
 /**
  * A Ticket with no id is named by its file: the stem, less a leading `<digits>-`,
- * which is an order hint and never identity. Lenient — any stem is a name, and one
- * that is nothing but the prefix is kept whole rather than left empty.
+ * which is an order hint and never identity. One that is nothing but the
+ * prefix is kept whole rather than left empty.
  */
-function nameFromFilename(filename: string): string {
+export function nameFromFilename(filename: string): string {
   const stem = filename.replace(/\.md$/, '');
   return stem.replace(/^\d+-/, '') || stem;
 }
@@ -213,10 +302,6 @@ function nameFromFilename(filename: string): string {
 function readOrderHint(filename: string): number | undefined {
   const match = FILENAME_ORDER.exec(filename);
   return match?.[1] === undefined ? undefined : Number(match[1]);
-}
-
-function readKind(value: unknown): Kind {
-  return text(value) === 'decision' ? 'decision' : 'build';
 }
 
 function readStatus(value: string | undefined): Status | undefined {
@@ -230,11 +315,49 @@ function readStatus(value: string | undefined): Status | undefined {
  */
 function readEdgeList(value: unknown, fence: () => Document): readonly string[] {
   if (!Array.isArray(value)) return [];
-  const list: unknown = value.some(readAsOther) ? fence().get('blocked_by', true) : undefined;
-  const nodes = isSeq(list) ? list.items : [];
+  const nodes = value.some(readAsOther) ? listItems(fence(), 'blocked_by') : [];
   return value
     .map((entry, index) => text(asWritten(entry, nodes[index], fence)))
     .filter((entry): entry is string => entry !== undefined);
+}
+
+/**
+ * The fields with every schema scalar YAML read as an object — a tagged
+ * `!!timestamp` is a `Date` — taken as written, by the rule {@link asWritten}
+ * reads a name by. Validation and the readers then see one value, so a scalar
+ * a reader accepts is never excluded. Mappings and lists stay as they are.
+ */
+function scalarsAsWritten(
+  fields: Record<string, unknown>,
+  fence: () => Document,
+): Record<string, unknown> {
+  let out: Record<string, unknown> | undefined;
+  for (const key of SCHEMA_KEYS) {
+    const value = fields[key];
+    if (key === 'blocked_by') {
+      if (!Array.isArray(value) || !value.some(isObject)) continue;
+      const nodes = listItems(fence(), key);
+      out ??= { ...fields };
+      out[key] = value.map((entry, index) =>
+        isObject(entry) ? asWritten(entry, nodes[index], fence) : entry,
+      );
+    } else if (isObject(value) && !Array.isArray(value)) {
+      out ??= { ...fields };
+      out[key] = asWritten(value, fence().get(key, true), fence);
+    }
+  }
+  return out ?? fields;
+}
+
+/** A list's nodes, an aliased list followed to its anchor first, so each entry is read as written. */
+function listItems(doc: Document, key: string): readonly unknown[] {
+  const node: unknown = doc.get(key, true);
+  const list = isAlias(node) ? node.resolve(doc) : node;
+  return isSeq(list) ? list.items : [];
+}
+
+function isObject(value: unknown): boolean {
+  return value !== null && typeof value === 'object';
 }
 
 function readAsOther(value: unknown): boolean {
@@ -253,9 +376,19 @@ function asWritten(value: unknown, node: unknown, fence: () => Document): unknow
   return isScalar(target) && readAsOther(target.value) ? (target.source ?? value) : value;
 }
 
+/** A value YAML gave as a scalar, which alone converts to text without running anything. */
+function isPlain(value: unknown): value is string | number | boolean | bigint {
+  return (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+  );
+}
+
 /** YAML scalars arrive as numbers and booleans too; only non-empty strings count. */
 function text(value: unknown): string | undefined {
-  if (value === null || value === undefined) return undefined;
+  if (!isPlain(value)) return undefined;
   const asText = String(value).trim();
   return asText === '' ? undefined : asText;
 }

@@ -71,7 +71,11 @@ export const updateTicketInputSchema = z.object({
       'Unimported frontmatter keys to delete, as get_tickets lists them. A schema key or an ' +
         'absent one fails the whole call; nothing else in the fence changes.',
     ),
-  title: z.string().min(1).optional().describe('Replace the Ticket title.'),
+  title: z
+    .string()
+    .refine(value => value.trim() !== '', 'title must not be blank')
+    .optional()
+    .describe('Replace the Ticket title.'),
   kind: z.enum(['build', 'decision']).optional().describe('Replace the Ticket kind.'),
   type: z
     .string()

@@ -27,6 +27,7 @@ describe('a write does not reformat what it did not touch', () => {
     // has never heard of. ADR 0003's whole claim is that all of this survives.
     const original = [
       '---',
+      'frontier: ticket',
       'title: Work',
       '# why this one is odd',
       'blocked_by: []',
@@ -53,7 +54,8 @@ describe('a write does not reformat what it did not touch', () => {
 
     // Untouched keys stay exactly where the author put them; the new ones are
     // appended rather than sorted into place.
-    expect(fields?.slice(0, 7)).toEqual([
+    expect(fields?.slice(0, 8)).toEqual([
+      'frontier',
       'title',
       '# why this one is odd',
       'blocked_by',
@@ -68,16 +70,26 @@ describe('a write does not reformat what it did not touch', () => {
     expect(onDisk).toContain('claimed_by: agent-7');
   });
 
-  it('does not duplicate a fence whose YAML will not parse', async () => {
-    const broken = ['---', 'id: T1', 'title: [unclosed', '---', '', 'Body prose.', ''].join('\n');
+  it('refuses a marked fence whose YAML will not parse, and leaves it as it is', async () => {
+    const broken = [
+      '---',
+      'frontier: ticket',
+      'id: T1',
+      'title: [unclosed',
+      '---',
+      '',
+      'Body prose.',
+      '',
+    ].join('\n');
     const { frontier, read } = await withFile(broken);
 
-    await frontier.call('update_ticket', { id: 'T1-work', claim: { by: 'agent-7' } });
+    const error = await frontier.callExpectingError('update_ticket', {
+      id: 'alpha.T1-work',
+      claim: { by: 'agent-7' },
+    });
 
-    const onDisk = await read();
-    // A malformed fence is normalized, not shovelled into the body.
-    expect(onDisk.match(/^---$/gm)).toHaveLength(2);
-    expect(onDisk).toContain('Body prose.');
+    expect(error).toContain('yaml-unparseable');
+    expect(await read()).toBe(broken);
   });
 });
 
@@ -85,6 +97,7 @@ describe('writing an answer', () => {
   it('leaves the sections after it alone', async () => {
     const original = [
       '---',
+      'frontier: ticket',
       'id: T1',
       'title: Work',
       'kind: build',
@@ -122,6 +135,7 @@ describe('writing an answer', () => {
   it('does not mistake a similarly named heading for the Answer', async () => {
     const original = [
       '---',
+      'frontier: ticket',
       'id: T1',
       'title: Work',
       'kind: build',

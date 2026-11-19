@@ -36,9 +36,12 @@ function fixedDriver(
       async assertAddressable() {},
       async readTickets(handles) {
         const wanted = new Set(handles);
-        return tickets.filter(
-          entry => wanted.has(entry.name) || (entry.id !== undefined && wanted.has(entry.id)),
-        );
+        return {
+          tickets: tickets.filter(
+            entry => wanted.has(entry.name) || (entry.id !== undefined && wanted.has(entry.id)),
+          ),
+          diagnostics: new Map(),
+        };
       },
       updateTicket() {
         throw new Error('this driver is read-only');
@@ -58,8 +61,8 @@ function fixedDriver(
       putSpec() {
         throw new Error('this driver is read-only');
       },
-      migrateEffort() {
-        throw new Error('this driver is read-only');
+      async diagnosticsFor(handles) {
+        return new Map(handles.map(handle => [handle, []]));
       },
       absentStorage() {
         return undefined;
@@ -82,6 +85,7 @@ describe('the storage driver seam', () => {
         ticketCount: 7,
         destination: undefined,
         specOpening: undefined,
+        diagnostics: [],
       },
       {
         slug: 'also-nowhere',
@@ -89,6 +93,7 @@ describe('the storage driver seam', () => {
         ticketCount: 0,
         destination: undefined,
         specOpening: undefined,
+        diagnostics: [],
       },
     ]);
     const frontier = await connectFrontier({
@@ -126,6 +131,7 @@ describe('the storage driver seam', () => {
             ticketCount: 0,
             destination: undefined,
             specOpening: undefined,
+            diagnostics: [],
           },
         ];
       },
@@ -140,7 +146,7 @@ describe('the storage driver seam', () => {
       },
       async assertAddressable() {},
       async readTickets() {
-        return [];
+        return { tickets: [], diagnostics: new Map() };
       },
       updateTicket() {
         throw new Error('this driver is read-only');
@@ -160,8 +166,8 @@ describe('the storage driver seam', () => {
       putSpec() {
         throw new Error('this driver is read-only');
       },
-      migrateEffort() {
-        throw new Error('this driver is read-only');
+      async diagnosticsFor(handles) {
+        return new Map(handles.map(handle => [handle, []]));
       },
       close() {
         // Nothing held open: this driver answers from a literal list.
@@ -190,6 +196,7 @@ describe("the driver's cached workspace", () => {
         ticketCount: 0,
         destination: undefined,
         specOpening: undefined,
+        diagnostics: [],
       },
     ]);
 
@@ -291,5 +298,33 @@ describe("the markdown driver's storage directory", () => {
         'note: every Ticket was created; their Edges could not be read back to render.',
       ].join('\n'),
     );
+  });
+});
+
+describe('get_tickets on a mixed batch', () => {
+  it('answers found and missed names from one driver read', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      '.scratch/alpha/issues/real.md': '---\nfrontier: ticket\ntitle: Real\nstatus: open\n---\n',
+      '.scratch/alpha/issues/broken.md': '---\nfrontier: ticket\ntitle: Broken\n---\n',
+    });
+    let diagnosticsCalls = 0;
+    const createDriver = (at: string): StorageDriver => {
+      const real = createMarkdownDriver(at);
+      return {
+        ...real,
+        diagnosticsFor(handles) {
+          diagnosticsCalls += 1;
+          return real.diagnosticsFor(handles);
+        },
+      };
+    };
+    const frontier = await connectFrontier({ cwd: root, env: {}, createDriver });
+
+    const text = await frontier.call('get_tickets', { ids: ['real', 'broken', 'missing'] });
+    expect(text).toContain('Real');
+    expect(text).toContain('missing-key');
+    expect(text).toContain('not found: missing');
+    expect(diagnosticsCalls).toBe(0);
   });
 });

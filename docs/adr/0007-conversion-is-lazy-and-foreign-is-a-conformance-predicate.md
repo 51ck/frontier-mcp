@@ -1,5 +1,9 @@
 # Conversion is lazy, and Foreign is a conformance predicate
 
+**Superseded** by [ADR 0009](./0009-a-ticket-is-recognized-by-an-explicit-marker.md) for 3.0: nothing
+is converted, lazily or otherwise, and a file with no parseable fence is not a Ticket. This record
+stays as what 2.x ships.
+
 Amended on 2026-11-15 by the owner's decision recorded on Ticket `To7zwid`: Foreign means no
 parseable fence, and a key outside the schema is only an Unimported key.
 

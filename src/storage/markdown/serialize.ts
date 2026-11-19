@@ -10,7 +10,7 @@ import {
   SchemaKeyNotDroppable,
 } from '../driver.ts';
 import { splitFrontmatter } from './frontmatter.ts';
-import { FIELD_ORDER, SCHEMA_KEYS } from './schema.ts';
+import { FIELD_ORDER, MARKER_KEY, MARKER_VALUE, SCHEMA_KEYS } from './schema.ts';
 
 /** The body sections a write may touch. Everything else is opaque prose. */
 const ANSWER_HEADING = '## Answer';
@@ -26,23 +26,6 @@ export interface Defaults {
   readonly status: string;
   readonly triage: string | undefined;
   readonly blockedBy: readonly string[];
-}
-
-/**
- * Normalize a Ticket file for migration. A file with no parseable fence gets a
- * full block from {@link defaults}; a file that already has frontmatter keeps
- * its keys and their order and only has its Edge list replaced, which is where
- * a bare sort-order Edge becomes a name. Body prose is kept verbatim either way.
- */
-export function normalizeTicket(contents: string, defaults: Defaults): string {
-  const split = splitFrontmatter(contents);
-  const document = split.hasFence ? existingDocument(split.raw) : undefined;
-  if (document === undefined) return applyEdit(contents, {}, defaults);
-
-  setEdges(document, defaults.blockedBy);
-
-  const body = split.body.replace(/^\s+/, '').replace(/\n+$/, '');
-  return `---\n${render(document)}\n---\n\n${body}\n`;
 }
 
 /**
@@ -81,7 +64,9 @@ export function applyEdit(contents: string, edit: TicketEdit, defaults: Defaults
   body = withAnswer(body, edit.answer);
   body = withComment(body, edit.comment);
 
-  return `---\n${frontmatter}\n---\n\n${body}\n`;
+  // A BOM the file opened with stays: the fence is read past it, so it was never content.
+  const bom = contents.startsWith('\uFEFF') ? '\uFEFF' : '';
+  return `${bom}---\n${frontmatter}\n---\n\n${body}\n`;
 }
 
 /**
@@ -98,8 +83,8 @@ export function applyEdit(contents: string, edit: TicketEdit, defaults: Defaults
  * dropped entry's line, or an alias that falls back to an earlier anchor of the
  * same name would otherwise land a fence that no longer parses, or one whose
  * `status` quietly changed.
- * When no key survives there is no fence left to keep, and undefined hands the
- * write to the schema block every fenceless file gets.
+ * The marker, `title` and `status` are schema keys and never dropped, so a
+ * fence always survives a drop.
  */
 function withoutKeys(
   raw: string | undefined,
@@ -151,8 +136,6 @@ function withoutKeys(
   ) {
     throw new KeyNotCleanlyDroppable([...spans.keys()]);
   }
-  if (Object.keys(expected).length === 0) return undefined;
-
   return written;
 }
 
@@ -349,10 +332,9 @@ function withComment(body: string, comment: string | undefined): string {
 }
 
 /**
- * The existing frontmatter, or undefined when there is none to preserve. A fence
- * whose YAML does not parse cannot be round-tripped — `yaml` refuses to
- * stringify a document carrying errors — so it is rebuilt from the schema
- * instead, which is what "strict on write" means for a file this broken.
+ * The existing frontmatter, or undefined when there is none. Only a valid
+ * Ticket is ever written, and a valid Ticket's fence parses as a mapping, so
+ * undefined here means a drop found nothing to drop from.
  */
 function existingDocument(raw: string | undefined): Document | undefined {
   if (raw === undefined) return undefined;
@@ -403,22 +385,21 @@ function render(document: Document): string {
 }
 
 /**
- * A fenceless Foreign file has no frontmatter, so a write is where it gets one — the
- * "strict on write" half of the contract: the tracker converts itself as it is
- * worked rather than in one risky pass. Only a created block gets to be in the
- * schema's field order.
+ * The block {@link serializeNew} writes: the marker first (ADR 0009), then the
+ * fields in schema order — the one case where that order is imposed, since
+ * there is no author's ordering to preserve.
  */
 function schemaFor(defaults: Defaults): Document {
   const document = new Document({});
   const values: Partial<Record<(typeof FIELD_ORDER)[number], unknown>> = {
+    [MARKER_KEY]: MARKER_VALUE,
     ...(defaults.id === undefined ? {} : { id: defaults.id }),
     title: defaults.title,
     kind: defaults.kind,
     ...(defaults.type === undefined ? {} : { type: defaults.type }),
     status: defaults.status,
     ...(defaults.triage === undefined ? {} : { triage: defaults.triage }),
-    // Flow, because that is how every Ticket in these repos is written by hand
-    // and a normalized file should not stand out from the ones beside it.
+    // Flow, because that is how every Ticket in these repos is written by hand.
     blocked_by: document.createNode([...defaults.blockedBy], { flow: true }),
   };
 

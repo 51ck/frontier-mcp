@@ -57,9 +57,21 @@ thereafter. Opaque document bytes across the storage seam.
 _Avoid_: PRD, design doc, requirements
 
 **Ticket**:
-One markdown file under an Effort's `issues/`, one unit of work or one question. Identified by its
-Name.
+One markdown file directly in an Effort's `issues/` whose frontmatter carries the Marker and
+validates, one unit of work or one question. Identified by its Name.
 _Avoid_: issue, task, card, story
+
+**Marker**:
+The frontmatter line `frontier: ticket`. The only thing that makes a file a Ticket; it has no
+version, and the server writes it only on files it creates, never on an existing one.
+_Avoid_: tag, flag, schema version
+
+**Diagnostic**:
+What the server noticed about a file in a Ticket location that is not a valid Ticket: a code, the
+file, and the fix, with the key and expected value where one applies. An **excluded** Diagnostic is
+on a marked file kept off every Board, the Frontier and every write until fixed by hand; a
+**suggestion** is on an unmarked file that looks like a Ticket. Unrelated Markdown has none.
+_Avoid_: error, warning (a Board groups Diagnostics into warnings), lint
 
 **Name**:
 What identifies a Ticket: `<effort>.<name>`, the Effort's slug and the file's stem, written bare
@@ -98,14 +110,8 @@ and in code identifiers; `frontier-mcp` as the npm package and binary; `frontier
 MCP server name, which is why the tools are `mcp__frontier__*`.
 _Avoid_: Frontier (that is the set), the frontier server, frontier-mcp in prose
 
-**Legacy ticket**:
-A ticket file predating the schema, with no frontmatter. Parsed best-effort on read, normalized on
-first write through the server.
-_Avoid_: unmigrated, old-format
-
 **Unimported keys**:
 Frontmatter keys outside the schema, which the server reads past and never writes. Counted on the
 Board and shown by `get_tickets` for as long as a ticket carries them; removed only when an agent
 names them.
-_Avoid_: foreign keys (Foreign is a file with no parseable frontmatter, not a fact about keys),
-extra fields
+_Avoid_: foreign keys, extra fields

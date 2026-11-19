@@ -175,6 +175,7 @@ describe('the tracker configuration document', () => {
    * types this, and the server accepts it as a first-class Ticket.
    */
   const HAND_WRITTEN = `---
+frontier: ticket
 title: Handwritten per tracker doc
 kind: build
 status: open
@@ -204,9 +205,8 @@ Written by following the tracker configuration document only.
 
     const board = await frontier.call('get_board', { effort: 'hand' });
     expect(board).toContain('hand-written  Handwritten per tracker doc');
-    // A Ticket the parser had to infer would be flagged Foreign — this one
-    // carries real frontmatter, so it must not be.
-    expect(board).not.toContain('foreign');
+    expect(doc).toContain('frontier: ticket');
+    expect(board).not.toContain('warnings:');
   });
 
   it('states the no-server precondition inside the hand-publish body, not only in its heading', () => {
@@ -316,14 +316,13 @@ describe('tool annotations', () => {
   });
 
   it('declares the overwriting writers destructive, and says so out loud', async () => {
-    // These four replace or remove what was there: update_ticket rewrites
+    // These three replace or remove what was there: update_ticket rewrites
     // fields and sections, edit_map replaces Destination/Notes and graduates
-    // fog away, spec puts a whole new body, migrate_effort rewrites and
-    // renames files. True is also the default, and stated anyway — see
-    // AGENTS.md, Local Contracts.
+    // fog away, spec puts a whole new body. True is also the default, and
+    // stated anyway — see AGENTS.md, Local Contracts.
     const annotations = await annotationsByTool();
 
-    for (const name of ['update_ticket', 'edit_map', 'spec', 'migrate_effort']) {
+    for (const name of ['update_ticket', 'edit_map', 'spec']) {
       expect(annotations[name], name).toMatchObject({
         readOnlyHint: false,
         destructiveHint: true,
@@ -331,10 +330,10 @@ describe('tool annotations', () => {
     }
   });
 
-  it('keeps the three readers read-only', async () => {
+  it('keeps the readers read-only, retired migrate_effort among them', async () => {
     const annotations = await annotationsByTool();
 
-    for (const name of ['list_efforts', 'get_board', 'get_tickets']) {
+    for (const name of ['list_efforts', 'get_board', 'get_tickets', 'migrate_effort']) {
       expect(annotations[name], name).toMatchObject({ readOnlyHint: true });
     }
   });

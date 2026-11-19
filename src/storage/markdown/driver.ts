@@ -1,16 +1,15 @@
-import { mkdir, readdir, readFile } from 'node:fs/promises';
-import { readFileSync, statSync } from 'node:fs';
+import { lstat, mkdir, readdir, readFile, stat } from 'node:fs/promises';
+import { lstatSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { isMap, parseDocument } from 'yaml';
 
 import type {
+  Diagnostic,
   Effort,
   HeaderDoc,
   MapDocument,
   MapEdit,
-  MigrateOptions,
-  MigrationReport,
   SpecDocument,
   Ticket,
   TicketDraft,
@@ -34,9 +33,12 @@ import {
   DuplicateId,
   NoSuchTicket,
   RevisionMismatch,
+  SymlinkedEffort,
+  SymlinkedHeaderDoc,
+  TicketStorageUnusable,
+  WriteWouldExclude,
 } from '../driver.ts';
 import { createTicketFiles } from './create.ts';
-import { migrateEffortFiles } from './migrate.ts';
 import { applyEdit, type Defaults } from './serialize.ts';
 import {
   AtomicWriteConflict,
@@ -56,8 +58,10 @@ import {
   SECTION_HEADINGS,
 } from './header-doc.ts';
 import {
-  parseTicketSummary,
-  resolveSubSlices,
+  classifyTicketFile,
+  diagnosedNames,
+  isMarked,
+  type Problem,
   ticketBody,
   unimportedFrontmatter,
 } from './ticket.ts';
@@ -73,7 +77,10 @@ import { watchStorage, type StorageWatcher } from './watcher.ts';
  *   └── issues/
  *       └── <name>.md     # Tickets; an older file may carry an `NN-` prefix
  *
- * Anything else in an Effort directory is ignored, never an error.
+ * Only these are listed: the storage directory, each Effort directory, and
+ * each `issues/` (ADR 0009). Nothing below `issues/` and no other directory of
+ * an Effort is ever entered. A file there is a Ticket only when marked and
+ * valid; what else is noticed there is a Diagnostic, never an error.
  */
 const DEFAULT_STORAGE_DIR = '.scratch';
 const ISSUES_DIR = 'issues';
@@ -105,6 +112,8 @@ export interface MarkdownDriverOptions {
    * on them; the default schedule is the right one for real use.
    */
   readonly watcherSettleMs?: readonly number[];
+  /** Force the watcher's per-directory mode, which only Linux uses by default. Only `true` exists. */
+  readonly watcherPerDirectory?: true;
 }
 
 /**
@@ -131,23 +140,29 @@ export function createMarkdownDriver(
     storageDir = DEFAULT_STORAGE_DIR,
     watcherDebounceMs,
     watcherSettleMs,
+    watcherPerDirectory,
   }: MarkdownDriverOptions = {},
 ): StorageDriver {
   const storage = join(root, storageDir);
+  const relativeStorage = storageDir.split(/[\\/]/).filter(Boolean).join('/');
   // Read once and not watched: the answer changes only when a person deletes the file.
   const ignoredConfig = ignoredConfigWarning(storage, storageDir);
   let writes: Promise<unknown> = Promise.resolve();
   // Set only when the cached scan completes, so a Board's duplicate warning
   // describes the scan its lines were built from. The fresh walks behind
-  // readTickets, create and migrate never touch it. Kept beside the cache rather
+  // readTickets, create and diagnosticsFor never touch it. Kept beside the cache rather
   // than in it because workspaceWarnings is synchronous.
   let duplicates: DuplicateClaims = { ids: [], names: [] };
+  // Beside `duplicates`, for the same reason: the cached scan's, read synchronously.
+  let linkedEfforts: readonly string[] = [];
 
   const walk = async (): Promise<ScannedEffort[]> => {
     // A repo that has never used the tracker is a supported starting state,
     // not an error: it simply holds no Efforts.
     const slugs = await readDirectories(storage);
-    const scanned = await Promise.all(slugs.map(slug => readEffort(storage, slug)));
+    const scanned = await Promise.all(
+      slugs.map(slug => readEffort(storage, slug, relativeStorage)),
+    );
 
     return scanned
       .filter((entry): entry is ScannedEffort => entry !== undefined)
@@ -166,11 +181,17 @@ export function createMarkdownDriver(
   let cachedScan: Promise<ScannedEffort[]> | undefined;
   const scan = () => {
     if (cachedScan === undefined) {
-      const started: Promise<ScannedEffort[]> = walk().then(
-        efforts => {
+      const started: Promise<ScannedEffort[]> = Promise.all([
+        walk(),
+        readLinkedDirectories(storage),
+      ]).then(
+        ([efforts, linked]) => {
           // A walk an invalidation has already replaced must not overwrite the
           // warning the newer scan's Board lines belong with.
-          if (cachedScan === started) duplicates = duplicateClaims(efforts);
+          if (cachedScan === started) {
+            duplicates = duplicateClaims(efforts);
+            linkedEfforts = linked;
+          }
           return efforts;
         },
         (error: unknown) => {
@@ -203,11 +224,12 @@ export function createMarkdownDriver(
   const watcher: StorageWatcher = watchStorage(root, storageDir, invalidate, {
     debounceMs: watcherDebounceMs,
     settleMs: watcherSettleMs,
+    perDirectory: watcherPerDirectory,
   });
 
   return {
     async listEfforts(): Promise<readonly Effort[]> {
-      return (await scan()).map(entry => entry.effort);
+      return (await scan()).filter(entry => !entry.diagnosticOnly).map(entry => entry.effort);
     },
 
     async listTickets(): Promise<readonly TicketSummary[]> {
@@ -220,6 +242,9 @@ export function createMarkdownDriver(
 
     workspaceWarnings() {
       const warnings = ignoredConfig === undefined ? [] : [ignoredConfig];
+      if (linkedEfforts.length > 0) {
+        warnings.push(symlinkedEffortWarning(linkedEfforts, relativeStorage));
+      }
       if (duplicates.ids.length > 0) warnings.push(duplicateWarning(duplicates.ids, DUPLICATE_IDS));
       if (duplicates.names.length > 0) {
         warnings.push(duplicateWarning(duplicates.names, DUPLICATE_NAMES));
@@ -231,13 +256,22 @@ export function createMarkdownDriver(
       await locate(storage, handle);
     },
 
-    async readTickets(handles): Promise<readonly Ticket[]> {
+    async diagnosticsFor(handles) {
+      // Fresh, as readTickets is: one walk for every handle, however many.
+      return diagnosticsIn(await walk(), handles);
+    },
+
+    async readTickets(handles) {
       // Deliberately the fresh walk rather than the cached one. A body is read
       // for the few Tickets being worked, and reading it against a scan taken
       // before another process wrote is exactly the staleness `get_tickets`
       // exists not to serve. It costs a walk a concurrent Board would have
       // shared — the price of an answer nothing can have staled underneath it.
-      return readBodies(storage, await walk(), handles);
+      const scanned = await walk();
+      const tickets = await readBodies(storage, scanned, handles);
+      const names = indexNames(tickets);
+      const missed = handles.filter(handle => names.input(handle).length === 0);
+      return { tickets, diagnostics: diagnosticsIn(scanned, missed) };
     },
 
     updateTicket(handle, edit, expectedRevision, settle) {
@@ -274,10 +308,6 @@ export function createMarkdownDriver(
       );
     },
 
-    migrateEffort(effort, options) {
-      return moved(() => serialized(() => migrate(storage, storageDir, effort, options, walk)));
-    },
-
     close() {
       watcher.close();
       invalidate();
@@ -309,6 +339,8 @@ export function createMarkdownDriver(
 function ignoredConfigWarning(storage: string, storageDir: string): string | undefined {
   let contents: string;
   try {
+    // Only the storage directory itself is followed as a link.
+    if (lstatSync(join(storage, CONFIG_FILE)).isSymbolicLink()) return undefined;
     contents = readFileSync(join(storage, CONFIG_FILE), 'utf8');
   } catch {
     return undefined;
@@ -324,50 +356,6 @@ function ignoredConfigWarning(storage: string, storageDir: string): string | und
   );
 }
 
-async function migrate(
-  storage: string,
-  storageDir: string,
-  effort: string,
-  options: MigrateOptions,
-  walk: () => Promise<ScannedEffort[]>,
-): Promise<MigrationReport> {
-  const dir = effortDir(storage, effort);
-  const scanned = await walk();
-  const entries = scanned.find(entry => entry.effort.slug === effort)?.entries;
-  if (entries === undefined) throw new NoSuchEffort(effort);
-
-  // An id inferred from prose is written into frontmatter, so one another file
-  // already carries would land as a duplicate, and a name two files share is
-  // one no Edge can mean. Both get the refusal any write addressed to a
-  // duplicate gets; a preview is a read, so it reports the conflict beside the
-  // rest of the plan.
-  const { fileOf, names } = filesByTicket(scanned);
-  const conflicts = new Map<string, { kind: 'id' | 'name'; files: readonly string[] }>();
-  for (const { filename, ticket } of entries) {
-    if (!ticket.foreign && ticket.id !== undefined) continue;
-    const claimants = names.claimants(ticket);
-    if (claimants.length < 2) continue;
-    const files = claimants.map(claimant => fileOf.get(claimant) ?? '');
-    const kind = duplicateKindOf(claimants);
-    if (options.preview !== true) {
-      throw new DuplicateId(ticket.id ?? fullNameOf(ticket), files, kind);
-    }
-    conflicts.set(filename, { kind, files });
-  }
-  const issues = join(dir, ISSUES_DIR);
-
-  return migrateEffortFiles({
-    effort,
-    issues,
-    directory: [...storageDir.split(/[\\/]/), effort, ISSUES_DIR].filter(Boolean).join('/'),
-    entries,
-    names,
-    preview: options.preview,
-    conflicts,
-    readContents: filename => readFile(join(issues, filename), 'utf8'),
-  });
-}
-
 async function create(
   storage: string,
   effort: string,
@@ -375,19 +363,27 @@ async function create(
   options: CreateOptions,
   walk: () => Promise<ScannedEffort[]>,
 ): Promise<readonly TicketSummary[]> {
-  const dir = effortDir(storage, effort);
+  const dir = await realEffortDir(storage, effort);
 
   // A case-insensitive filesystem would open the existing directory under the
   // caller's spelling, and every in-Effort rule above the seam, which looks the
   // slug up exactly, would be skipped. On a case-sensitive one a second Effort
   // would land beside the first with the same folded full names.
+  // A diagnostic-only directory counts: under another spelling it is still the
+  // directory a case-insensitive filesystem would open.
   const slugs = (await walk()).map(scanned => scanned.effort.slug);
   if (!slugs.includes(effort)) {
     const twin = slugs.find(slug => slug.toLowerCase() === effort.toLowerCase());
     if (twin !== undefined) throw new EffortSpelledDifferently(effort, twin);
   }
 
-  const missing = (await readEffort(storage, effort)) === undefined;
+  if (await isSymlink(join(dir, ISSUES_DIR))) {
+    throw new TicketStorageUnusable(
+      `${effort}/${ISSUES_DIR} is a symbolic link, and Tickets are only written to a real directory.`,
+    );
+  }
+
+  const missing = !(await isEffort(storage, effort));
   if (missing && !options.createEffort) throw new NoSuchEffort(effort);
 
   // The directory is made inside, after validation — an Effort created here and
@@ -399,6 +395,8 @@ async function create(
     rescan: async () => (await walk()).flatMap(summariesOf),
     settle: options.settle ?? (() => drafts),
     createEffort: missing,
+    validate: (name, filename, contents) =>
+      assertStillATicket(`${effort}.${name}`, effort, filename, contents),
   });
 
   // The files have landed, so from here the call has succeeded. A read-back
@@ -410,8 +408,10 @@ async function create(
   return files.map(({ filename, contents }) => {
     const read = byFilename.get(filename);
     if (read !== undefined) return read;
-    const [asWritten] = resolveSubSlices([parseTicketSummary(effort, { filename, contents }, '')]);
-    return asWritten as TicketSummary;
+    const asWritten = classifyTicketFile(effort, { filename, contents }, '');
+    // The file was serialized by this driver, so it classifies as a Ticket.
+    if (asWritten.kind !== 'ticket') throw new Error(`${effort}.${filename} wrote invalid`);
+    return asWritten.ticket;
   });
 }
 
@@ -435,6 +435,7 @@ async function write(
   const edit = settled === undefined ? requested : await settled();
   const contents = await readFile(path, 'utf8');
   const updated = applyEdit(contents, edit, defaultsFor(ticket));
+  assertStillATicket(handle, effort, filename, updated);
 
   try {
     await withGuard(path, expectedRevision, async () => {
@@ -479,8 +480,37 @@ async function write(
   return { ticket: written, warnings };
 }
 
+/**
+ * Refuse text the scan would not read back as a Ticket. The scan's own
+ * validator judges it, so a write can never land a file the server then
+ * excludes: a blank title, or an anchored value the marker aliases.
+ */
+export function assertStillATicket(
+  handle: string,
+  effort: string,
+  filename: string,
+  contents: string,
+): void {
+  const classified = classifyTicketFile(effort, { filename, contents }, '');
+  if (classified.kind === 'ticket') return;
+  throw new WriteWouldExclude(
+    handle,
+    classified.kind === 'excluded'
+      ? classified.problems.map(problem =>
+          [
+            problem.code,
+            problem.key === undefined ? undefined : `key=${problem.key}`,
+            problem.expected === undefined ? undefined : `expected=${problem.expected}`,
+          ]
+            .filter(part => part !== undefined)
+            .join(' '),
+        )
+      : ['the marker would be lost'],
+  );
+}
+
 async function loadMap(storage: string, effort: string): Promise<MapDocument> {
-  const path = join(effortDir(storage, effort), MAP_FILE);
+  const path = await headerDocPath(storage, effort, MAP_FILE);
   const revision = await currentRevision(path);
   if (revision === undefined) throw new NoSuchMap(effort);
   return readMapDocument(await readFile(path, 'utf8'), revision);
@@ -493,8 +523,8 @@ async function saveMap(
   expectedRevision: string | undefined,
   options: HeaderDocOptions,
 ): Promise<MapDocument> {
-  const dir = effortDir(storage, effort);
-  const path = join(dir, MAP_FILE);
+  const dir = await realEffortDir(storage, effort);
+  const path = await headerDocPath(storage, effort, MAP_FILE);
   const current = await currentRevision(path);
   const handle = `map:${effort}`;
   assertNoSectionBreaks(edit);
@@ -503,7 +533,7 @@ async function saveMap(
     // createEffort only guards starting a new Effort. An Effort that already
     // holds a Spec or issues/ must be able to gain a Map without that flag —
     // that is wayfinder's handoff, not a mistyped slug.
-    if ((await readEffort(storage, effort)) === undefined && !options.createEffort) {
+    if (!(await isEffort(storage, effort)) && !options.createEffort) {
       throw new NoSuchEffort(effort);
     }
 
@@ -561,12 +591,13 @@ async function refreshMapDerivedOnce(
   effort: string,
   remaining: number,
 ): Promise<void> {
-  const path = join(storage, effort, MAP_FILE);
+  // A linked Map refuses here, and the caller reports it as stale blocks.
+  const path = await headerDocPath(storage, effort, MAP_FILE);
   const revision = await currentRevision(path);
   if (revision === undefined) return;
 
   const contents = await readFile(path, 'utf8');
-  const entries = await readTicketFiles(join(storage, effort), effort);
+  const entries = await readTicketFiles(await realEffortDir(storage, effort), effort);
   const updated = applyMapEdit(
     contents,
     {},
@@ -606,7 +637,7 @@ class DerivedRefreshLost extends Error {
 }
 
 async function loadSpec(storage: string, effort: string): Promise<SpecDocument> {
-  const path = join(effortDir(storage, effort), SPEC_FILE);
+  const path = await headerDocPath(storage, effort, SPEC_FILE);
   const revision = await currentRevision(path);
   if (revision === undefined) throw new NoSuchSpec(effort);
   return { body: await readFile(path, 'utf8'), revision };
@@ -619,8 +650,8 @@ async function saveSpec(
   expectedRevision: string | undefined,
   options: HeaderDocOptions,
 ): Promise<SpecDocument> {
-  const dir = effortDir(storage, effort);
-  const path = join(dir, SPEC_FILE);
+  const dir = await realEffortDir(storage, effort);
+  const path = await headerDocPath(storage, effort, SPEC_FILE);
   const current = await currentRevision(path);
   const handle = `spec:${effort}`;
   // Opaque bytes — store what the caller sent. No BOM strip, no trailing
@@ -629,7 +660,7 @@ async function saveSpec(
   if (current === undefined) {
     // Same rule as Maps: createEffort starts an Effort; putting a Spec onto an
     // Effort that already has a Map needs no flag.
-    if ((await readEffort(storage, effort)) === undefined && !options.createEffort) {
+    if (!(await isEffort(storage, effort)) && !options.createEffort) {
       throw new NoSuchEffort(effort);
     }
 
@@ -821,19 +852,59 @@ function defaultsFor(ticket: TicketSummary): Defaults {
   };
 }
 
+/** Every diagnosed file's Diagnostics, keyed by each handle that would name it. */
+function diagnosticsIn(
+  scanned: readonly ScannedEffort[],
+  handles: readonly string[],
+): ReadonlyMap<string, readonly Diagnostic[]> {
+  const byName = new Map<string, Diagnostic[]>();
+  for (const { effort, excluded } of scanned) {
+    for (const file of excluded) {
+      const keys = new Set(
+        file.names.flatMap(name => [name, `${effort.slug}.${name}`]).map(n => n.toLowerCase()),
+      );
+      for (const key of keys) {
+        byName.set(key, [...(byName.get(key) ?? []), ...file.diagnostics]);
+      }
+    }
+  }
+  return new Map(handles.map(handle => [handle, byName.get(handle.toLowerCase()) ?? []]));
+}
+
 interface ScannedEffort {
   readonly effort: Effort;
+  /**
+   * A directory with no Header doc and no `issues/` that holds a marked `.md`:
+   * scanned only so that file is diagnosed `ticket-outside-issues`. It is not
+   * an Effort — never listed, never a Board, never a target for a write.
+   */
+  readonly diagnosticOnly: boolean;
   /**
    * The Effort's Ticket files by filename prefix, then by name. A scan keeps
    * the filename beside each summary because that is what a body fetch opens —
    * the pairing stays below the seam, where paths live.
    */
   readonly entries: readonly TicketFileEntry[];
+  /** Files diagnosed rather than served — excluded or suggested — by the names each would have. */
+  readonly excluded: readonly ExcludedFile[];
 }
 
 interface TicketFileEntry {
   readonly filename: string;
   readonly ticket: TicketSummary;
+}
+
+/** A file diagnosed in place of being a Ticket, by every name it would answer to. */
+interface ExcludedFile {
+  /** Its id when its fence parsed and carried one, and its stem name. */
+  readonly names: readonly string[];
+  readonly diagnostics: readonly Diagnostic[];
+}
+
+interface IssuesListing {
+  readonly entries: TicketFileEntry[];
+  readonly excluded: ExcludedFile[];
+  readonly diagnostics: Diagnostic[];
 }
 
 /** The Tickets of one scanned Effort, without the files behind them. */
@@ -883,9 +954,47 @@ function withBody(ticket: TicketSummary, contents: string): Ticket {
  * Ticket came from, and how a body fetch finds the one it must open.
  */
 async function readTicketFiles(dir: string, effort: string): Promise<TicketFileEntry[]> {
+  return (await readIssues(dir, effort, '')).entries;
+}
+
+/**
+ * One `issues/` listing, classified file by file (ADR 0009). A directory in it
+ * is noticed from its entry and never entered. `prefix` is the Effort
+ * directory relative to the workspace root, for the Diagnostics' paths.
+ */
+async function readIssues(dir: string, effort: string, prefix: string): Promise<IssuesListing> {
   const issues = join(dir, ISSUES_DIR);
-  const entries = await readDir(issues);
-  const filenames = entries
+  const relative = `${prefix}${ISSUES_DIR}/`;
+  // Not followed: a link would serve, and let writes land in, a directory
+  // outside the storage root. Only the storage directory itself may be a link.
+  if (await isSymlink(issues)) {
+    return {
+      entries: [],
+      excluded: [],
+      diagnostics: [
+        {
+          code: 'symlinked-issues',
+          effect: 'excluded',
+          file: `${prefix}${ISSUES_DIR}`,
+          expected: 'a directory, not a symbolic link',
+          fix: `replace the link with the directory itself by hand; nothing through it is read`,
+        },
+      ],
+    };
+  }
+  const listing = await readDir(issues);
+  const diagnostics: Diagnostic[] = listing
+    .filter(entry => entry.isDirectory())
+    .map(entry => entry.name)
+    .toSorted()
+    .map(name => ({
+      code: 'directory-in-issues',
+      effect: 'excluded',
+      file: `${relative}${name}/`,
+      expected: `Ticket files directly in ${relative}`,
+      fix: `move any Ticket in it up into ${relative} by hand; nothing below ${relative} is read`,
+    }));
+  const filenames = listing
     .filter(entry => entry.isFile() && entry.name.endsWith('.md'))
     .map(entry => entry.name)
     .toSorted();
@@ -901,22 +1010,85 @@ async function readTicketFiles(dir: string, effort: string): Promise<TicketFileE
         // Listed and then gone: another process took back a batch it could not
         // complete. It is not a Ticket of this Effort, and never was.
         if (isMissing(error)) return undefined;
+        // Unopenable is diagnosed, never read as unmarked: a Ticket at mode 000
+        // must not vanish from a Board that otherwise looks complete.
+        if (isUnreadable(error)) return { filename, unreadable: true as const };
         throw error;
       }
-      const parsed = parseTicketSummary(effort, { filename, contents }, revision ?? '');
-      return { filename, parsed };
+      return {
+        filename,
+        contents,
+        classified: classifySafely(effort, filename, contents, revision ?? ''),
+      };
     }),
   );
 
-  const present = read.filter(entry => entry !== undefined);
-  const tickets = resolveSubSlices(present.map(entry => entry.parsed));
-  const files = present.map(({ filename }, position) => ({
-    filename,
-    ticket: tickets[position] as TicketSummary,
-  }));
+  const entries: TicketFileEntry[] = [];
+  const excluded: ExcludedFile[] = [];
+  for (const file of read) {
+    if (file === undefined) continue;
+    if ('unreadable' in file) {
+      const unreadable: Diagnostic = {
+        code: 'unreadable',
+        effect: 'excluded',
+        file: `${relative}${file.filename}`,
+        expected: 'a file the server can read',
+        fix: 'fix its permissions by hand so the server can read it',
+      };
+      diagnostics.push(unreadable);
+      excluded.push({ names: diagnosedNames(file.filename, ''), diagnostics: [unreadable] });
+      continue;
+    }
+    const { filename, contents, classified } = file;
+    const path = `${relative}${filename}`;
+    if (classified.kind === 'ticket') entries.push({ filename, ticket: classified.ticket });
+    else if (classified.kind === 'excluded') {
+      const found = classified.problems.map(problem => excludedAt(path, problem));
+      diagnostics.push(...found);
+      excluded.push({ names: classified.names, diagnostics: found });
+    } else if (classified.kind === 'unmarked-ticket-like') {
+      const suggestion: Diagnostic = {
+        code: 'unmarked-ticket-like',
+        effect: 'suggestion',
+        file: path,
+        key: 'frontier',
+        expected: 'ticket',
+        fix: 'if this is a Ticket, add `frontier: ticket` to its frontmatter by hand',
+      };
+      diagnostics.push(suggestion);
+      excluded.push({ names: diagnosedNames(filename, contents), diagnostics: [suggestion] });
+    }
+  }
   // Stable over the sorted filenames, so two files tying on prefix and name
   // still come out in one order on every machine.
-  return files.toSorted((a, b) => compareByOrderHint(a.ticket, b.ticket));
+  entries.sort((a, b) => compareByOrderHint(a.ticket, b.ticket));
+  return { entries, excluded, diagnostics };
+}
+
+/**
+ * One file's classification, never a failure of the scan: a value the
+ * validator cannot handle excludes that file and nothing else.
+ */
+function classifySafely(effort: string, filename: string, contents: string, revision: string) {
+  try {
+    return classifyTicketFile(effort, { filename, contents }, revision);
+  } catch {
+    return {
+      kind: 'excluded' as const,
+      names: diagnosedNames(filename, contents),
+      problems: [
+        {
+          code: 'yaml-unparseable' as const,
+          expected: 'a YAML mapping of plain values',
+          fix: 'repair the frontmatter by hand so it parses as a YAML mapping',
+        },
+      ],
+    };
+  }
+}
+
+function excludedAt(file: string, problem: Problem): Diagnostic {
+  return { ...problem, effect: 'excluded', file };
 }
 
 /**
@@ -924,31 +1096,100 @@ async function readTicketFiles(dir: string, effort: string): Promise<TicketFileE
  * something the schema recognizes — a Header doc or an `issues/` directory.
  * That directory is also where these repos keep loose scratch output, and a
  * directory of research notes is not an empty Effort.
+ *
+ * Its own `.md` files beside the Header docs are read for the marker alone: a
+ * marked one is a Ticket in the wrong place, diagnosed and never moved. A
+ * directory holding one but nothing the schema recognizes is scanned as
+ * `diagnosticOnly`, for that diagnostic alone.
  */
-async function readEffort(storage: string, slug: string): Promise<ScannedEffort | undefined> {
+async function readEffort(
+  storage: string,
+  slug: string,
+  relativeStorage = '',
+): Promise<ScannedEffort | undefined> {
   const dir = join(storage, slug);
   const listing = await readDir(dir);
 
   const files = new Set(listing.filter(entry => entry.isFile()).map(entry => entry.name));
   const headerDocs = HEADER_DOCS.filter(([, filename]) => files.has(filename)).map(([doc]) => doc);
+  const prefix = `${relativeStorage === '' ? '' : `${relativeStorage}/`}${slug}/`;
+  // Never read through: a linked Header doc would serve, and let writes replace,
+  // a file outside the storage root. It still makes the Effort, diagnosed.
+  const linkedDocs: Diagnostic[] = HEADER_DOCS.filter(([, filename]) =>
+    listing.some(entry => entry.name === filename && entry.isSymbolicLink()),
+  ).map(([, filename]) => ({
+    code: 'symlinked-header-doc',
+    effect: 'excluded',
+    file: `${prefix}${filename}`,
+    expected: 'a file, not a symbolic link',
+    fix: 'replace the link with the file itself by hand; nothing through it is read or written',
+  }));
 
-  const hasIssues = listing.some(entry => entry.isDirectory() && entry.name === ISSUES_DIR);
-  if (headerDocs.length === 0 && !hasIssues) return undefined;
+  // A linked issues/ still makes an Effort, so the link is diagnosed rather than unseen.
+  const hasIssues = listing.some(
+    entry => entry.name === ISSUES_DIR && (entry.isDirectory() || entry.isSymbolicLink()),
+  );
+  const loose = [...files]
+    .filter(name => name.endsWith('.md') && name !== MAP_FILE && name !== SPEC_FILE)
+    .toSorted();
 
-  const [entries, destination, specOpening] = await Promise.all([
-    readTicketFiles(dir, slug),
+  const [issues, destination, specOpening, misplaced] = await Promise.all([
+    readIssues(dir, slug, prefix),
     headerDocs.includes('map')
       ? readText(join(dir, 'map.md')).then(contents =>
           readSection(contents, SECTION_HEADINGS.destination),
         )
       : undefined,
     headerDocs.includes('spec') ? readText(join(dir, 'spec.md')).then(readSpecOpening) : undefined,
+    Promise.all(
+      loose.map(async name => {
+        // A probe, not a read of tracker data: a file it cannot open is not
+        // marked, and never aborts the scan of every other Effort.
+        const contents = await readFile(join(dir, name), 'utf8').catch((error: unknown) => {
+          if (isMissing(error) || isUnreadable(error)) return '';
+          throw error;
+        });
+        return isMarked(contents) ? { name, contents } : undefined;
+      }),
+    ),
   ]);
 
+  const strays = misplaced
+    .filter(stray => stray !== undefined)
+    .map(({ name, contents }) => ({
+      names: diagnosedNames(name, contents),
+      diagnostics: [
+        {
+          code: 'ticket-outside-issues',
+          effect: 'excluded',
+          file: `${prefix}${name}`,
+          expected: `${prefix}${ISSUES_DIR}/${name}`,
+          fix: `move it into ${prefix}${ISSUES_DIR}/ by hand to make it a Ticket`,
+        } satisfies Diagnostic,
+      ],
+    }));
+  const outside = strays.flatMap(stray => stray.diagnostics);
+  const recognized = headerDocs.length > 0 || linkedDocs.length > 0 || hasIssues;
+  if (!recognized && strays.length === 0) return undefined;
+
   return {
-    effort: { slug, headerDocs, ticketCount: entries.length, destination, specOpening },
-    entries,
+    diagnosticOnly: !recognized,
+    effort: {
+      slug,
+      headerDocs,
+      ticketCount: issues.entries.length,
+      destination,
+      specOpening,
+      diagnostics: [...linkedDocs, ...outside, ...issues.diagnostics],
+    },
+    entries: issues.entries,
+    excluded: [...strays, ...issues.excluded],
   };
+}
+
+async function isEffort(storage: string, slug: string): Promise<boolean> {
+  const scanned = await readEffort(storage, slug);
+  return scanned !== undefined && !scanned.diagnosticOnly;
 }
 
 /** A file that vanished between the scan and the read is read as empty, not as a failure. */
@@ -989,6 +1230,65 @@ function effortDir(storage: string, slug: string): string {
     throw new InvalidEffortSlug(slug);
   }
   return join(storage, slug);
+}
+
+/** {@link effortDir}, refused when it is a symbolic link: no read or write follows one. */
+async function realEffortDir(storage: string, slug: string): Promise<string> {
+  const dir = effortDir(storage, slug);
+  if (await isSymlink(dir)) throw new SymlinkedEffort(slug);
+  return dir;
+}
+
+/** A Header doc's path in a real Effort directory, refused when the doc itself is a link. */
+async function headerDocPath(storage: string, slug: string, filename: string): Promise<string> {
+  const path = join(await realEffortDir(storage, slug), filename);
+  if (await isSymlink(path)) throw new SymlinkedHeaderDoc(slug, filename);
+  return path;
+}
+
+/**
+ * The symbolic links in the storage directory that lead to a directory: each
+ * is what an Effort would look like, and none is followed, so each is named on
+ * every Board rather than left unseen.
+ */
+async function readLinkedDirectories(storage: string): Promise<string[]> {
+  const linked = (await readDir(storage)).filter(entry => entry.isSymbolicLink());
+  const isDir = await Promise.all(
+    linked.map(entry =>
+      stat(join(storage, entry.name)).then(
+        found => found.isDirectory(),
+        () => false,
+      ),
+    ),
+  );
+  return linked
+    .filter((_, index) => isDir[index])
+    .map(entry => entry.name)
+    .toSorted();
+}
+
+function symlinkedEffortWarning(slugs: readonly string[], relativeStorage: string): string {
+  const files = slugs.map(slug => (relativeStorage === '' ? slug : `${relativeStorage}/${slug}`));
+  const rest = files.length - 3;
+  const listed = files.slice(0, 3).join(' ') + (rest > 0 ? ` and ${String(rest)} more` : '');
+  return (
+    `symlinked-effort: Effort directories that are symbolic links, never followed ` +
+    `(${String(files.length)}): ${listed}; replace each link with the directory itself by hand`
+  );
+}
+
+async function isSymlink(path: string): Promise<boolean> {
+  try {
+    return (await lstat(path)).isSymbolicLink();
+  } catch (error) {
+    if (isMissing(error)) return false;
+    throw error;
+  }
+}
+
+function isUnreadable(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  return code === 'EACCES' || code === 'EPERM';
 }
 
 function isMissing(error: unknown): boolean {

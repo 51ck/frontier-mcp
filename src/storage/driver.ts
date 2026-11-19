@@ -1,10 +1,9 @@
 import { bareIdOf } from '../domain.ts';
 import type {
+  Diagnostic,
   Effort,
   MapDocument,
   MapEdit,
-  MigrateOptions,
-  MigrationReport,
   SpecDocument,
   Ticket,
   TicketDraft,
@@ -12,15 +11,7 @@ import type {
   TicketSummary,
 } from '../domain.ts';
 
-export type {
-  MapDocument,
-  MapEdit,
-  MigrateOptions,
-  MigrationReport,
-  SpecDocument,
-  TicketDraft,
-  TicketEdit,
-};
+export type { MapDocument, MapEdit, SpecDocument, TicketDraft, TicketEdit };
 
 export interface CreateOptions {
   /**
@@ -109,10 +100,19 @@ export interface StorageDriver {
   assertAddressable(handle: string): Promise<void>;
 
   /**
+   * For each handle, the Diagnostics of every diagnosed file that would answer
+   * to it were it a Ticket — its id, its full `<effort>.<name>`, or its bare
+   * name — from one fresh read for the whole call. A handle nothing diagnosed
+   * answers to maps to an empty list. Never writes.
+   */
+  diagnosticsFor(handles: readonly string[]): Promise<ReadonlyMap<string, readonly Diagnostic[]>>;
+
+  /**
    * The named Tickets with their bodies, each addressed as `Names.input`
    * resolves it: an id, a full `<effort>.<name>`, or a bare name one Effort
-   * alone has. A name the workspace does not hold is simply absent: which names
-   * were asked for is the caller's knowledge, not the driver's. A bare name
+   * alone has. A name the workspace does not hold is absent from `tickets`
+   * and keyed in `diagnostics` with what {@link diagnosticsFor} would answer
+   * for it, from the same fresh read, so a mixed call walks once. A bare name
    * several Efforts have throws `AmbiguousName`.
    *
    * Separate from {@link listTickets} because a body is the one field almost
@@ -120,7 +120,10 @@ export interface StorageDriver {
    * summary fields — so bodies are fetched for the few Tickets being worked
    * rather than carried by every read of the workspace.
    */
-  readTickets(handles: readonly string[]): Promise<readonly Ticket[]>;
+  readTickets(handles: readonly string[]): Promise<{
+    readonly tickets: readonly Ticket[];
+    readonly diagnostics: ReadonlyMap<string, readonly Diagnostic[]>;
+  }>;
 
   /**
    * Apply an edit to one Ticket and return it as written.
@@ -194,15 +197,6 @@ export interface StorageDriver {
     expectedRevision: string | undefined,
     options: HeaderDocOptions,
   ): Promise<SpecDocument>;
-
-  /**
-   * Normalize one Effort: give every Foreign Ticket schema frontmatter, and
-   * resolve the Edges that name a sibling by its position rather than its name.
-   * No Ticket's name changes, so a preview, which writes nothing, reports what
-   * a real run reports. A Ticket needing neither is left untouched.
-   * Unrecognized files in the Effort directory are ignored.
-   */
-  migrateEffort(effort: string, options: MigrateOptions): Promise<MigrationReport>;
 
   /**
    * Release whatever this driver holds open to stay live — the markdown
@@ -295,6 +289,21 @@ export class BatchNotUndone extends Error {
   }
 }
 
+/**
+ * Thrown when a write would leave a file the scan would not read as a Ticket —
+ * a blank title, or a marker an anchor tied to an edited field. Checked on the
+ * text about to be written, with the scan's own validator, before anything is
+ * staged or renamed.
+ */
+export class WriteWouldExclude extends Error {
+  constructor(handle: string, problems: readonly string[]) {
+    super(
+      `Nothing was written: ${handle} would not read back as a valid Ticket — ${problems.join('; ')}.`,
+    );
+    this.name = 'WriteWouldExclude';
+  }
+}
+
 /** Thrown when the storage cannot hold a new Ticket the way creation needs it held. */
 export class TicketStorageUnusable extends Error {
   constructor(problem: string) {
@@ -316,6 +325,31 @@ export class InvalidEffortSlug extends Error {
         'not starting with a dot, and holding no path separator or control character.',
     );
     this.name = 'InvalidEffortSlug';
+  }
+}
+
+/**
+ * Thrown when a caller's Effort directory is a symbolic link. Only the storage
+ * directory itself is followed: a linked Effort would serve, and take writes
+ * into, a directory outside the storage root, so it is not an Effort at all.
+ */
+export class SymlinkedEffort extends Error {
+  constructor(slug: string) {
+    super(
+      `'${slug}' is a symbolic link, and an Effort is only served from a real directory. ` +
+        'Replace the link with the directory itself by hand. Nothing was read or written.',
+    );
+    this.name = 'SymlinkedEffort';
+  }
+}
+
+export class SymlinkedHeaderDoc extends Error {
+  constructor(slug: string, filename: string) {
+    super(
+      `'${slug}/${filename}' is a symbolic link, and a Header doc is only served from a real file. ` +
+        'Replace the link with the file itself by hand. Nothing was read or written.',
+    );
+    this.name = 'SymlinkedHeaderDoc';
   }
 }
 

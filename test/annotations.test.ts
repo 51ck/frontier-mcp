@@ -11,6 +11,7 @@ const FILE = '.scratch/alpha/issues/01-T1-work.md';
 
 const BODY = [
   '---',
+  'frontier: ticket',
   'id: T1',
   'title: Work',
   'kind: build',
@@ -143,6 +144,7 @@ describe('ticking an acceptance criterion', () => {
     // House style: criterion prose continues on an indented line under the checkbox.
     const wrapped = [
       '---',
+      'frontier: ticket',
       'id: T1',
       'title: Work',
       'kind: build',
@@ -185,6 +187,7 @@ describe('ticking an acceptance criterion', () => {
   it('also matches a wrapped criterion re-joined onto one line', async () => {
     const wrapped = [
       '---',
+      'frontier: ticket',
       'id: T1',
       'title: Work',
       'kind: build',
@@ -215,6 +218,7 @@ describe('ticking an acceptance criterion', () => {
 describe('sections a write does not own', () => {
   const WITH_SECTIONS = [
     '---',
+    'frontier: ticket',
     'id: T1',
     'title: Work',
     'kind: build',
@@ -281,6 +285,7 @@ describe('sections a write does not own', () => {
   it('does not tick a checkbox inside a fenced code block', async () => {
     const fenced = [
       '---',
+      'frontier: ticket',
       'id: T1',
       'title: Work',
       'kind: build',
@@ -326,6 +331,7 @@ describe('an ambiguous criterion reference', () => {
   it('still accepts an exact match that is a prefix of another', async () => {
     const overlapping = [
       '---',
+      'frontier: ticket',
       'id: T1',
       'title: Work',
       'kind: build',

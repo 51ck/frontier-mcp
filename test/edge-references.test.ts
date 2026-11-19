@@ -15,7 +15,7 @@ import {
 afterEach(cleanupFixtures);
 
 function named(title: string, blockedBy: string[] = []): string {
-  return `---\ntitle: ${title}\nkind: build\nstatus: open\nblocked_by: [${blockedBy.join(', ')}]\n---\n\nProse.\n`;
+  return `---\nfrontier: ticket\ntitle: ${title}\nkind: build\nstatus: open\nblocked_by: [${blockedBy.join(', ')}]\n---\n\nProse.\n`;
 }
 
 /**
@@ -413,8 +413,8 @@ describe('an Edge list reads back what was written', () => {
       const { frontier } = await start({
         '.git/HEAD': '',
         '.scratch/alpha/map.md': map('Somewhere.'),
-        '.scratch/alpha/issues/a.md': `---\nid: ${id}\ntitle: Done\nkind: build\nstatus: resolved\nanswer_gist: Yes.\nblocked_by: []\n---\n`,
-        '.scratch/alpha/issues/c.md': `---\ntitle: Waits\nkind: build\nstatus: open\n${edges}\n---\n`,
+        '.scratch/alpha/issues/a.md': `---\nfrontier: ticket\nid: ${id}\ntitle: Done\nkind: build\nstatus: resolved\nanswer_gist: Yes.\nblocked_by: []\n---\n`,
+        '.scratch/alpha/issues/c.md': `---\nfrontier: ticket\ntitle: Waits\nkind: build\nstatus: open\n${edges}\n---\n`,
       });
 
       const board = await frontier.call('get_board', { effort: 'alpha' });

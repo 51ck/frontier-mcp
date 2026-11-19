@@ -27,6 +27,7 @@ import {
 import {
   getTicketsDescription,
   getTicketsInputSchema,
+  renderExcluded,
   renderTickets,
 } from './tools/get-tickets.ts';
 import {
@@ -38,7 +39,7 @@ import {
 import {
   migrateEffortDescription,
   migrateEffortInputSchema,
-  renderMigration,
+  renderMigrationRetired,
 } from './tools/migrate-effort.ts';
 import { renderSpec, specDescription, specInputSchema } from './tools/spec.ts';
 import { withWorkspace } from './tools/workspace-line.ts';
@@ -93,6 +94,15 @@ export interface CreateServerOptions {
    * Ignored when `createDriver` is supplied — a driver constructs its own.
    */
   readonly watcherDebounceMs?: number;
+  /**
+   * Watch directory by directory, as on Linux, whatever the platform, so a
+   * test on macOS runs the mode Linux runs. Only `true` exists: no value can
+   * select the recursive watch where it is not native (T99). Ignored when
+   * `createDriver` is supplied.
+   *
+   * @internal
+   */
+  readonly watcherPerDirectory?: true;
 }
 
 export interface FrontierMCP {
@@ -120,12 +130,14 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
   const registry = createDriverRegistry(
     options.createDriver ??
       (root =>
-        createMarkdownDriver(
-          root,
-          options.watcherDebounceMs === undefined
+        createMarkdownDriver(root, {
+          ...(options.watcherDebounceMs === undefined
             ? {}
-            : { watcherDebounceMs: options.watcherDebounceMs },
-        )),
+            : { watcherDebounceMs: options.watcherDebounceMs }),
+          ...(options.watcherPerDirectory === undefined
+            ? {}
+            : { watcherPerDirectory: options.watcherPerDirectory }),
+        })),
   );
 
   const server = new McpServer(
@@ -219,9 +231,9 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
     },
     async ({ ids, root }) => {
       const workspace = resolveWorkspace(root, context);
-      const found = await registry.forWorkspace(workspace).readTickets(ids);
-
-      return { content: [{ type: 'text', text: renderTickets(ids, found) }] };
+      const driver = registry.forWorkspace(workspace);
+      const { tickets, diagnostics } = await driver.readTickets(ids);
+      return { content: [{ type: 'text', text: renderTickets(ids, tickets, diagnostics) }] };
     },
   );
 
@@ -297,6 +309,13 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       const workspace = resolveWorkspace(root, context);
       const driver = registry.forWorkspace(workspace);
       const tickets = await driver.listTickets();
+      // A marked file excluded for its faults is never written; say why, not just "no Ticket".
+      if (indexNames(tickets).input(id).length === 0) {
+        const diagnostics = (await driver.diagnosticsFor([id])).get(id) ?? [];
+        if (diagnostics.length > 0) {
+          throw new Error(`Nothing was written: ${renderExcluded(id, diagnostics)}`);
+        }
+      }
 
       const request = {
         claim,
@@ -462,30 +481,10 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       title: 'Migrate Effort',
       description: migrateEffortDescription,
       inputSchema: migrateEffortInputSchema,
-      annotations: {
-        readOnlyHint: false,
-        destructiveHint: true,
-        idempotentHint: false,
-        openWorldHint: false,
-      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async ({ effort, preview, root }) => {
-      const workspace = resolveWorkspace(root, context);
-      const driver = registry.forWorkspace(workspace);
-      const report = await driver.migrateEffort(effort, {
-        preview: preview === true,
-      });
-
-      // A preview writes nothing, and neither does a run that finds nothing to
-      // normalize — an Effort already in schema reports no changes and leaves
-      // every file alone. Both are reads, whatever the flag said.
-      const wrote = preview !== true && report.changes.length > 0;
-
-      const rendered = renderMigration(report);
-      return {
-        content: [{ type: 'text', text: wrote ? withWorkspace(workspace, rendered) : rendered }],
-      };
-    },
+    // It writes nothing, so it names no workspace (T11).
+    () => ({ content: [{ type: 'text', text: renderMigrationRetired() }] }),
   );
 
   return {

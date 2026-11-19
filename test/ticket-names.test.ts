@@ -18,7 +18,12 @@ function named(
   title: string,
   fields: { status?: string; blocked_by?: string[]; answer_gist?: string } = {},
 ): string {
-  const fence = [`title: ${title}`, 'kind: build', `status: ${fields.status ?? 'open'}`];
+  const fence = [
+    'frontier: ticket',
+    `title: ${title}`,
+    'kind: build',
+    `status: ${fields.status ?? 'open'}`,
+  ];
   if (fields.answer_gist !== undefined) fence.push(`answer_gist: ${fields.answer_gist}`);
   fence.push(`blocked_by: [${(fields.blocked_by ?? []).join(', ')}]`);
   return `---\n${fence.join('\n')}\n---\n\nProse of ${title}.\n`;
@@ -50,7 +55,8 @@ const HAND_WRITTEN: FixtureTree = {
   '.scratch/alpha/issues/02-retry-budget.md': named('Bound the retries', {
     blocked_by: ['token-cache'],
   }),
-  '.scratch/alpha/issues/10-prose-only.md': '# Written as prose\n\nStatus: open\n\nJust prose.\n',
+  '.scratch/alpha/issues/10-prose-only.md':
+    '---\nfrontier: ticket\ntitle: Written as prose\nstatus: open\n---\n\nJust prose.\n',
 };
 
 describe('an Effort of hand-written files with no id', () => {
@@ -603,57 +609,5 @@ describe('two Tickets in different Efforts with one full name', () => {
       expect(error).not.toContain('changed on disk');
     }
     expect(await read()).toEqual(before);
-  });
-});
-
-describe('migrate_effort on an Effort holding a duplicated name', () => {
-  const FIRST = '.scratch/alpha/issues/01-cache.md';
-  const SECOND = '.scratch/alpha/issues/02-cache.md';
-  const DEP = '.scratch/alpha/issues/03-dep.md';
-  const TREE: FixtureTree = {
-    '.scratch/alpha/map.md': map('Somewhere.'),
-    [FIRST]: named('First'),
-    [SECOND]: named('Second', { status: 'resolved' }),
-    [DEP]: named('Dependent', { blocked_by: ['cache'] }),
-  };
-  const FILES = 'alpha/issues/01-cache.md, alpha/issues/02-cache.md';
-
-  it('refuses a real run with every file named, leaving the files and the Frontier alone', async () => {
-    const { root, frontier } = await workspace(TREE);
-    const read = () =>
-      Promise.all([FIRST, SECOND, DEP].map(file => readFile(join(root, file), 'utf8')));
-    const before = await read();
-    const board = await frontier.call('get_board', { effort: 'alpha' });
-    expect(takeable(board)).toEqual([]);
-
-    const error = await frontier.callExpectingError('migrate_effort', { effort: 'alpha' });
-
-    expect(error).toContain(
-      `Nothing was written: alpha.cache is carried by 2 Ticket files — ${FILES} — so which ` +
-        'one is meant cannot be told. Rename all but one file by hand',
-    );
-    expect(await read()).toEqual(before);
-    expect(takeable(await frontier.call('get_board', { effort: 'alpha' }))).toEqual([]);
-  });
-
-  it('reports the conflict on both lines of a preview, beside the rest of the plan', async () => {
-    const { root, frontier } = await workspace(TREE);
-    const before = await readFile(join(root, FIRST), 'utf8');
-
-    const preview = await frontier.call('migrate_effort', { effort: 'alpha', preview: true });
-
-    const conflict = `duplicate name, carried by ${FILES} — a real run refuses`;
-    expect(preview).toBe(
-      [
-        'alpha: preview — would migrate 0, unchanged 3',
-        '(nothing to migrate)',
-        `[01-cache.md]  First  ${conflict}`,
-        `[02-cache.md]  Second  ${conflict}`,
-        '',
-        '[01-cache.md]: <.scratch/alpha/issues/01-cache.md>',
-        '[02-cache.md]: <.scratch/alpha/issues/02-cache.md>',
-      ].join('\n'),
-    );
-    expect(await readFile(join(root, FIRST), 'utf8')).toBe(before);
   });
 });

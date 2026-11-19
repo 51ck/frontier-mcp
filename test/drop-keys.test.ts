@@ -34,7 +34,7 @@ const FENCE = [
 const BODY = '## Acceptance criteria\n\n- [ ] first thing\n';
 
 function file(fence: string, body = BODY): string {
-  return `---\n${fence}\n---\n\n${body}`;
+  return `---\nfrontier: ticket\n${fence}\n---\n\n${body}`;
 }
 
 async function setup(contents = file(FENCE), extra: Record<string, string> = {}) {
@@ -170,7 +170,7 @@ describe('update_ticket drop_keys', () => {
     );
   });
 
-  it('refuses an unfenced Ticket without normalizing it', async () => {
+  it('refuses an unfenced file, which is no Ticket, and leaves it as it is', async () => {
     const prose = '# T1 — One\n\nStatus: open\n\nProse only.\n';
     const { frontier, read } = await setup(prose);
 
@@ -179,7 +179,7 @@ describe('update_ticket drop_keys', () => {
       drop_keys: ['tags'],
     });
 
-    expect(error).toContain('no parseable frontmatter');
+    expect(error).toContain("No Ticket 'T1'");
     expect(await read()).toBe(prose);
   });
 
@@ -219,16 +219,15 @@ describe('drop_keys refuses a cut that would damage the fence', () => {
       'base',
     ],
     [
-      'an entry sharing its line in a flow mapping',
-      '{id: T1, title: One, status: open, z: 2}',
-      'z',
-    ],
-    [
       'an anchor whose alias would fall back to an earlier one',
       'id: T1\ntitle: One\nx: &s open\nz: &s resolved\nstatus: *s',
       'z',
     ],
-    ['the entry after a keep-chomped scalar', 'id: T1\ntitle: One\nlit: |+\n  a\n\nz: 1', 'z'],
+    [
+      'the entry after a keep-chomped scalar',
+      'id: T1\ntitle: One\nstatus: open\nlit: |+\n  a\n\nz: 1',
+      'z',
+    ],
   ])('refuses %s and writes nothing', async (_, fence, key) => {
     const { frontier, read } = await setup(file(fence));
     const before = await read();
@@ -243,16 +242,16 @@ describe('drop_keys refuses a cut that would damage the fence', () => {
     expect(await frontier.call('get_board', { effort: 'alpha' })).toContain('T1  One');
   });
 
-  it('refuses a fence the reader cannot parse with the typed failure', async () => {
+  it('refuses a marked fence the reader cannot parse with its diagnostic', async () => {
     const { frontier, read } = await setup(file('id: T1\ntitle: One\nw: *q\nz: 1'));
     const before = await read();
 
     const error = await frontier.callExpectingError('update_ticket', {
-      id: 'T1-one',
+      id: 'alpha.T1-one',
       drop_keys: ['z'],
     });
 
-    expect(error).toContain('no parseable frontmatter');
+    expect(error).toContain('yaml-unparseable (excluded)  .scratch/alpha/issues/01-T1-one.md');
     expect(await read()).toBe(before);
   });
 
@@ -292,23 +291,5 @@ describe('drop_keys on a fence with no id', () => {
     expect(await frontier.call('get_tickets', { ids: ['foreign'] })).not.toContain(
       '## Unimported frontmatter',
     );
-  });
-  it('gives a fence left with no key the schema block, never an empty fence', async () => {
-    const root = await makeFixtureTree({
-      '.scratch/alpha/map.md': map('Somewhere.'),
-      [FOREIGN]: file('labels: bug', '# Export\n\nBody.\n'),
-    });
-    const frontier = await connectFrontier({ cwd: root, env: {} });
-
-    await frontier.call('update_ticket', { id: 'foreign', drop_keys: ['labels'] });
-    await frontier.call('update_ticket', { id: 'foreign', comment: 'Still fine.' });
-
-    const written = await readFile(join(root, FOREIGN), 'utf8');
-    expect(written).not.toContain('null');
-    expect(written).toMatch(/^---\ntitle: /);
-    const board = await frontier.call('get_board', { effort: 'alpha' });
-    expect(board).not.toContain('Foreign');
-    expect(board).not.toContain('Unimported');
-    expect(board).toContain('> foreign  ');
   });
 });

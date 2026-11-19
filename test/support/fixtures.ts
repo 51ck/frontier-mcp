@@ -16,7 +16,12 @@ export interface TicketFields {
 /** A schema-conformant Ticket. Fields left out are simply absent from the frontmatter. */
 export function ticket(id: string, title: string, fields: TicketFields = {}): string {
   const { body, blocked_by, ...scalars } = fields;
-  const lines = [`id: ${id}`, `title: ${title}`, `kind: ${scalars.kind ?? 'build'}`];
+  const lines = [
+    'frontier: ticket',
+    `id: ${id}`,
+    `title: ${title}`,
+    `kind: ${scalars.kind ?? 'build'}`,
+  ];
 
   for (const key of [
     'type',

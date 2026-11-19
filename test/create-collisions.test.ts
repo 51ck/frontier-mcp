@@ -6,7 +6,8 @@ import { cleanupFixtures, connectFrontier, makeFixtureTree } from './support/har
 
 afterEach(cleanupFixtures);
 
-const named = (title: string): string => `---\ntitle: ${title}\nstatus: open\n---\n`;
+const named = (title: string): string =>
+  `---\nfrontier: ticket\ntitle: ${title}\nstatus: open\n---\n`;
 
 describe('create_tickets against an Effort spelled in another case', () => {
   it('is refused, naming the spelling on disk, and creates nothing', async () => {

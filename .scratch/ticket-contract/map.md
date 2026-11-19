@@ -37,6 +37,7 @@ Existing work this touches, left where it lives:
 ## Decisions so far
 
 <!-- GENERATED: overwritten on every mutation through the server. Do not hand-edit. -->
+- [explicit-ticket-marker — A file is a Ticket only when marked, valid and in a supported location](issues/explicit-ticket-marker.md) — A file is a Ticket only when it is a .md directly in issues/ carrying frontier: ticket; malformed marked files are excluded with structured diagnostics (Board grouped, list_efforts counts, get_tickets/update_ticket by name); prose parser, Foreign and migration removed; only storage root, Effort dirs and issues/ are listed; only the storage dir is followed as a link. ADR 0009.
 <!-- /GENERATED -->
 
 ## Not yet specified

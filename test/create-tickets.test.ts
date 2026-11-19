@@ -20,7 +20,8 @@ const WORKSPACE = {
 const SEEDED = ['01-T1-first.md', '02-T2-second.md'];
 
 /** A hand-written Ticket with no `id`, named by its file. */
-const NAMED = '---\ntitle: Named\nkind: build\nstatus: open\nblocked_by: []\n---\n';
+const NAMED =
+  '---\nfrontier: ticket\ntitle: Named\nkind: build\nstatus: open\nblocked_by: []\n---\n';
 
 async function issuesIn(root: string, effort: string): Promise<string[]> {
   return (await readdir(join(root, '.scratch', effort, 'issues'))).toSorted();
@@ -63,6 +64,7 @@ describe('create_tickets', () => {
     expect(await readFile(join(root, '.scratch/alpha/issues/parse.md'), 'utf8')).toBe(
       [
         '---',
+        'frontier: ticket',
         'title: Parse the frontmatter',
         'kind: decision',
         'type: research',
@@ -636,7 +638,6 @@ describe('an Effort slug that is not one directory name', () => {
     const errors = await Promise.all([
       frontier.callExpectingError('edit_map', { effort }),
       frontier.callExpectingError('spec', { effort }),
-      frontier.callExpectingError('migrate_effort', { effort, preview: true }),
     ]);
 
     for (const error of errors) {
@@ -659,7 +660,6 @@ describe('an Effort slug that is not one directory name', () => {
       }),
       frontier.callExpectingError('edit_map', { effort, create: true, destination: 'Nowhere.' }),
       frontier.callExpectingError('spec', { effort, create: true, content: '# Nowhere' }),
-      frontier.callExpectingError('migrate_effort', { effort, preview: false }),
     ]);
 
     for (const error of errors) {

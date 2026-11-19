@@ -25,7 +25,7 @@ export const createTicketsInputSchema = z.object({
               'filename, and how Edges name this Ticket.',
           ),
         key: z.never({ error: '`key` was replaced by `name`.' }).optional(),
-        title: z.string().min(1),
+        title: z.string().refine(value => value.trim() !== '', 'title must not be blank'),
         kind: z.enum(['build', 'decision']).optional().describe('Defaults to build.'),
         type: z
           .string()
@@ -222,11 +222,7 @@ function asWritten(draft: TicketDraft, effort: string): TicketSummary {
     blockedBy: draft.blockedBy,
     effort,
     orderHint: undefined,
-    foreign: false,
     hasUnimportedKeys: false,
-    unrecognizedStatus: undefined,
-    collapsedRefs: [],
-    keptSubSlices: [],
     revision: '',
   };
 }

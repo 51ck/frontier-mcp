@@ -24,7 +24,6 @@ export function frontierOf(
  */
 function isTakeable(ticket: TicketSummary, names: Names): boolean {
   if (ticket.status !== 'open') return false;
-  if (ticket.unrecognizedStatus !== undefined) return false;
   // Every write to a duplicated name is refused, so neither claimant can be taken.
   if (names.claimants(ticket).length > 1) return false;
 

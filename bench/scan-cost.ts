@@ -264,13 +264,14 @@ function prose(target: number, seed: number): string {
 }
 
 const STATUS_CYCLE = ['open', 'claimed', 'open', 'resolved', 'open', 'dropped'];
-const TRIAGE_CYCLE = ['ready-for-agent', 'needs-detail', 'needs-decision'];
+const TRIAGE_CYCLE = ['ready-for-agent', 'needs-info', 'needs-triage'];
 
 function synthTicket(n: number): string {
   const kind = n % 3 === 0 ? 'decision' : 'build';
   const status = STATUS_CYCLE[n % STATUS_CYCLE.length] ?? 'open';
   const head = [
     '---',
+    'frontier: ticket',
     `id: T${String(n)}`,
     `title: A synthesized ticket about ${WORDS[n % WORDS.length] ?? 'scan'} number ${String(n)}`,
     `kind: ${kind}`,
@@ -310,6 +311,7 @@ function synthSpec(slug: string): string {
 function markerContents(title: string): string {
   return [
     '---',
+    'frontier: ticket',
     `id: ${MARKER_ID}`,
     `title: ${title}`,
     'kind: build',

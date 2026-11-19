@@ -1,8 +1,9 @@
 import { z } from 'zod';
 
 import { bareIdOf } from '../domain.ts';
-import type { Ticket } from '../domain.ts';
+import type { Diagnostic, Ticket } from '../domain.ts';
 import { duplicateKindOf, fullNameOf, indexNames } from '../names.ts';
+import { renderDiagnostic } from './diagnostics.ts';
 
 export const getTicketsInputSchema = z.object({
   ids: z
@@ -24,7 +25,11 @@ export const getTicketsDescription =
  * while reading one. Names that resolve to nothing are named rather than
  * dropped, so a typo does not look like an empty Ticket.
  */
-export function renderTickets(requested: readonly string[], found: readonly Ticket[]): string {
+export function renderTickets(
+  requested: readonly string[],
+  found: readonly Ticket[],
+  excluded: ReadonlyMap<string, readonly Diagnostic[]> = new Map(),
+): string {
   // The driver resolved each name against the whole workspace and returned only
   // what it meant, so resolving again over that subset pairs them back up.
   const names = indexNames(found);
@@ -35,7 +40,9 @@ export function renderTickets(requested: readonly string[], found: readonly Tick
   for (const name of requested) {
     const claimants = names.input(name) as readonly Ticket[];
     if (claimants.length === 0) {
-      missing.push(name);
+      const diagnostics = excluded.get(name) ?? [];
+      if (diagnostics.length === 0) missing.push(name);
+      else blocks.push(renderExcluded(name, diagnostics));
       continue;
     }
     // Every claimant of a duplicated name, never silently the first.
@@ -63,6 +70,17 @@ export function renderTickets(requested: readonly string[], found: readonly Tick
   return blocks.join('\n\n---\n\n');
 }
 
+/** A file that would answer to the name, were it a valid Ticket. */
+export function renderExcluded(name: string, diagnostics: readonly Diagnostic[]): string {
+  const excluded = diagnostics.some(entry => entry.effect === 'excluded');
+  return [
+    excluded
+      ? `${name} is not a Ticket — excluded until fixed by hand:`
+      : `${name} is not a Ticket — unmarked, so it is not read as one:`,
+    ...diagnostics.map(entry => `  ${renderDiagnostic(entry)}`),
+  ].join('\n');
+}
+
 function renderOne(ticket: Ticket): string {
   const fields = [
     `effort=${ticket.effort}`,
@@ -75,7 +93,6 @@ function renderOne(ticket: Ticket): string {
     ticket.claimedAt === undefined ? undefined : `claimed_at=${ticket.claimedAt}`,
     ticket.answerGist === undefined ? undefined : `answer_gist=${ticket.answerGist}`,
     ticket.droppedReason === undefined ? undefined : `dropped_reason=${ticket.droppedReason}`,
-    ticket.foreign ? 'foreign' : undefined,
   ].filter(field => field !== undefined);
 
   const head = `# ${fullNameOf(ticket)} — ${ticket.title}\n${fields.join('  ')}\n\n${ticket.body}`;

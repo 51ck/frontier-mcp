@@ -22,8 +22,9 @@ const TREE: FixtureTree = {
   '.scratch/alpha/map.md': map('Somewhere.'),
   '.scratch/alpha/spec.md': spec('Alpha'),
   '.scratch/alpha/issues/01-T1-one.md': ticket('T1', 'One'),
-  '.scratch/beta/issues/01-old.md': '# 01 — Old\n\nStatus: open\n',
-  '.scratch/beta/issues/02-older.md': '# 02 — Older\n\nStatus: open\nBlocked by: 01\n',
+  '.scratch/beta/issues/01-old.md': '---\nfrontier: ticket\ntitle: Old\nstatus: open\n---\n',
+  '.scratch/beta/issues/02-older.md':
+    '---\nfrontier: ticket\ntitle: Older\nstatus: open\nblocked_by: [old]\n---\n',
 };
 
 async function start(extra: FixtureTree) {
@@ -40,7 +41,7 @@ function revisionIn(read: string): string {
   return /revision: (\S+)/.exec(read)?.[1] ?? '';
 }
 
-/** Every writer once: each of the five tools that can change a file, creating an Effort too. */
+/** Every writer once: each of the four tools that can change a file, creating an Effort too. */
 async function writeWithEveryTool(frontier: ConnectedFrontier): Promise<void> {
   await frontier.call('create_tickets', {
     effort: 'alpha',
@@ -65,7 +66,7 @@ async function writeWithEveryTool(frontier: ConnectedFrontier): Promise<void> {
     expected_revision: revisionIn(await frontier.call('spec', { effort: 'alpha' })),
   });
   await frontier.call('spec', { effort: 'gamma', content: '# Gamma\n' });
-  expect(await frontier.call('migrate_effort', { effort: 'beta' })).toContain('migrated 2');
+  expect(await frontier.call('migrate_effort', { effort: 'beta' })).toContain('nothing migrated');
 }
 
 async function filesUnder(dir: string): Promise<string[]> {
@@ -194,7 +195,7 @@ describe('an id of every shape 1.x could mint', () => {
     '.scratch/alpha/issues/05-T99-waits.md': ticket('T99', 'Waits', { blocked_by: IDS }),
     '.scratch/beta/map.md': map('Elsewhere.'),
     '.scratch/beta/issues/far.md':
-      '---\ntitle: Far\nkind: build\nstatus: open\nblocked_by: [T12, Tik4z0t, AUTH-7, T35-ab12]\n---\n',
+      '---\nfrontier: ticket\ntitle: Far\nkind: build\nstatus: open\nblocked_by: [T12, Tik4z0t, AUTH-7, T35-ab12]\n---\n',
   };
 
   it('still resolves as a name, as an Edge and as tool input', async () => {
@@ -243,4 +244,20 @@ describe('an id of every shape 1.x could mint', () => {
       expect(await frontier.call('list_efforts')).toContain('alpha  tickets=5');
     },
   );
+});
+
+describe('a frontier.yml that is a symbolic link', () => {
+  it('is not followed, so a linked file outside storage draws no warning', async () => {
+    const { mkdtemp, symlink, writeFile } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const outside = await mkdtemp(join(tmpdir(), 'frontier-yml-'));
+    await writeFile(join(outside, 'frontier.yml'), 'id_pattern: T<N>\n', 'utf8');
+    const root = await makeFixtureTree(TREE);
+    await symlink(join(outside, 'frontier.yml'), join(root, CONFIG));
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    expect(warningsOf(await frontier.call('get_board', { effort: 'alpha' }))).not.toContain(
+      WARNING,
+    );
+  });
 });

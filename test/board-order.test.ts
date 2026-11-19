@@ -12,7 +12,7 @@ import {
 afterEach(cleanupFixtures);
 
 function named(title: string, blockedBy: readonly string[] = []): string {
-  return `---\ntitle: ${title}\nkind: build\nstatus: open\nblocked_by: [${blockedBy.join(', ')}]\n---\n\nProse.\n`;
+  return `---\nfrontier: ticket\ntitle: ${title}\nkind: build\nstatus: open\nblocked_by: [${blockedBy.join(', ')}]\n---\n\nProse.\n`;
 }
 
 /** The name each Ticket line opens with, in the order the Board lists them. */
@@ -123,7 +123,7 @@ describe('Board order in a mixed Effort', () => {
     '.scratch/alpha/issues/zeta.md': named('Zeta'),
     '.scratch/alpha/issues/carried.md': ticket('B7', 'Carries an id, no prefix'),
   };
-  const EXPECTED = ['T1', 'prose', 'B7', 'cache', 'T2', 'Audit', 'zeta'];
+  const EXPECTED = ['T1', 'B7', 'cache', 'T2', 'Audit', 'zeta'];
 
   it('lists prefixed Tickets first, then by name, each below its blockers', async () => {
     const { frontier } = await workspace(MIXED);
