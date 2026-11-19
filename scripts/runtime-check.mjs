@@ -8,12 +8,12 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const TOOL_NAMES = [
+  'check_tracker',
   'create_tickets',
   'edit_map',
   'get_board',
   'get_tickets',
   'list_efforts',
-  'migrate_effort',
   'spec',
   'update_ticket',
 ];
@@ -172,7 +172,7 @@ async function verifyWatcher(root, ticket) {
     await mkdir(issues, { recursive: true });
     await writeFile(
       join(issues, '01-T100-external.md'),
-      '---\nid: T100\ntitle: New external directory\nkind: build\nstatus: open\nblocked_by: []\n---\n',
+      '---\nfrontier: ticket\nid: T100\ntitle: New external directory\nkind: build\nstatus: open\nblocked_by: []\n---\n',
       'utf8',
     );
     await waitFor(

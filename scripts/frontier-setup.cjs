@@ -31,16 +31,17 @@ const path = require('node:path');
 const PACKAGE = 'frontier-mcp';
 const SERVER = 'frontier';
 const REGISTRY = 'https://registry.npmjs.org';
+// The eighth tool is migrate_effort before 3.0 and check_tracker from 3.0; --version takes either.
 const TOOL_NAMES = [
   'create_tickets',
   'edit_map',
   'get_board',
   'get_tickets',
   'list_efforts',
-  'migrate_effort',
   'spec',
   'update_ticket',
 ];
+const EIGHTH_TOOL = ['check_tracker', 'migrate_effort'];
 const REQUEST_TIMEOUT_MS = 15_000;
 const CLIENTS = ['cursor', 'claude-code', 'manual'];
 
@@ -1275,8 +1276,9 @@ function protocolCheck(
           const names = (message.result?.tools ?? []).map(tool => tool.name);
           if (
             !initialized ||
-            names.length !== TOOL_NAMES.length ||
-            !TOOL_NAMES.every(name => names.includes(name))
+            names.length !== TOOL_NAMES.length + 1 ||
+            !TOOL_NAMES.every(name => names.includes(name)) ||
+            !EIGHTH_TOOL.some(name => names.includes(name))
           ) {
             finish(new Error('MCP tools/list did not return FrontierMCP’s eight tools.'));
             return;
