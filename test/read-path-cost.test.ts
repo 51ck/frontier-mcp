@@ -187,6 +187,23 @@ describe('the cost of a Board', () => {
     expect(whole / tokens(board)).toBeGreaterThan(20);
     expect(tokens(board)).toBeLessThan(400);
     expect(tokens(board) / tokens(asIds)).toBeLessThan(1.5);
+
+    // What the Board would cost if each line showed two tags, rendered as
+    // get_tickets does. Boards show none; that choice is frontier-search's.
+    // Measured: 81 tokens, 354 to 435, about 5 a line.
+    let lines = 0;
+    const tagged = board
+      .split('\n')
+      .map(line => {
+        if (!NAMED_TELEGRAM.some(([name]) => line.replace(/^> /, '').startsWith(`${name}  `))) {
+          return line;
+        }
+        lines += 1;
+        return `${line}  tags=telegram,backend`;
+      })
+      .join('\n');
+    expect(lines).toBe(NAMED_TELEGRAM.length);
+    expect(tokens(tagged) - tokens(board)).toBeCloseTo(81, -1.5);
   });
 
   it('does not grow when an Effort carries far longer bodies', async () => {
@@ -227,12 +244,12 @@ describe('the cost of check_tracker', () => {
     expect(schema).toBeCloseTo(170, -1.5);
 
     // The full result on the marked fixtures, which hold no diagnostic: the
-    // contract alone. Measured: 1202 — about three Boards, paid only when called.
+    // contract alone. Measured: 1266 — about three Boards, paid only when called.
     // It does not depend on the workspace: the legacy fixture, holding no
     // Ticket and nothing diagnosed, returns the same text.
     const full = await frontier.call('check_tracker');
     expect(full).toMatch(/^diagnostics: none, nothing to fix$/m);
-    expect(tokens(full)).toBeCloseTo(1200, -1.5);
+    expect(tokens(full)).toBeCloseTo(1266, -1.5);
     const legacy = await makeLegacyWorkspace({ telegram: 'sobrina-telegram' });
     expect(await (await connectFrontier({ cwd: legacy, env: {} })).call('check_tracker')).toBe(
       full,

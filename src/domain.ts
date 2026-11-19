@@ -66,6 +66,11 @@ export interface TicketSummary {
    * Effort, a full `<effort>.<name>`, or an id resolved repo-wide.
    */
   readonly blockedBy: readonly string[];
+  /**
+   * Tags, as written: no folding, trimming or deduplication. They mean nothing
+   * to Status, Edges or the Frontier. Empty when the Ticket carries none.
+   */
+  readonly tags: readonly string[];
   /** The slug of the Effort that owns this Ticket. */
   readonly effort: string;
   /**
@@ -160,6 +165,8 @@ export interface TicketEdit {
   readonly answer?: string;
   /** Replaces the Edge list outright. An empty list clears it. */
   readonly blockedBy?: readonly string[];
+  /** Replaces the tags outright. An empty list removes the key. */
+  readonly tags?: readonly string[];
   /** Appended to the comment log, verbatim. Nothing is added around it. */
   readonly comment?: string;
   /** Acceptance criteria to tick, addressed by their text. */
@@ -183,6 +190,8 @@ export interface TicketDraft {
   readonly triage: TriageRole | undefined;
   /** Edges, as {@link TicketSummary.blockedBy} stores them. A sibling draft is named by its {@link name}. */
   readonly blockedBy: readonly string[];
+  /** Written as given; none writes no key. */
+  readonly tags: readonly string[];
   /** The prose, written verbatim. A draft with none produces a Ticket with none. */
   readonly body: string | undefined;
 }
@@ -291,6 +300,8 @@ export interface FieldDefinition {
   readonly values?: readonly string[];
   /** What each entry of a list names. */
   readonly items?: string;
+  /** A list whose every entry must be a non-blank scalar; otherwise null and blank entries are dropped. */
+  readonly nonBlankEntries?: boolean;
   /** Exactly what validation checks and how a value is read. */
   readonly checked: string;
   /** Guidance no validation enforces. */

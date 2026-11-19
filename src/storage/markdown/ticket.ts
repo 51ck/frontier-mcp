@@ -106,6 +106,7 @@ export function classifyTicketFile(effort: string, file: TicketFile, revision: s
     claimedBy: text(fields['claimed_by']),
     claimedAt: text(fields['claimed_at']),
     blockedBy: readEdgeList(fields['blocked_by'], fence),
+    tags: readTags(fields['tags'], fence),
     effort,
     orderHint: readOrderHint(file.filename),
     hasUnimportedKeys: Object.keys(fields).some(key => !SCHEMA_KEYS.has(key)),
@@ -215,14 +216,15 @@ function validate(fields: Record<string, unknown>): Problem[] {
   for (const field of FIELDS.filter(entry => entry.type === 'list')) {
     const value = fields[field.key];
     if (value === undefined || value === null) continue;
-    if (Array.isArray(value) && !value.some(entry => entry !== null && typeof entry === 'object')) {
-      continue;
-    }
+    const ok = field.nonBlankEntries
+      ? (entry: unknown) => text(entry) !== undefined
+      : (entry: unknown) => entry === null || typeof entry !== 'object';
+    if (Array.isArray(value) && value.every(ok)) continue;
     const example = Array.isArray(field.example) ? `[${field.example.join(', ')}], ` : '';
     problems.push({
       code: 'invalid-value',
       key: field.key,
-      expected: `a list of ${field.items ?? 'scalars'}`,
+      expected: `a list of ${field.nonBlankEntries ? 'non-blank ' : ''}${field.items ?? 'scalars'}`,
       found: found(value),
       fix: `write ${field.key} as a list, e.g. ${example}or []`,
     });
@@ -341,7 +343,7 @@ function scalarsAsWritten(
   let out: Record<string, unknown> | undefined;
   for (const key of SCHEMA_KEYS) {
     const value = fields[key];
-    if (key === 'blocked_by') {
+    if (key === 'blocked_by' || key === 'tags') {
       if (!Array.isArray(value) || !value.some(isObject)) continue;
       const nodes = listItems(fence(), key);
       out ??= { ...fields };
@@ -354,6 +356,19 @@ function scalarsAsWritten(
     }
   }
   return out ?? fields;
+}
+
+/**
+ * Tags, validated non-blank, each as written: an unquoted `01` is the tag `01`.
+ * Never trimmed or folded; comparing them is search's business.
+ */
+function readTags(value: unknown, fence: () => Document): readonly string[] {
+  if (!Array.isArray(value)) return [];
+  const nodes = value.some(readAsOther) ? listItems(fence(), 'tags') : [];
+  return value.map((entry, index) => {
+    const written = asWritten(entry, nodes[index], fence);
+    return isPlain(written) ? String(written) : '';
+  });
 }
 
 /** A list's nodes, an aliased list followed to its anchor first, so each entry is read as written. */

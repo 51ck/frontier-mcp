@@ -168,7 +168,8 @@ Design decisions settled and binding until an ADR revises them:
   marked file is excluded from the Board, the Frontier, Edge resolution as a target and every write
   when its fence does not parse as a mapping, `title` or `status` is missing or blank, `status`, a
   set `kind` or a set `triage` is outside its values (blank included; null is unset), a set
-  `blocked_by` is not a list of scalars (null is no Edges), a set `title`, `status`, `id`, `type`,
+  `blocked_by` is not a list of scalars (null is no Edges), a set `tags` is not a list of
+  non-blank scalars (null is no tags), a set `title`, `status`, `id`, `type`,
   `answer_gist`, `dropped_reason`, `claimed_by` or `claimed_at` is not a scalar (`invalid-value`
   naming that key), or `frontier` holds anything but `ticket`. A value the validator cannot handle, such as a circular anchor, excludes its own file
   and fails nothing else; a Diagnostic's `found` is cut to 80 characters. Every other field keeps its default; a lifecycle gap
@@ -368,7 +369,7 @@ Source layout:
 | `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout, which it takes as a construction parameter — `frontmatter.ts` splits the fence, `ticket.ts` classifies a file as a Ticket, excluded, an unmarked look-alike or nothing, `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` writes a new batch at the paths its names imply, `schema.ts` is the one definition of the schema's keys, types and values, the marker, the Ticket locations and the layout contract `check_tracker` shows, `write.ts` renames it into place, `watcher.ts` tells the driver another process moved the workspace under it. |
 | `src/workspace.ts` | Workspace resolution — the only module above the driver that reads a *served* repository, and only to locate its root. `.scratch` is a marker only as a directory; `.git` counts as a file too, so a worktree or submodule resolves to itself rather than to the repository enclosing it. |
 | `src/driver-registry.ts` | One driver per resolved workspace, and the `closeAll()` that shuts them. A lookup, not a layer: it hands back the driver itself, so no read or write passes through it. |
-| `src/tools/` | One module per tool: its input schema, its description, and how its result renders. `workspace-line.ts` and `diagnostics.ts` are the exceptions — the single renderings of which repository a call served, shared by `list_efforts` and every write, and of Diagnostics, shared by the Board, `list_efforts`, `get_tickets` and `update_ticket`. |
+| `src/tools/` | One module per tool: its input schema, its description, and how its result renders. `workspace-line.ts`, `diagnostics.ts` and `tags.ts` are the exceptions — the single renderings of which repository a call served, shared by `list_efforts` and every write, of Diagnostics, shared by the Board, `list_efforts`, `get_tickets` and `update_ticket`, and of tags, whose input rule `create_tickets` and `update_ticket` share. |
 | `src/server.ts` | Wires the above into an `McpServer`. |
 | `src/tracker-doc.ts` | Loads the shipped tracker configuration document for the `tracker-doc` MCP resource, from beside `dist/` in the installed package rather than from the working directory. |
 | `src/index.ts` | The package's library surface. Deliberately narrow — below-seam modules are not exported. |
@@ -490,8 +491,14 @@ Rendering rules that are load-bearing, not cosmetic:
   file included; one per line, by `renderDiagnostic`. `effort` narrows to one Effort and refuses an
   unknown one as `get_board` does. The tracker doc's Ticket frontmatter section carries the contract
   verbatim between `check_tracker contract` markers, pinned by `test/check-tracker.test.ts`; its
-  Diagnostics table is pinned to the contract's codes. A clean result is ~1200 tokens and the tool
+  Diagnostics table is pinned to the contract's codes. A clean result is ~1270 tokens and the tool
   entry 170, against `migrate_effort`'s 181, pinned in `test/read-path-cost.test.ts`.
+- **A Board line never shows tags** — showing and filtering them belongs to `frontier-search`.
+  Two tags on each of the 15 lines of the named Board would cost 81 tokens (354 to 435), pinned in
+  `test/read-path-cost.test.ts`. `get_tickets` shows them in its header line as `tags=a,b`, a tag
+  holding a comma, whitespace, a quote, a control character or U+2028/U+2029 JSON-quoted, with no
+  control character or line separator left raw, so a header never spans lines or carries a raw control character
+  (`src/tools/tags.ts`).
 - **A Spec-only Effort opens with its Spec's first paragraph**, labelled `spec:` rather than
   `destination:`. Destination is a Map section; calling a Spec's opening one would be a lie in the
   vocabulary. Multi-line header prose has its continuation lines indented so it can never be read as
@@ -516,6 +523,16 @@ Write rules, equally load-bearing:
   before anything is staged or renamed; a file that would be excluded — a blank title, a marker
   aliased to an edited anchor — is `WriteWouldExclude` and nothing is written, nothing of a batch.
   Both tools also refuse a blank `title` at input.
+- **Tags are written as given and replaced whole.** `create_tickets` and `update_ticket` `tags`
+  refuse a blank or non-string tag at input, and fold, trim and deduplicate nothing. An empty list
+  removes the key; a Ticket given none is written without one. A tags-only update re-renders the
+  fence, so it is byte-identical on untouched lines only where the fence is already in the `yaml`
+  package's rendering — the same limit `frontier-v1.comment-reformats-fence` records for a comment.
+  An entry the package would write plain but that reads back as something else (`-\n---\n-`) is
+  double-quoted; one that already round-trips keeps its rendering, `blocked_by` included. Replacing
+  or removing a value that holds an anchor another field aliases is refused with `AliasedValue`,
+  naming the key and the anchor, and writes nothing: copying the value into the alias was tried and
+  silently changed values outside the edit.
 - **A write never touches a body section it does not own.** The answer replaces up to the next `##`, so the comment log survives.
 - **A Map value that would split its section is refused, never demoted.** A `##` line in
   `destination`, `notes`, `add_fog` or `rule_out` — matched by the reader's own section-break regex,

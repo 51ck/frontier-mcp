@@ -382,6 +382,7 @@ describe('the contract against the validator', () => {
       status: 'open',
       triage: 'ready-for-agent',
       blocked_by: '[]',
+      tags: '[x]',
       claimed_by: 'me',
       claimed_at: '2026-11-19T00:00:00Z',
       answer_gist: 'gist',

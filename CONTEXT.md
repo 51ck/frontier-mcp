@@ -94,6 +94,11 @@ A `/triage` label (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-h
 separate field from Status — only `/triage` writes it.
 _Avoid_: status, label
 
+**Tag**:
+One string in a Ticket's optional `tags` list, kept exactly as written. A Tag never moves Status, an
+Edge or the Frontier; how tags compare and filter belongs to search.
+_Avoid_: label, category
+
 **Edge**:
 A `blocked_by` entry: one Ticket declaring another must finish first. It holds the other Ticket's
 Name — bare within the Effort, `<effort>.<name>` across Efforts, or its id.

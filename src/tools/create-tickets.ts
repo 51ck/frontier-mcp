@@ -5,6 +5,7 @@ import { TRIAGE_ROLES } from '../domain.ts';
 import { cycleThrough, renderCycle } from '../edges.ts';
 import { fullNameOf, indexNames, newNameProblem, type Names } from '../names.ts';
 import { renderEdge } from './get-board.ts';
+import { tagsInput } from './tags.ts';
 
 export const createTicketsInputSchema = z.object({
   effort: z.string().describe('Effort slug to create them in.'),
@@ -39,6 +40,7 @@ export const createTicketsInputSchema = z.object({
           .describe(
             'Edges: a name from this call or this Effort, <effort>.<name>, or an existing id.',
           ),
+        tags: tagsInput.describe('Tags, kept exactly as given. No effect on what is takeable.'),
         body: z.string().optional().describe('The prose, written verbatim.'),
       }),
     )
@@ -58,6 +60,7 @@ export interface DraftRequest {
   readonly type?: string | undefined;
   readonly triage?: TriageRole | undefined;
   readonly blocked_by?: readonly string[] | undefined;
+  readonly tags?: readonly string[] | undefined;
   readonly body?: string | undefined;
 }
 
@@ -131,6 +134,7 @@ function toDraft(request: DraftRequest): TicketDraft {
     type: request.type,
     triage: request.triage,
     blockedBy: request.blocked_by ?? [],
+    tags: request.tags ?? [],
     body: request.body,
   };
 }
@@ -220,6 +224,7 @@ function asWritten(draft: TicketDraft, effort: string): TicketSummary {
     claimedBy: undefined,
     claimedAt: undefined,
     blockedBy: draft.blockedBy,
+    tags: draft.tags,
     effort,
     orderHint: undefined,
     hasUnimportedKeys: false,

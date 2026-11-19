@@ -124,6 +124,17 @@ export const FIELDS: readonly FieldDefinition[] = [
     example: ['token-store'],
   },
   {
+    key: 'tags',
+    type: 'list',
+    required: false,
+    items: 'tags',
+    nonBlankEntries: true,
+    checked:
+      'absent, null or [] is no tags; else a list of non-blank scalars, or invalid-value; entries kept as written, never folded, trimmed or deduplicated',
+    convention: 'no effect on Status, Edges or the Frontier',
+    example: ['auth'],
+  },
+  {
     key: 'claimed_by',
     type: 'text',
     required: false,

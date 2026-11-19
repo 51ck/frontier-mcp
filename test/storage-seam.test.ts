@@ -280,6 +280,7 @@ describe("the markdown driver's storage directory", () => {
             claimedBy: undefined,
             claimedAt: undefined,
             blockedBy: draft.blockedBy,
+            tags: draft.tags,
             effort,
             orderHint: undefined,
             foreign: false,

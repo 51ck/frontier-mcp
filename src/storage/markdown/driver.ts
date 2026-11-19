@@ -868,6 +868,7 @@ function defaultsFor(ticket: TicketSummary): Defaults {
     status: ticket.status,
     triage: ticket.triage,
     blockedBy: ticket.blockedBy,
+    tags: ticket.tags,
   };
 }
 

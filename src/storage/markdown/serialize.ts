@@ -1,8 +1,20 @@
 import { isDeepStrictEqual } from 'node:util';
 
-import { Document, isMap, isScalar, isSeq, parse, parseDocument } from 'yaml';
+import {
+  Document,
+  isAlias,
+  isMap,
+  isNode,
+  isScalar,
+  isSeq,
+  parse,
+  parseDocument,
+  Scalar,
+  visit,
+} from 'yaml';
 
 import type { TicketEdit } from '../../domain.ts';
+import { AliasedValue } from '../driver.ts';
 import {
   KeyNotCleanlyDroppable,
   NoFrontmatterToDrop,
@@ -26,6 +38,7 @@ export interface Defaults {
   readonly status: string;
   readonly triage: string | undefined;
   readonly blockedBy: readonly string[];
+  readonly tags: readonly string[];
 }
 
 /**
@@ -40,13 +53,22 @@ export function applyEdit(contents: string, edit: TicketEdit, defaults: Defaults
   const split = splitFrontmatter(contents);
   const raw = withoutKeys(split.hasFence ? split.raw : undefined, edit.dropKeys);
   const document = existingDocument(raw) ?? schemaFor(defaults);
-  const touchesFields = fieldsOf(edit).length > 0 || edit.blockedBy !== undefined;
+  const touchesFields =
+    fieldsOf(edit).length > 0 || edit.blockedBy !== undefined || edit.tags !== undefined;
 
   for (const [field, value] of fieldsOf(edit)) {
-    if (value === null) document.delete(field);
-    else document.set(field, value);
+    if (value === null) {
+      refuseIfAliased(document, field);
+      document.delete(field);
+    } else document.set(field, value);
   }
-  if (edit.blockedBy !== undefined) setEdges(document, edit.blockedBy);
+  if (edit.blockedBy !== undefined) setList(document, 'blocked_by', edit.blockedBy);
+  if (edit.tags !== undefined) {
+    if (edit.tags.length === 0) {
+      refuseIfAliased(document, 'tags');
+      document.delete('tags');
+    } else setList(document, 'tags', edit.tags);
+  }
 
   // A drop alone keeps the fence as text, so what remains is byte-identical
   // rather than whatever a re-render would make of it.
@@ -174,18 +196,74 @@ function withoutEntries(
 }
 
 /**
- * The Edge list, replaced whole rather than merged — a caller changing Edges
- * knows which ones it wants, and a merge would leave no way to remove one.
+ * A list — Edges or tags — replaced whole rather than merged: a caller changing
+ * it knows which entries it wants, and a merge would leave no way to remove one.
  *
  * The existing collection style survives: a Ticket written `blocked_by: [T3]`
  * must not come back as a block list just because its Edges changed. That is the
  * same rule as the rest of ADR 0003, applied to the one field being named.
  */
-function setEdges(document: Document, blockedBy: readonly string[]): void {
-  const existing: unknown = document.get('blocked_by', true);
+function setList(document: Document, key: string, entries: readonly string[]): void {
+  const existing: unknown = document.get(key, true);
   const flow = isSeq(existing) ? existing.flow === true : true;
 
-  document.set('blocked_by', document.createNode([...blockedBy], { flow }));
+  refuseIfAliased(document, key);
+  document.set(key, listNode(document, entries, flow));
+}
+
+/**
+ * A list node whose every entry reads back as the string given. An entry the
+ * `yaml` package would write plain but that parses as something else — a
+ * multi-line value holding `---`, say — is double-quoted; every other entry
+ * keeps the style the package picks, so a list that already round-trips is
+ * written byte for byte as before.
+ */
+function listNode(document: Document, entries: readonly string[], flow: boolean) {
+  const node = document.createNode([...entries], { flow });
+  for (const item of node.items) {
+    if (isScalar(item) && !readsBack(item.value as string, flow)) item.type = Scalar.QUOTE_DOUBLE;
+  }
+  return node;
+}
+
+function readsBack(entry: string, flow: boolean): boolean {
+  const probe = new Document({});
+  probe.set('k', probe.createNode([entry], { flow }));
+  try {
+    const value: unknown = parse(probe.toString({ lineWidth: 0, flowCollectionPadding: false }));
+    return isDeepStrictEqual(value, { k: [entry] });
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A value about to be replaced or removed that holds an anchor another part of
+ * the fence aliases is refused, not rewritten: copying it into the aliases was
+ * tried and changed values outside the edit (a number's spelling, a later
+ * anchor of the same name shadowed). The caller edits the file by hand.
+ */
+function refuseIfAliased(document: Document, key: string): void {
+  const target: unknown = document.get(key, true);
+  if (!isNode(target)) return;
+
+  const anchored = new Map<unknown, string>();
+  visit(target, {
+    Node(_, node) {
+      if (node.anchor !== undefined) anchored.set(node, node.anchor);
+    },
+  });
+  if (anchored.size === 0) return;
+
+  visit(document, {
+    Node(_, node) {
+      if (node === target) return visit.SKIP;
+      if (!isAlias(node)) return undefined;
+      const anchor = anchored.get(node.resolve(document));
+      if (anchor !== undefined) throw new AliasedValue(key, anchor);
+      return undefined;
+    },
+  });
 }
 
 /** Where a `##` section ends: the next `##` heading, or the end of the body. */
@@ -400,7 +478,8 @@ function schemaFor(defaults: Defaults): Document {
     status: defaults.status,
     ...(defaults.triage === undefined ? {} : { triage: defaults.triage }),
     // Flow, because that is how every Ticket in these repos is written by hand.
-    blocked_by: document.createNode([...defaults.blockedBy], { flow: true }),
+    blocked_by: listNode(document, defaults.blockedBy, true),
+    ...(defaults.tags.length === 0 ? {} : { tags: listNode(document, defaults.tags, true) }),
   };
 
   for (const field of FIELD_ORDER) {

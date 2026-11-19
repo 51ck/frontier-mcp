@@ -316,6 +316,17 @@ export class BatchNotUndone extends Error {
  * text about to be written, with the scan's own validator, before anything is
  * staged or renamed.
  */
+/** Thrown when a value to replace or remove holds an anchor another field of the fence aliases. */
+export class AliasedValue extends Error {
+  constructor(key: string, anchor: string) {
+    super(
+      `Nothing was written: ${key} holds the anchor &${anchor}, which another field of this ` +
+        `Ticket's frontmatter aliases. Replace the alias with its value by hand, then retry.`,
+    );
+    this.name = 'AliasedValue';
+  }
+}
+
 export class WriteWouldExclude extends Error {
   constructor(handle: string, problems: readonly string[]) {
     super(

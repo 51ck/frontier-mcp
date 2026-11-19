@@ -5,6 +5,7 @@ import { STATUSES, TRIAGE_ROLES } from '../domain.ts';
 import type { TriageRole } from '../domain.ts';
 import { cycleThrough, renderCycle, type EdgesOf } from '../edges.ts';
 import { fullNameOf, indexNames } from '../names.ts';
+import { tagsInput } from './tags.ts';
 
 export const updateTicketInputSchema = z.object({
   id: z.string().describe('Ticket id or name; <effort>.<name> when several Efforts have the name.'),
@@ -50,6 +51,10 @@ export const updateTicketInputSchema = z.object({
       'Replace the Edges outright, each a Ticket id, a name in this Effort, or ' +
         '<effort>.<name>. An empty list clears them. A cycle is refused.',
     ),
+  tags: tagsInput.describe(
+    'Replace the tags outright, each kept exactly as given. An empty list removes them. ' +
+      'No effect on what is takeable.',
+  ),
   comment: z
     .string()
     .min(1)
@@ -88,7 +93,7 @@ export const updateTicketInputSchema = z.object({
 export const updateTicketDescription =
   'Change one Ticket. Lifecycle: claim, resolve with a one-line gist, drop with a reason, reopen ' +
   'with a reason, or release a claim — at most one of those per call. Graph: replace the Edges, ' +
-  'refused if they close a cycle. Identity: title, kind, and type. Annotations: triage role, a ' +
+  'refused if they close a cycle. Identity: title, kind, and type. Annotations: triage role, tags, a ' +
   'comment, ticking acceptance criteria, dropping Unimported keys; these touch no part of the graph. Any of the four groups ' +
   'may accompany the others or stand alone.';
 
@@ -101,6 +106,7 @@ export interface UpdateRequest {
   readonly triage?: TriageRole | undefined;
   readonly status?: string | undefined;
   readonly blocked_by?: readonly string[] | undefined;
+  readonly tags?: readonly string[] | undefined;
   readonly comment?: string | undefined;
   readonly tick?: readonly string[] | undefined;
   readonly drop_keys?: readonly string[] | undefined;
@@ -130,6 +136,7 @@ export function editFor(
   const annotations: TicketEdit = {
     ...identityFor(ticket, request),
     ...(request.triage === undefined ? {} : { triage: request.triage }),
+    ...(request.tags === undefined ? {} : { tags: request.tags }),
     ...(request.comment === undefined ? {} : { comment: request.comment }),
     ...(request.tick === undefined ? {} : { tick: request.tick }),
     ...(request.drop_keys === undefined ? {} : { dropKeys: request.drop_keys }),
@@ -160,8 +167,8 @@ export function editFor(
   if (actions.length === 0) {
     if (Object.keys(annotations).length === 0) {
       throw new Error(
-        'Nothing to do: pass a lifecycle change, or title, kind, type, blocked_by, triage, comment, ' +
-          'tick, or drop_keys.',
+        'Nothing to do: pass a lifecycle change, or title, kind, type, blocked_by, triage, tags, ' +
+          'comment, tick, or drop_keys.',
       );
     }
     return annotations;

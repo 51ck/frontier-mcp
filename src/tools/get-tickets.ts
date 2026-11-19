@@ -4,6 +4,7 @@ import { bareIdOf } from '../domain.ts';
 import type { Diagnostic, Ticket } from '../domain.ts';
 import { duplicateKindOf, fullNameOf, indexNames } from '../names.ts';
 import { renderDiagnostic } from './diagnostics.ts';
+import { renderTags } from './tags.ts';
 
 export const getTicketsInputSchema = z.object({
   ids: z
@@ -89,6 +90,7 @@ function renderOne(ticket: Ticket): string {
     `status=${ticket.status}`,
     ticket.triage === undefined ? undefined : `triage=${ticket.triage}`,
     ticket.blockedBy.length > 0 ? `blocked_by=${ticket.blockedBy.join(',')}` : undefined,
+    ticket.tags.length > 0 ? `tags=${renderTags(ticket.tags)}` : undefined,
     ticket.claimedBy === undefined ? undefined : `claimed_by=${ticket.claimedBy}`,
     ticket.claimedAt === undefined ? undefined : `claimed_at=${ticket.claimedAt}`,
     ticket.answerGist === undefined ? undefined : `answer_gist=${ticket.answerGist}`,

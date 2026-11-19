@@ -1,6 +1,6 @@
 # Issue tracker — FrontierMCP and file fallback
 
-Tracker doc revision 11. To check a vendored copy, compare this number with the one in the
+Tracker doc revision 12. To check a vendored copy, compare this number with the one in the
 `frontier://tracker-doc` resource of the server you run; a lower number, or no revision line, is
 stale.
 
@@ -51,8 +51,8 @@ Eight tools permanently. Optional arguments extend an existing tool; there is no
 | `list_efforts` | Orient — list Efforts with Ticket counts, header doc kinds, and Frontier size; `excluded=N` and `unmarked=N` when an Effort holds files that are not Tickets (see [Diagnostics](#diagnostics)). A repository with no `.scratch/` at all gets `no tracker here`, the marker that located the root, and a `start one` line to copy; an empty `.scratch/` still reads `(no efforts)`. |
 | `get_board` | See the whole Effort cheaply — Destination, one summary line per Ticket, Frontier marked. Never returns bodies. |
 | `get_tickets` | Fetch full bodies for specific Tickets, by name or id, after the Board tells you which matter. Given the name of an excluded file, returns its diagnostics. |
-| `create_tickets` | Publish a breakdown in one call. You give each Ticket its `name`; Edges may name a sibling from the same call. All are written or none. |
-| `update_ticket` | Claim, resolve, drop, reopen, release, set title/kind/type, set triage, replace Edges, comment, tick acceptance criteria, or `drop_keys` to delete Unimported frontmatter keys. One Ticket per call. |
+| `create_tickets` | Publish a breakdown in one call. You give each Ticket its `name`, and optionally `tags`; Edges may name a sibling from the same call. All are written or none. |
+| `update_ticket` | Claim, resolve, drop, reopen, release, set title/kind/type, set triage, replace Edges or tags, comment, tick acceptance criteria, or `drop_keys` to delete Unimported frontmatter keys. One Ticket per call. |
 | `edit_map` | Edit Map sections — Destination, Notes, fog, Out of scope. Decisions-so-far regenerates from resolved Tickets. |
 | `spec` | Read or write a Spec as a whole document. |
 | `check_tracker` | Learn how to write a Ticket and what is wrong with the files there: the frontmatter schema, the layout contract and its version, a valid example, and every diagnostic itemized with file, key, expected, found and fix. `effort` narrows the diagnostics to one Effort. Reads only; fix files by hand. |
@@ -123,6 +123,14 @@ fence does not carry fails the call and writes nothing; the rest of the fence st
 A Board counts `resolved` Tickets with no `answer_gist`, `dropped` with no `dropped_reason` and
 `claimed` with no `claimed_by` or `claimed_at` in its warnings, so set the field with the Status.
 
+A Ticket may carry `tags`, a list of strings set by `create_tickets` and replaced whole by
+`update_ticket` `tags`; an empty list removes the key, and a Ticket given none is written without
+one. Each tag is kept exactly as given — no case folding, trimming or deduplication — and a blank or
+non-string tag is refused. `get_tickets` shows them in its header line as `tags=a,b`, quoting a tag
+that holds a comma, whitespace, a quote, a control character or a line separator as a JSON string,
+in which no control character or line separator is left raw. Tags never change Status, Edges or what is takeable. A
+Board line does not show them: showing and filtering by tag is left to the `frontier-search` Effort.
+
 Claims are compare-and-set — a parallel session that already holds the Ticket wins. Writes carry the
 `revision` from the last read; a mismatch is refused, never retried over the caller's edit.
 
@@ -135,7 +143,7 @@ and never satisfies an Edge. What the server noticed about it is a diagnostic:
 | --- | --- | --- |
 | `yaml-unparseable` | excluded | a marked file whose frontmatter does not parse as a YAML mapping |
 | `missing-key` | excluded | a marked file with no `title` or no `status` |
-| `invalid-value` | excluded | `status` not one of the four, `kind` not `build`/`decision`, `triage` not one of the five roles (a blank `kind` or `triage` counts), `blocked_by` not a list of names, or `frontier` set to anything but `ticket` |
+| `invalid-value` | excluded | `status` not one of the four, `kind` not `build`/`decision`, `triage` not one of the five roles (a blank `kind` or `triage` counts), `blocked_by` not a list of names, `tags` not a list of non-blank scalars (null is no tags, as an absent `tags` is), or `frontier` set to anything but `ticket` |
 | `ticket-outside-issues` | excluded | a marked `.md` directly in an Effort directory, other than `map.md` and `spec.md` |
 | `directory-in-issues` | excluded | a directory inside `issues/`, never entered |
 | `symlinked-issues` | excluded | an `issues` that is a symbolic link, never followed, read or written through |
@@ -214,6 +222,7 @@ schema: frontmatter between --- lines; keys any order, the marker first by conve
   status  required  open | claimed | resolved | dropped — absent, null or blank is missing-key; spaces trimmed; convention only: new Tickets are open
   triage  optional  needs-triage | needs-info | ready-for-agent | ready-for-human | wontfix — absent or null is unset; a blank string is invalid-value; spaces trimmed; convention only: a /triage role, never a Status
   blocked_by  optional  list of Ticket names — absent, null or [] is no Edges; a mapping or list entry is invalid-value; a null or blank entry is dropped; any other scalar entry is as written; convention only: each a name in this Effort, <effort>.<name>, or an id
+  tags  optional  list of tags — absent, null or [] is no tags; else a list of non-blank scalars, or invalid-value; entries kept as written, never folded, trimmed or deduplicated; convention only: no effect on Status, Edges or the Frontier
   claimed_by  optional  text — a scalar as YAML reads it (02 is 2); null or blank is unset; convention only: set with status: claimed
   claimed_at  optional  text — a scalar as YAML reads it (02 is 2); null or blank is unset; convention only: an ISO timestamp, set with claimed_by
   answer_gist  optional  text — a scalar as YAML reads it (02 is 2); null or blank is unset; convention only: one line, set with status: resolved
@@ -251,6 +260,7 @@ kind: build
 status: open
 triage: ready-for-agent
 blocked_by: [token-store]
+tags: [auth]
 ---
 
 ## What to build
