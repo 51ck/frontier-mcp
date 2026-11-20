@@ -799,6 +799,14 @@ rather than depending on workflow step order. Add a fourth only for something th
 process for one of these two reasons — genuine concurrency, or a defect below the in-process seam
 entirely — not merely because a test would be more convenient to write out-of-process.
 
+`vitest.config.ts` runs the suite in three groups, one after another: every in-process test, then
+the two cross-process files and `test/create-mid-batch.test.ts` (a 1,502-Ticket batch held open as
+a race window), then `test/exit-on-disconnect.test.ts` alone. Test timeouts are wall-clock, and
+`taskpolicy -b pnpm test` puts the default pool (one worker per core, less one) on the efficiency
+cores alone, where spawned processes or that batch starved their neighbours past 5s. A new test that spawns processes
+or holds a race window open with volume joins the second group; one that bounds a process's
+startup or exit in time joins the third. `taskpolicy -b pnpm test` must pass.
+
 `test/fixtures/legacy/` holds two Efforts copied **verbatim** out of sobrina and tag-customizer.
 Never tidy them, and refresh them by re-copying rather than editing. Every file in them is fenceless,
 so under ADR 0009 they hold no Ticket: they are negative input, and `test/ticket-marker.test.ts`

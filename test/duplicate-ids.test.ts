@@ -206,6 +206,36 @@ describe('a duplicate id', () => {
     expect(board).toContain('duplicate ids');
   });
 
+  it('keeps the warning of a scan an invalidation dropped while the Board awaited it', async () => {
+    const tree: Record<string, string> = {
+      '.scratch/alpha/map.md': map('Somewhere.'),
+      [A]: ticket('T5', 'First'),
+      [SAME]: ticket('T5', 'Again'),
+    };
+    // Enough Tickets that no scan finishes inside a millisecond, and a settle
+    // drop every millisecond, so every scan is invalidated while still in flight.
+    for (let n = 100; n < 300; n += 1) {
+      tree[`.scratch/alpha/issues/${String(n)}-T${String(n)}-filler.md`] = ticket(
+        `T${String(n)}`,
+        'Filler',
+      );
+    }
+    const frontier = await connectFrontier({
+      cwd: await makeFixtureTree(tree),
+      env: {},
+      createDriver: driverRoot =>
+        createMarkdownDriver(driverRoot, {
+          watcherDebounceMs: 60_000,
+          watcherSettleMs: Array.from({ length: 2000 }, (_, ms) => ms),
+        }),
+    });
+
+    const board = await frontier.call('get_board', { effort: 'alpha' });
+
+    expect(board).toContain('Again');
+    expect(board).toContain('duplicate ids');
+  });
+
   it('caps the warning at three ids with files, ten more by name, then a count', async () => {
     const tree: Record<string, string> = { '.scratch/alpha/map.md': map('Somewhere.') };
     for (let n = 10; n < 40; n += 1) {

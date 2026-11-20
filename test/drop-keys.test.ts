@@ -2,6 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { createMarkdownDriver } from '../src/storage/markdown/driver.ts';
 import { map } from './support/fixtures.ts';
 import { cleanupFixtures, connectFrontier, makeFixtureTree } from './support/harness.ts';
 
@@ -37,13 +38,21 @@ function file(fence: string, body = BODY): string {
   return `---\nfrontier: ticket\n${fence}\n---\n\n${body}`;
 }
 
-async function setup(contents = file(FENCE), extra: Record<string, string> = {}) {
+async function setup(
+  contents = file(FENCE),
+  extra: Record<string, string> = {},
+  createDriver?: typeof createMarkdownDriver,
+) {
   const root = await makeFixtureTree({
     '.scratch/alpha/map.md': map('Somewhere.'),
     [FILE]: contents,
     ...extra,
   });
-  const frontier = await connectFrontier({ cwd: root, env: {} });
+  const frontier = await connectFrontier({
+    cwd: root,
+    env: {},
+    ...(createDriver === undefined ? {} : { createDriver }),
+  });
   const read = () => readFile(join(root, FILE), 'utf8');
   return { root, frontier, read };
 }
@@ -200,7 +209,11 @@ describe('update_ticket drop_keys', () => {
   });
 
   it('carries the revision check', async () => {
-    const { frontier, read, root } = await setup();
+    // The watcher's recovery is off: a debounced event or a settle drop landing
+    // after the hand edit would refresh the scan, and the check would rightly pass.
+    const { frontier, read, root } = await setup(file(FENCE), {}, driverRoot =>
+      createMarkdownDriver(driverRoot, { watcherDebounceMs: 60_000, watcherSettleMs: [] }),
+    );
     await frontier.call('get_board', { effort: 'alpha' });
     // A hand edit the cached scan has not seen, sized differently so the revision moves.
     await writeFile(join(root, FILE), (await read()).replace('title: One', 'title: One edited'));
