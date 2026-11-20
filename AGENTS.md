@@ -249,6 +249,14 @@ Design decisions settled and binding until an ADR revises them:
   by its source spelling, and YAML reads `2` and `02` as one number. The fence
   is never re-rendered whole (`applyEdit` in `serialize.ts`). See
   [ADR 0003](./docs/adr/0003-frontmatter-round-trips-through-a-yaml-document.md).
+- **A tool refuses an argument it does not define.** Every input object in `src/tools/` is a
+  `z.strictObject` — each tool's top level, `update_ticket`'s `claim`, `resolve`, `drop` and
+  `reopen`, and each `create_tickets` entry — so a misspelled or removed argument fails the call in
+  the SDK's validation, before the handler reads or writes anything, with a message naming each
+  key and, when nested, its path (`resolve: Unrecognized key: "anwser"`), and the emitted JSON
+  Schema says `additionalProperties: false` on each. `extra` alone stays open. The 14 declarations
+  cost 95 tokens across the eight tool entries, paid every session. Pinned in `test/ship.test.ts`
+  and `test/unknown-arguments.test.ts`.
 - **Eight tools, permanently.** Every tool schema is context in every session, against a project
   whose whole purpose is token cost. A ninth tool is not a trade-off to weigh; an optional argument
   on an existing tool is the answer. The eight are named in the spec's Tool surface table.
@@ -528,7 +536,7 @@ Rendering rules that are load-bearing, not cosmetic:
   unknown one as `get_board` does. The tracker doc's Ticket frontmatter section carries the contract
   verbatim between `check_tracker contract` markers, pinned by `test/check-tracker.test.ts`; its
   Diagnostics table is pinned to the contract's codes. A clean result is ~1350 tokens and the tool
-  entry 170, against `migrate_effort`'s 181, pinned in `test/read-path-cost.test.ts`.
+  entry 177, against `migrate_effort`'s 181, pinned in `test/read-path-cost.test.ts`.
 - **A Board line never shows tags** — showing and filtering them belongs to `frontier-search`.
   Two tags on each of the 15 lines of the named Board would cost 81 tokens (354 to 435), pinned in
   `test/read-path-cost.test.ts`. `get_tickets` shows them in its header line as `tags=a,b`, a tag

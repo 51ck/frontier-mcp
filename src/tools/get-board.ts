@@ -6,7 +6,7 @@ import { frontierOf } from '../frontier.ts';
 import { fullNameOf, indexNames, type Names } from '../names.ts';
 import { groupedDiagnostics } from './diagnostics.ts';
 
-export const getBoardInputSchema = z.object({
+export const getBoardInputSchema = z.strictObject({
   effort: z.string().describe('Effort slug, as reported by list_efforts.'),
   root: z.string().optional().describe('Workspace directory. Defaults to the session workspace.'),
 });

@@ -6,7 +6,7 @@ import { duplicateKindOf, fullNameOf, indexNames } from '../names.ts';
 import { renderDiagnostic } from './diagnostics.ts';
 import { renderTags } from './tags.ts';
 
-export const getTicketsInputSchema = z.object({
+export const getTicketsInputSchema = z.strictObject({
   ids: z
     .array(z.string())
     .min(1)

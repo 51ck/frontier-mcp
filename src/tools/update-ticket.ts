@@ -15,25 +15,25 @@ import {
 } from './extra.ts';
 import { tagsInput } from './tags.ts';
 
-export const updateTicketInputSchema = z.object({
+export const updateTicketInputSchema = z.strictObject({
   id: z.string().describe('Ticket id or name; <effort>.<name> when several Efforts have the name.'),
   claim: z
-    .object({ by: z.string().min(1).describe('Who is taking it.') })
+    .strictObject({ by: z.string().min(1).describe('Who is taking it.') })
     .optional()
     .describe('Take the Ticket. Fails if another holder already has it.'),
   resolve: z
-    .object({
+    .strictObject({
       answer_gist: z.string().min(1).describe('One line: what landed, or what was decided.'),
       answer: z.string().optional().describe('The full answer, written into the body verbatim.'),
     })
     .optional()
     .describe('Close the Ticket as a step on the route.'),
   drop: z
-    .object({ reason: z.string().min(1).describe('Why it is beyond the destination.') })
+    .strictObject({ reason: z.string().min(1).describe('Why it is beyond the destination.') })
     .optional()
     .describe('Close the Ticket as work ruled out of scope.'),
   reopen: z
-    .object({ reason: z.string().min(1).describe('Why it is being reopened.') })
+    .strictObject({ reason: z.string().min(1).describe('Why it is being reopened.') })
     .optional()
     .describe('Return a resolved or dropped Ticket to open.'),
   release: z

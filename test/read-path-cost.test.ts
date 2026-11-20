@@ -239,9 +239,9 @@ describe('the cost of check_tracker', () => {
 
     // migrate_effort's tool entry measured 181 tokens on the wire before it was
     // replaced; the slot is paid in every session, so the successor must not
-    // cost more. Measured: 170.
+    // cost more. Measured: 170; 177 once it declared no additional properties.
     expect(schema).toBeLessThanOrEqual(181);
-    expect(schema).toBeCloseTo(170, -1.5);
+    expect(schema).toBeCloseTo(177, -1.5);
 
     // The full result on the marked fixtures, which hold no diagnostic: the
     // contract alone. Measured: 1350 — about three Boards, paid only when called.
@@ -289,7 +289,8 @@ describe('the cost of extra', () => {
     // Paid in every session. Measured before extra: create_tickets 460,
     // update_ticket 957; after: 525 and 1042, +65 and +85. The values are
     // checked in code, not in the schema, which would add the JSON grammar.
-    expect(entry('create_tickets')).toBeCloseTo(525, -1.5);
-    expect(entry('update_ticket')).toBeCloseTo(1042, -1.5);
+    // Declaring no additional properties took them to 540 and 1075.
+    expect(entry('create_tickets')).toBeCloseTo(540, -1.5);
+    expect(entry('update_ticket')).toBeCloseTo(1075, -1.5);
   });
 });

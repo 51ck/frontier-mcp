@@ -8,7 +8,7 @@ import { renderEdge } from './get-board.ts';
 import { CREATE_ARGUMENTS, extraInput, extraProblems } from './extra.ts';
 import { tagsInput } from './tags.ts';
 
-export const createTicketsInputSchema = z.object({
+export const createTicketsInputSchema = z.strictObject({
   effort: z.string().describe('Effort slug to create them in.'),
   create: z
     .boolean()
@@ -18,7 +18,7 @@ export const createTicketsInputSchema = z.object({
     ),
   tickets: z
     .array(
-      z.object({
+      z.strictObject({
         name: z
           .string()
           .min(1)

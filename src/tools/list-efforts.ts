@@ -8,7 +8,7 @@ import { workspaceLine } from './workspace-line.ts';
  * `root` is the per-call workspace override. It is the only argument, and it is
  * optional, because the workspace normally resolves from the session itself.
  */
-export const listEffortsInputSchema = z.object({
+export const listEffortsInputSchema = z.strictObject({
   root: z
     .string()
     .optional()

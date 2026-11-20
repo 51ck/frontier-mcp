@@ -1,6 +1,6 @@
 # Issue tracker — FrontierMCP and file fallback
 
-Tracker doc revision 13. To check a vendored copy, compare this number with the one in the
+Tracker doc revision 14. To check a vendored copy, compare this number with the one in the
 `frontier://tracker-doc` resource of the server you run; a lower number, or no revision line, is
 stale.
 
@@ -45,6 +45,11 @@ on `create_tickets`, `edit_map`, or `spec`.
 ## MCP tools
 
 Eight tools permanently. Optional arguments extend an existing tool; there is no ninth.
+
+An argument a tool does not define — at the top level, inside `claim`, `resolve`, `drop` or
+`reopen`, or in a `create_tickets` entry — fails the call before anything is read or written, and
+the error names the key and where it sits (`resolve: Unrecognized key: "anwser"`). Only `extra`
+takes keys of your choosing.
 
 | Tool | Use when |
 | --- | --- |

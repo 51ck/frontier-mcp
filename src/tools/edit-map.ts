@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import type { MapDocument, MapEdit } from '../domain.ts';
 
-export const editMapInputSchema = z.object({
+export const editMapInputSchema = z.strictObject({
   effort: z.string().describe('Effort slug whose Map to read or edit.'),
   create: z
     .boolean()
