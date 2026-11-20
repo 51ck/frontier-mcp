@@ -114,7 +114,10 @@ user-data directory, and verifies MCP initialization plus `tools/list`. It then 
 entry. `--apply` writes Cursor user scope. `--client claude-code` verifies the same launcher and
 `--apply` registers it with `claude mcp add-json --scope user`, using `claude` from `PATH` or
 `--claude PATH`; setup reads `~/.claude.json` to compare entries and leaves the write to that CLI,
-backing the file up first. With `--replace`, if `add-json` fails after the old entry was removed,
+backing the file up first. A local-scope `frontier` entry for the current directory, or a
+`frontier` entry in a `.mcp.json` there or in any directory above it, outranks user scope (a
+`.mcp.json` entry once approved); the preview and `--apply` name each such file and scope, since
+Claude Code started there keeps using it. With `--replace`, if `add-json` fails after the old entry was removed,
 setup re-registers the old entry and reports whether that worked and where the backup is. On
 Windows, setup refuses a `claude.cmd` or `claude.bat` shim, because it cannot pass the JSON
 argument through `cmd.exe` safely; pass `--claude` pointing at `claude.exe`, or run the
@@ -127,7 +130,8 @@ a different existing `frontier` entry; setup creates a backup first.
 writes. It lists the Claude Code, Cursor and Codex configuration files for that repository and
 user, says which declare `frontier`, flags any that are unreadable, invalid JSON or broken
 symlinks, names a server that runs `frontier-mcp` under a key other than `frontier`, and says
-whether each client is on `PATH`. It exits 1 when the repository declares `frontier` (or a file
+whether each client is on `PATH`. It also names an `enabledMcpjsonServers` setting that approves
+`frontier` when no `.mcp.json` it checks defines it, since that approval starts nothing. It exits 1 when the repository declares `frontier` (or a file
 Claude Code or Cursor reads cannot be parsed) and an installed Claude Code or Cursor would still
 start without it. Codex is reported, never judged: only its user scope is verified.
 

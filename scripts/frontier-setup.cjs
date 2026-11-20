@@ -112,6 +112,7 @@ async function main(args) {
     process.stdout.write(
       'Applied Claude Code user scope with `claude mcp add-json --scope user`. Restart Claude Code sessions to use it.\n',
     );
+    process.stdout.write(claudeShadowNotice(preview));
     return;
   }
   await applyConfig(target, preview, options.replace);
@@ -1460,6 +1461,10 @@ function printPreview({ runtime, release, installation, target, preview, client,
   if (client === 'claude-code') {
     if (process.platform === 'win32') process.stdout.write('In PowerShell:\n');
     process.stdout.write(`${manualClaudeCommand(preview.desired, process.platform)}\n`);
+    for (const shadow of preview.shadows)
+      process.stdout.write(
+        `Warning: ${shadow.file} has a ${shadow.scope}-scope frontier entry, which outranks user scope in ${preview.directory}${shadow.scope === 'project' ? ' once approved' : ''}; Claude Code started there uses it, not this one.\n`,
+      );
   } else {
     process.stdout.write(
       `${JSON.stringify({ mcpServers: { [SERVER]: preview.desired } }, null, 2)}\n`,
@@ -1572,7 +1577,12 @@ function claudeConfigPath() {
 // Claude Code keeps user and local scope in ~/.claude.json and rewrites that
 // file itself while running, so setup only reads it and leaves the write to
 // the client's own CLI. The fingerprint covers the frontier entry alone.
-async function prepareClaudeCode(target, launch) {
+async function prepareClaudeCode(
+  target,
+  launch,
+  directory = process.cwd(),
+  platform = process.platform,
+) {
   const config = await readClaudeConfig(target);
   const existing = isObject(config.mcpServers) ? config.mcpServers[SERVER] : undefined;
   const desired = { type: 'stdio', command: launch.command, args: launch.args };
@@ -1581,7 +1591,103 @@ async function prepareClaudeCode(target, launch) {
     existing.command === desired.command &&
     JSON.stringify(existing.args ?? []) === JSON.stringify(desired.args) &&
     (existing.type === undefined || existing.type === 'stdio');
-  return { desired, existing, fingerprint: JSON.stringify(existing), identical };
+  const shadows = await higherClaudeScopes(target, config, directory, platform);
+  return {
+    desired,
+    directory,
+    existing,
+    fingerprint: JSON.stringify(existing),
+    identical,
+    shadows,
+  };
+}
+
+// Local scope, then an approved .mcp.json in the launch directory or any
+// directory above it, outrank user scope in Claude Code 2.1.
+async function higherClaudeScopes(target, config, directory, platform) {
+  const shadows = [];
+  const key = await claudeProjectKey(directory, platform);
+  const project = isObject(config.projects) ? config.projects[key] : undefined;
+  if (isObject(project) && isObject(project.mcpServers) && isObject(project.mcpServers[SERVER]))
+    shadows.push({ scope: 'local', file: `${target} projects[${JSON.stringify(key)}]` });
+  const files = await mcpJsonChain(directory);
+  const declaring = await Promise.all(
+    files.map(async file => {
+      try {
+        const servers = JSON.parse(await readFile(file, 'utf8')).mcpServers;
+        return isObject(servers) && isObject(servers[SERVER]);
+      } catch {
+        return false;
+      }
+    }),
+  );
+  for (const [index, file] of files.entries())
+    if (declaring[index]) shadows.push({ scope: 'project', file });
+  return shadows;
+}
+
+function claudeShadowNotice(preview) {
+  if (preview.shadows.length === 0) return '';
+  const entries = preview.shadows.map(shadow =>
+    shadow.scope === 'local'
+      ? `the local-scope entry in ${shadow.file}`
+      : `the .mcp.json entry in ${shadow.file} once approved`,
+  );
+  const listed =
+    entries.length === 1
+      ? entries[0]
+      : `${entries.slice(0, -1).join(', ')} and ${entries[entries.length - 1]}`;
+  return `In ${preview.directory} Claude Code still prefers ${listed} over this user-scope entry.\n`;
+}
+
+// Claude Code 2.1 reads .mcp.json from the launch directory's real path and
+// every directory above it.
+async function mcpJsonChain(directory) {
+  const files = [];
+  for (
+    let current = (await realpathOrUndefined(directory)) ?? directory;
+    ;
+    current = path.dirname(current)
+  ) {
+    files.push(path.join(current, '.mcp.json'));
+    if (path.dirname(current) === current) return files;
+  }
+}
+
+// Claude Code 2.1 keys ~/.claude.json projects by the canonical git root of
+// the launch directory, else by the directory itself, and on Windows with
+// forward slashes. A worktree's key is its common git directory: the parent
+// when that directory is named .git, else the directory itself (a bare
+// repository, or a submodule's .git/modules/<name>).
+async function claudeProjectKey(directory, platform = process.platform) {
+  const real = (await realpathOrUndefined(directory)) ?? directory;
+  const key = (await canonicalGitRoot(real)) ?? real;
+  return platform === 'win32' ? key.split('\\').join('/') : key;
+}
+
+async function canonicalGitRoot(current) {
+  const marker = path.join(current, '.git');
+  let info;
+  try {
+    info = await stat(marker);
+  } catch {}
+  if (info !== undefined && info.isDirectory()) return current;
+  if (info !== undefined && info.isFile()) return (await worktreeKeyRoot(marker)) ?? current;
+  const parent = path.dirname(current);
+  return parent === current ? undefined : canonicalGitRoot(parent);
+}
+
+async function worktreeKeyRoot(marker) {
+  try {
+    const match = /^gitdir:\s*(.+?)\s*$/m.exec(await readFile(marker, 'utf8'));
+    if (match === null) return undefined;
+    const gitdir = path.resolve(path.dirname(marker), match[1]);
+    const common = (await readFile(path.join(gitdir, 'commondir'), 'utf8')).trim();
+    const commonDir = await realpath(path.resolve(gitdir, common));
+    return path.basename(commonDir) === '.git' ? path.dirname(commonDir) : commonDir;
+  } catch {
+    return undefined;
+  }
 }
 
 async function readClaudeConfig(target) {
@@ -1690,7 +1796,7 @@ function manualClaudeCommand(desired, platform) {
 // Codex is reported but never judged: only its user scope is verified.
 const VERIFIED_CLIENTS = new Set(['Claude Code', 'Cursor']);
 
-function clientConfigLocations(root, home) {
+function clientConfigLocations(root, home, projectKey) {
   return [
     {
       client: 'Claude Code',
@@ -1712,6 +1818,7 @@ function clientConfigLocations(root, home) {
       scope: 'local',
       file: path.join(home, '.claude.json'),
       claude: 'local',
+      key: projectKey,
     },
     {
       client: 'Cursor',
@@ -1748,6 +1855,7 @@ const FAILED_STATES = new Set([
 async function doctor(start, environment = process.env, platform = process.platform) {
   const root = await doctorRoot(path.resolve(start));
   const home = homeDirectory(environment);
+  const projectKey = await claudeProjectKey(path.resolve(start), platform);
   const commands = ['claude', 'cursor', 'codex'];
   const found = await Promise.all(
     commands.map(command =>
@@ -1757,10 +1865,29 @@ async function doctor(start, environment = process.env, platform = process.platf
   const installed = Object.fromEntries(
     commands.map((command, index) => [command, found[index] !== undefined]),
   );
-  const locations = clientConfigLocations(root, home);
-  const results = await Promise.all(
-    locations.map(async location => ({ location, ...(await inspectConfig(location, root)) })),
-  );
+  const realRoot = (await realpathOrUndefined(root)) ?? root;
+  const chained = (await mcpJsonChain(path.resolve(start)))
+    .filter(file => file !== path.join(realRoot, '.mcp.json'))
+    .map(file => {
+      const relative = path.relative(realRoot, path.dirname(file));
+      const repo =
+        relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+      return {
+        client: 'Claude Code',
+        command: 'claude',
+        scope: 'project',
+        file,
+        repo,
+        chained: true,
+      };
+    });
+  const [rootMcpJson, ...others] = clientConfigLocations(root, home, projectKey);
+  const locations = [rootMcpJson, ...chained, ...others];
+  const results = (
+    await Promise.all(
+      locations.map(async location => ({ location, ...(await inspectConfig(location)) })),
+    )
+  ).filter(result => !(result.location.chained && result.state === 'absent'));
   const lines = [`Repository: ${root}`];
   const readTargets = new Map();
   const reachable = { 'Claude Code': [], Cursor: [], Codex: [] };
@@ -1771,10 +1898,12 @@ async function doctor(start, environment = process.env, platform = process.platf
     if (result.real !== undefined && !readTargets.has(result.real))
       readTargets.set(result.real, location.file);
     const via = result.target !== undefined ? ` (-> ${result.target})` : '';
+    const key = location.key === undefined ? '' : ` projects[${JSON.stringify(location.key)}]`;
     lines.push(
-      `  ${location.client} ${location.scope}: ${location.file}${via} — ${describe(result)}; read by ${location.client} (${installed[location.command] ? 'installed' : 'not on PATH'})`,
+      `  ${location.client} ${location.scope}: ${location.file}${key}${via} — ${describe(result)}; read by ${location.client} (${installed[location.command] ? 'installed' : 'not on PATH'})`,
     );
-    if (result.declared) reachable[location.client].push(location.scope);
+    if (result.declared && !reachable[location.client].includes(location.scope))
+      reachable[location.client].push(location.scope);
     if (location.repo && (result.declared || result.others.length > 0)) repoDeclares = true;
     if (FAILED_STATES.has(result.state) && VERIFIED_CLIENTS.has(location.client))
       readFailures[location.client].set(location.file, result.state);
@@ -1785,7 +1914,7 @@ async function doctor(start, environment = process.env, platform = process.platf
   const candidates = await Promise.all(
     UNREAD_CANDIDATES.map(async relative => {
       const file = path.join(root, relative);
-      return { file, result: await inspectConfig({ file }, root) };
+      return { file, result: await inspectConfig({ file }) };
     }),
   );
   for (const { file, result } of candidates) {
@@ -1826,6 +1955,11 @@ async function doctor(start, environment = process.env, platform = process.platf
     lines.push(
       '  Claude Code asks once per project before starting a .mcp.json server; check `claude mcp list` for Pending approval.',
     );
+  else
+    for (const file of await enablingFrontier(path.resolve(start), root, home, projectKey))
+      lines.push(
+        `  ${file}: enabledMcpjsonServers names frontier, but no .mcp.json checked here defines it; that approval starts nothing.`,
+      );
   const failed = failing.length > 0;
   for (const client of failing)
     for (const [file, state] of readFailures[client])
@@ -1876,7 +2010,7 @@ async function realpathOrUndefined(file) {
   }
 }
 
-async function inspectConfig(location, root) {
+async function inspectConfig(location) {
   const base = { declared: false, others: [] };
   let target;
   try {
@@ -1895,10 +2029,14 @@ async function inspectConfig(location, root) {
     return { ...linked, state: 'unreadable', detail: error.code };
   }
   if (location.toml) {
-    const declared = /^\s*\[\s*mcp_servers\s*\.\s*(?:frontier|"frontier"|'frontier')\s*\]/m.test(
-      source,
-    );
-    return { ...linked, state: declared ? 'declares' : 'present', declared };
+    const found = codexFrontier(source);
+    const state =
+      found === 'declares'
+        ? 'declares'
+        : found === 'no command'
+          ? 'frontier entry has no command'
+          : 'present';
+    return { ...linked, state, declared: found === 'declares' };
   }
   let config;
   try {
@@ -1909,10 +2047,7 @@ async function inspectConfig(location, root) {
   if (!isObject(config)) return { ...linked, state: 'not a JSON object' };
   let servers = config.mcpServers;
   if (location.claude === 'local') {
-    // Claude Code keys local scope by project path; accept either spelling.
-    const projects = isObject(config.projects) ? config.projects : {};
-    const realRoot = await realpathOrUndefined(root);
-    const project = projects[root] ?? (realRoot === undefined ? undefined : projects[realRoot]);
+    const project = isObject(config.projects) ? config.projects[location.key] : undefined;
     servers = isObject(project) ? project.mcpServers : undefined;
   }
   if (!isObject(servers)) return { ...linked, state: 'present' };
@@ -1928,6 +2063,197 @@ async function inspectConfig(location, root) {
       ? 'present'
       : 'frontier entry has no command';
   return { ...linked, state, declared, others };
+}
+
+// Where Claude Code 2.1 records a .mcp.json approval: the launch directory's
+// and repository's .claude/settings*.json, user settings, and local scope.
+async function enablingFrontier(start, root, home, projectKey) {
+  const files = [
+    ...new Set(
+      [start, root].flatMap(directory =>
+        ['settings.json', 'settings.local.json'].map(name => path.join(directory, '.claude', name)),
+      ),
+    ),
+    path.join(home, '.claude', 'settings.json'),
+  ];
+  const enabling = await Promise.all(
+    files.map(async file => {
+      try {
+        return enablesFrontier(JSON.parse(await readFile(file, 'utf8')));
+      } catch {
+        return false;
+      }
+    }),
+  );
+  const found = files.filter((_, index) => enabling[index]);
+  const claudeJson = path.join(home, '.claude.json');
+  try {
+    const projects = JSON.parse(await readFile(claudeJson, 'utf8')).projects;
+    if (isObject(projects) && enablesFrontier(projects[projectKey]))
+      found.push(`${claudeJson} projects[${JSON.stringify(projectKey)}]`);
+  } catch {}
+  return found;
+}
+
+function enablesFrontier(config) {
+  return (
+    isObject(config) &&
+    Array.isArray(config.enabledMcpjsonServers) &&
+    config.enabledMcpjsonServers.includes(SERVER)
+  );
+}
+
+// A line scan of the TOML Codex reads: a frontier table, inline table or
+// dotted keys, declared once it has a `command` or `url`. Multi-line strings
+// and multi-line arrays are skipped; a multi-line inline table is read only
+// on its first line.
+const TOML_KEY_PART = /\s*(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|([A-Za-z0-9_-]+))\s*/y;
+const CODEX_TARGET = ['mcp_servers', SERVER];
+
+function tomlKeyPath(text) {
+  const parts = [];
+  let index = 0;
+  for (;;) {
+    TOML_KEY_PART.lastIndex = index;
+    const match = TOML_KEY_PART.exec(text);
+    if (match === null) return undefined;
+    parts.push(match[1] ?? match[2] ?? match[3]);
+    index = TOML_KEY_PART.lastIndex;
+    if (text[index] !== '.') return { parts, rest: text.slice(index) };
+    index += 1;
+  }
+}
+
+function codexFrontier(source) {
+  let table = [];
+  let seen = false;
+  const state = { depth: 0, string: undefined };
+  for (const line of source.split(/\r?\n/)) {
+    if (state.depth > 0 || state.string !== undefined) {
+      skipToml(line, state);
+      continue;
+    }
+    const header = /^\s*\[(\[?)([^\]]*)\]\]?\s*(?:#.*)?$/.exec(line);
+    if (header !== null) {
+      const key = tomlKeyPath(header[2]);
+      table = key !== undefined && key.rest === '' && header[1] === '' ? key.parts : [undefined];
+      if (table[0] === CODEX_TARGET[0] && table[1] === CODEX_TARGET[1]) seen = true;
+      continue;
+    }
+    const key = tomlKeyPath(line);
+    if (key === undefined || !key.rest.startsWith('=')) continue;
+    const value = key.rest.slice(1);
+    const found = codexEntry([...table, ...key.parts], value);
+    if (found === 'declares') return 'declares';
+    if (found === 'seen') seen = true;
+    skipToml(value, state);
+  }
+  return seen ? 'no command' : 'absent';
+}
+
+function codexEntry(parts, value) {
+  const shared = Math.min(parts.length, CODEX_TARGET.length);
+  if (!CODEX_TARGET.slice(0, shared).every((part, index) => parts[index] === part))
+    return undefined;
+  if (parts.length > 2)
+    return parts.length === 3 && (parts[2] === 'command' || parts[2] === 'url')
+      ? 'declares'
+      : 'seen';
+  let result = parts.length === 2 ? 'seen' : undefined;
+  for (const entry of inlineTableEntries(value)) {
+    const found = codexEntry([...parts, ...entry.parts], entry.value);
+    if (found === 'declares') return found;
+    if (found === 'seen') result = found;
+  }
+  return result;
+}
+
+function inlineTableEntries(value) {
+  const entries = [];
+  let index = value.length - value.trimStart().length;
+  if (value[index] !== '{') return entries;
+  index += 1;
+  for (;;) {
+    const key = tomlKeyPath(value.slice(index));
+    if (key === undefined || !key.rest.startsWith('=')) return entries;
+    const start = value.length - key.rest.length + 1;
+    const end = tomlValueEnd(value, start);
+    entries.push({ parts: key.parts, value: value.slice(start, end) });
+    if (value[end] !== ',') return entries;
+    index = end + 1;
+  }
+}
+
+function tomlValueEnd(text, start) {
+  let depth = 0;
+  let index = start;
+  while (index < text.length) {
+    const character = text[index];
+    if (character === '"' || character === "'") {
+      index = tomlStringEnd(text, index);
+      continue;
+    }
+    if (character === '[' || character === '{') depth += 1;
+    else if (character === ']' || character === '}') {
+      if (depth === 0) return index;
+      depth -= 1;
+    } else if ((character === ',' && depth === 0) || character === '#') return index;
+    index += 1;
+  }
+  return index;
+}
+
+function tomlStringEnd(text, start) {
+  const quote = text[start];
+  const triple = quote.repeat(3);
+  if (text.startsWith(triple, start)) {
+    const close = multiLineStringClose(text, start + 3, triple);
+    if (close === -1) return text.length;
+    let end = close + 3;
+    while (end < close + 5 && text[end] === quote) end += 1;
+    return end;
+  }
+  for (let index = start + 1; index < text.length; index += 1) {
+    if (quote === '"' && text[index] === '\\') index += 1;
+    else if (text[index] === quote) return index + 1;
+  }
+  return text.length;
+}
+
+// Carries open brackets and an open multi-line string across lines.
+function skipToml(text, state) {
+  let index = 0;
+  while (index < text.length) {
+    if (state.string !== undefined) {
+      const close = multiLineStringClose(text, index, state.string);
+      if (close === -1) return;
+      index = close + 3;
+      state.string = undefined;
+      continue;
+    }
+    const character = text[index];
+    if (character === '#') return;
+    if (text.startsWith('"""', index) || text.startsWith("'''", index)) {
+      state.string = text.slice(index, index + 3);
+      index += 3;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      index = tomlStringEnd(text, index);
+      continue;
+    }
+    if (character === '[' || character === '{') state.depth += 1;
+    else if ((character === ']' || character === '}') && state.depth > 0) state.depth -= 1;
+    index += 1;
+  }
+}
+
+function multiLineStringClose(text, start, delimiter) {
+  for (let index = start; index < text.length; index += 1) {
+    if (delimiter === '"""' && text[index] === '\\') index += 1;
+    else if (text.startsWith(delimiter, index)) return index;
+  }
+  return -1;
 }
 
 function runsFrontierMcp(entry) {
@@ -1947,8 +2273,10 @@ module.exports = {
     applyConfig,
     cursorConfigPath,
     doctor,
+    claudeShadowNotice,
     manualClaudeCommand,
     prepareClaudeCode,
+    printPreview,
     discoverManagedRuntimes,
     durableLaunch,
     prepareConfig,

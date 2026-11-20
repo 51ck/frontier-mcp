@@ -42,18 +42,37 @@ These scripts provide runtime probes and setup helpers for T88–T91.
 - `--client claude-code` never writes `~/.claude.json` itself, because Claude Code rewrites that file
   while running. It reads the user-scope `frontier` entry to preview and compare, backs the file up,
   then calls `claude mcp remove`/`add-json --scope user` (`--claude PATH` or `PATH`). The entry it
-  registers is the launcher the handshake verified. If `add-json` fails after `--replace` removed
+  registers is the launcher the handshake verified. Preview and apply name every higher-precedence
+  `frontier` entry for the current directory, by file and scope: local scope at its project key
+  (below), and a `.mcp.json` in that directory's real path or any directory above it, which
+  outranks user scope only once approved — measured with Claude Code 2.1.329. If `add-json` fails after `--replace` removed
   the old entry, it re-registers the old entry and its error names the removal, the restore result
   and the backup. On Windows it refuses a resolved `claude.cmd`/`.bat` (no shell is ever used) and
   prints the manual command instead. Preview and refusal print one form: POSIX shell-quotes every
   word of `claude mcp add-json`; Windows prints `claude mcp add --scope user frontier -- '<word>' ...`
   with PowerShell single quotes, because Windows PowerShell 5.1 mangles JSON passed to native programs.
 - `--doctor` needs no version and never writes. It resolves the repository like the launcher, lists
-  Claude Code `.mcp.json` / `~/.claude.json` (user and local), Cursor `.cursor/mcp.json` /
+  Claude Code `.mcp.json` at the repository root and every other `.mcp.json` present in the start
+  directory's real path or above it (the same walk the preview uses) / `~/.claude.json` (user and local), Cursor `.cursor/mcp.json` /
   `~/.cursor/mcp.json`, Codex `~/.codex/config.toml`, and `.agents/mcp.json`, and reports for each
   whether it declares `frontier` (an object with a string `command` or `url`; a null or empty entry
   is reported as having no command), is absent, a broken symlink, unreadable or invalid JSON, and any
-  other key that runs `frontier-mcp`. Failures are judged per client: an installed Claude Code or
+  other key that runs `frontier-mcp`. Local scope is looked up at the key Claude Code 2.1 writes and
+  reads, from the doctor's start directory: the canonical git root of its real path, else that real
+  path, with `\` turned to `/` on Windows. A linked worktree is keyed by its `commondir`: the
+  parent when that directory is named `.git`, else the directory itself. The key was measured on
+  macOS with Claude Code 2.1.329 for exactly these launches: a plain repository from its root, a
+  subdirectory and a symlinked path; a worktree; a bare repository's worktree; a submodule; a
+  submodule's worktree; and a non-git directory. Any other layout is unmeasured. The Windows form is
+  read from the 2.1.329 binary's source and was never run, because no CI leg has Claude Code.
+  Codex's `~/.codex/config.toml` declares `frontier` once a `command` or `url` sits under
+  `mcp_servers.frontier`, by table header, dotted keys, or inline tables at any level (top-level
+  `mcp_servers = { frontier = { ... } }` included); a frontier table without either is reported as
+  having no command. It is a line scan, not a TOML parser: it skips multi-line strings and
+  multi-line arrays, and reads a multi-line inline table only on its first line. When no
+  `.mcp.json` it checks declares `frontier`, it names each `enabledMcpjsonServers` that lists it:
+  `.claude/settings.json` and `settings.local.json` at the start directory and the repository,
+  `~/.claude/settings.json`, and local scope. Failures are judged per client: an installed Claude Code or
   Cursor with no declaration it reads fails when a repository file declares frontier or when one of
   its own locations fails to read, and the latter is named as that file and that client. It never
   says the repository expects frontier when the repository declares nothing. Codex is reported, never judged: only its user scope is verified, so its
@@ -97,7 +116,9 @@ These scripts provide runtime probes and setup helpers for T88–T91.
 - `frontier-setup-offline-check.cjs` needs no registry and no real client. It covers the doctor
   cases against temporary repositories, the Windows shim refusal, and Claude Code apply (refusal,
   restore after a failed `add-json`, a failed restore, a failed `remove`, no backup, plain add,
-  replace, idempotence) against a stand-in `claude` that edits a temporary `~/.claude.json`.
+  replace, idempotence) against a stand-in `claude` that edits a temporary `~/.claude.json`, and
+  the preview's higher-precedence warnings, the local-scope key, Codex's TOML forms and the
+  `enabledMcpjsonServers` report against fixtures.
   Symlink and stand-in cases are POSIX-only and skipped on Windows. **Apply and restore never run on
   Windows in CI**, because the stand-in `claude` is a shell script; there only the printed command
   and the shim refusal message are checked.
