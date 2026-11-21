@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, watch, type FSWatcher } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join, sep } from 'node:path';
 
 import { isEffortSlug, ISSUES_DIR } from './schema.ts';
 
@@ -63,37 +63,42 @@ const NATIVE_RECURSIVE = process.platform === 'darwin' || process.platform === '
  * re-synced on `resync()`, which the caller runs before each invalidation, so a
  * directory created during a debounce is watched before the scan that reads
  * it. Every filesystem call is caught: this runs in our own event callback,
- * which is the whole point. Returns undefined when `dir` cannot be watched.
+ * which is the whole point. Returns undefined when `dir` cannot be watched,
+ * and `resync()` returns false once it cannot be listed.
+ *
+ * A watch follows an inode, not a path. So a watch whose directory is removed
+ * or moved is dropped, with every watch below its path, and the next re-sync
+ * watches whatever directory holds the path by then. Linux reports that event
+ * under the watched directory's own name, provided no watch on another path
+ * held the inode when this one attached, which closing before attaching
+ * ensures; an entry of the same name inside it reads the same, and costs only
+ * a re-attach. Comparing inodes at re-sync
+ * instead would miss an `rm -rf` and `mkdir` that reuses the inode number.
  */
 function watchDirectories(
   dir: string,
   onEvent: () => void,
 ): (StorageWatcher & { resync(): boolean }) | undefined {
   const watchers = new Map<string, FSWatcher>();
-  const resync = (): boolean => {
-    const seen = new Set<string>();
-    const visit = (path: string, depth: number) => {
-      seen.add(path);
-      if (!watchers.has(path)) {
-        try {
-          const watcher = watch(path, onEvent);
-          watcher.on('error', () => {
-            watcher.close();
-            if (watchers.get(path) === watcher) watchers.delete(path);
-          });
-          watchers.set(path, watcher);
-        } catch {
-          seen.delete(path);
-          return;
-        }
-      }
+  const drop = (path: string) => {
+    for (const [watched, watcher] of watchers) {
+      if (watched !== path && !watched.startsWith(path + sep)) continue;
+      watcher.close();
+      watchers.delete(watched);
+    }
+  };
+  /** The directories the scan lists, parents first; undefined when `dir` cannot be listed. */
+  const list = (): string[] | undefined => {
+    const found: string[] = [];
+    const visit = (path: string, depth: number): boolean => {
+      found.push(path);
+      if (depth === 2) return true;
       let entries;
       try {
         entries = readdirSync(path, { withFileTypes: true });
       } catch {
-        return;
+        return depth !== 0;
       }
-      if (depth === 2) return;
       for (const entry of entries) {
         // A Dirent does not follow links, so a linked Effort or issues/ is not entered.
         if (!entry.isDirectory()) continue;
@@ -101,12 +106,51 @@ function watchDirectories(
         if (depth === 1 && entry.name !== ISSUES_DIR) continue;
         visit(join(path, entry.name), depth + 1);
       }
+      return true;
     };
-    visit(dir, 0);
-    for (const [path, watcher] of watchers) {
-      if (seen.has(path)) continue;
-      watcher.close();
-      watchers.delete(path);
+    return visit(dir, 0) ? found : undefined;
+  };
+  const attach = (path: string): boolean => {
+    try {
+      const name = basename(path);
+      const watcher = watch(path, (_event, filename) => {
+        if (filename === name && watchers.get(path) === watcher) drop(path);
+        onEvent();
+      });
+      watcher.on('error', () => {
+        watcher.close();
+        if (watchers.get(path) === watcher) watchers.delete(path);
+      });
+      watchers.set(path, watcher);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const resync = (): boolean => {
+    // A directory can appear between a listing and its parent's attach, unseen
+    // by any watch, so list again while the last pass attached anything.
+    for (let pass = 0; pass < 4; pass++) {
+      const wanted = list();
+      if (wanted === undefined) {
+        drop(dir);
+        return false;
+      }
+      const keep = new Set(wanted);
+      // Close before attaching: libuv shares one inotify watch per inode and
+      // names its events after the path that registered it first, so a moved
+      // directory's old watch, closed after the new one opened, would leave the
+      // new one reporting itself under the old name.
+      for (const [path, watcher] of watchers) {
+        if (keep.has(path)) continue;
+        watcher.close();
+        watchers.delete(path);
+      }
+      let attached = false;
+      for (const path of wanted) {
+        if (!watchers.has(path) && attach(path)) attached = true;
+      }
+      if (!attached) break;
     }
     return watchers.has(dir);
   };
@@ -171,6 +215,7 @@ export function watchStorage(
         storageWatcher?.close();
         storageWatcher = undefined;
         resyncDirectories = undefined;
+        watchRoot();
       }
       invalidate();
     }, debounceMs);
@@ -226,9 +271,12 @@ export function watchStorage(
     }
   };
 
-  attachStorageWatcher();
-
-  if (storageWatcher === undefined) {
+  /**
+   * Waits at the workspace root for the storage directory to appear: at start,
+   * and again whenever the per-directory watch finds it gone.
+   */
+  const watchRoot = () => {
+    if (rootWatcher !== undefined) return;
     try {
       rootWatcher = watch(root, (_event, filename) => {
         // One segment deep, so the name a root watch reports can match it
@@ -249,7 +297,10 @@ export function watchStorage(
     } catch {
       // Unusual, but a missing workspace root should not wedge the server.
     }
-  }
+  };
+
+  attachStorageWatcher();
+  if (storageWatcher === undefined) watchRoot();
 
   return {
     close() {

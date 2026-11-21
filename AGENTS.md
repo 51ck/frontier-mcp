@@ -309,9 +309,16 @@ Stack, settled:
   when a watched directory is replaced by a same-named file — uncatchable, so the server died
   (T99, nodejs/node#66791). There the watcher keeps one non-recursive watch per directory and
   re-syncs that set before each debounced invalidation. The set is the storage directory, each
-  Effort directory and each `issues/` — what the scan lists, never deeper. `watcherPerDirectory`
-  exists so `test/watcher.test.ts` runs that mode on macOS; it accepts only `true`, so no option
-  can select the recursive watch where it is not native. Which directories it leaves unwatched is
+  Effort directory and each `issues/` — what the scan lists, never deeper. A watch follows an
+  inode, so one whose directory is removed or moved — an event Linux names after the directory
+  itself — is dropped with every watch below it, and the re-sync watches whatever directory holds
+  the path by then. A re-sync lists first and closes every watch off the list before it attaches
+  one, because libuv shares one inotify watch per inode and names its events after the path that
+  registered it first; a storage directory that can no longer be listed hands back to the root watch
+  until it reappears (T109). `watcherPerDirectory` exists so `test/watcher.test.ts` runs that mode
+  on macOS; it accepts only `true`, so no option can select the recursive watch where it is not
+  native. How many watches it holds is counted there, as Node's active `FSEventWrap` handles and,
+  on Linux, the process's inotify watches in `/proc/self/fdinfo`; which directories they cover is
   not observable through the harness and is held by code inspection alone.
 - **`tsc` alone** for the build, no bundler. The SDK stopped being a heavy dependency at the scoped
   split: `/server` brings a runtime closure of three packages — itself, `/core` and zod — where the
