@@ -232,6 +232,7 @@ describe('a marked file that does not validate', () => {
 
       for (const request of [
         { comment: 'Hi.' },
+        { add_criteria: ['New.'] },
         { claim: { by: 'agent-1' } },
         { resolve: { answer_gist: 'Done.' } },
         { drop: { reason: 'Out.' } },
@@ -596,6 +597,11 @@ describe('a diagnosed file answers to its id', () => {
       );
       const error = await frontier.callExpectingError('update_ticket', { id, comment: 'Touch.' });
       expect(error).toContain(code);
+      const added = await frontier.callExpectingError('update_ticket', {
+        id,
+        add_criteria: ['New.'],
+      });
+      expect(added).toContain(code);
     }
   });
 

@@ -467,6 +467,31 @@ export class MultiLineBullet extends Error {
   }
 }
 
+/** Thrown when an `add_criteria` value spans lines: a criterion is one checkbox line. */
+export class MultiLineCriterion extends Error {
+  constructor(value: string) {
+    super(
+      `Nothing was written: add_criteria ${JSON.stringify(value)} must be a single line — a line ` +
+        'break would leave the rest outside the checkbox.',
+    );
+    this.name = 'MultiLineCriterion';
+  }
+}
+
+/** Thrown when an `add_criteria` value matches a checkbox `tick` would match, or repeats another of the call. */
+export class DuplicateCriterion extends Error {
+  constructor(value: string, where: 'ticket' | 'call') {
+    super(
+      `Nothing was written: add_criteria ${JSON.stringify(value)} ` +
+        (where === 'ticket'
+          ? 'already matches a checkbox of this Ticket that tick would match'
+          : 'is passed twice in this call') +
+        ', whitespace and case aside.',
+    );
+    this.name = 'DuplicateCriterion';
+  }
+}
+
 /** Thrown when `drop_keys` names a key the schema imports — those change through their own arguments. */
 export class SchemaKeyNotDroppable extends Error {
   constructor(keys: readonly string[]) {

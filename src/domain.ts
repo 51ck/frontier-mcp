@@ -171,6 +171,8 @@ export interface TicketEdit {
   readonly comment?: string;
   /** Acceptance criteria to tick, addressed by their text. */
   readonly tick?: readonly string[];
+  /** Acceptance criteria to append unticked, one line each. Applied before {@link tick}. */
+  readonly addCriteria?: readonly string[];
   /** Unimported frontmatter keys to delete. A schema key or an absent one fails the write. */
   readonly dropKeys?: readonly string[];
   /** Top-level keys outside the schema, each set to its JSON value whole. */

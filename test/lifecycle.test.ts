@@ -192,6 +192,23 @@ describe('the optimistic check', () => {
     // Nothing was written: the concurrent edit survives untouched.
     expect(await readFile(path, 'utf8')).toBe(edited);
   });
+
+  it('guards an added criterion the same way', async () => {
+    const { root, frontier } = await oneTicket(undefined, NO_STALENESS_RECOVERY);
+
+    await frontier.call('get_board', { effort: 'alpha' });
+    const path = join(root, FILE);
+    const edited = `${await readFile(path, 'utf8')}\nA hand edit.\n`;
+    await writeFile(path, edited, 'utf8');
+
+    const error = await frontier.callExpectingError('update_ticket', {
+      id: 'T1',
+      add_criteria: ['Found mid-work'],
+    });
+
+    expect(error).toContain('changed on disk');
+    expect(await readFile(path, 'utf8')).toBe(edited);
+  });
 });
 
 describe('rejecting impossible transitions', () => {

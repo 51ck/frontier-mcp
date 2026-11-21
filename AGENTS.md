@@ -230,8 +230,8 @@ Design decisions settled and binding until an ADR revises them:
   the `yaml` package's own key conversion, so `null:` and `~:` are the key `""` and `1.0:` is
   `1`: `extra: { "null": … }` beside a stored `null:` appends a quoted `"null":` and leaves it
   alone, and `drop_keys: [""]` removes it — the empty string is accepted there
-  alone, never as an `extra` key. A comment, a tick or an answer leaves the fence alone, and a field write leaves the body
-  alone. The result is read back and refused with `FenceNotCleanlyEditable` (or, for a drop,
+  alone, never as an `extra` key. A comment, a tick, an added criterion or an answer leaves the fence alone, and a field
+  write leaves the body alone. The result is read back and refused with `FenceNotCleanlyEditable` (or, for a drop,
   `KeyNotCleanlyDroppable`) unless every entry reads as it did or as the write set it *and*
   every byte outside the written text is the same raw byte, with no line-ending normalization and
   no exception for any scalar style, *and* the reader finds every untouched entry as the same
@@ -717,12 +717,13 @@ Write rules, equally load-bearing:
   (`CreateOptions.settle`, `updateTicket`'s `settle`), and what the second pass returns is what is
   written — a scan taken before a hand-written file landed never decides a stored form.
 
-Annotation rules — a comment, a ticked criterion, and a Triage role are records of work, not moves
-in the graph:
+Annotation rules — a comment, an added or ticked criterion, and a Triage role are records of work,
+not moves in the graph:
 
 - **Nothing is injected into content an agent wrote.** A comment is stored byte-for-byte, including
   `/triage`'s mandatory disclaimer, which is the skill's own to write.
-- **A comment, a tick or an answer leaves every fence byte alone, CRLF included**, pinned in
+- **A comment, a tick, an added criterion or an answer leaves every fence byte alone, CRLF
+  included**, pinned in
   `test/fence-edit.test.ts`. The one exception is at the body's edges: the blank lines between
   the closing fence and the first body line become exactly one, and the body's trailing blank
   lines become one line ending. A body written uniformly in CRLF is edited as LF and written back
@@ -733,6 +734,19 @@ in the graph:
   match both as `get_tickets` returns them and re-joined onto one line — comparison collapses
   whitespace, so house-style continuations are not a silent miss.
 - **Naming a criterion that does not exist fails**, rather than writing nothing and reporting success.
+- **Adding a criterion inserts lines and changes none** (`update_ticket` `add_criteria`). The criteria
+  list is the checkboxes, outside code fences, of one `##` section, a `##` line in a fence starting
+  none: `## Acceptance criteria` when it holds one; else that section, empty, when it exists; else
+  the first section that holds one. `## Answer` and `## Comments` never count, since a resolve
+  replaces the one and the other is a record. Each value becomes `<indent><bullet> [ ] <text>` after
+  the list's last criterion and its continuations, at its first criterion's indentation and bullet;
+  into an empty `## Acceptance criteria` it goes at the section's end; with neither, into a new one
+  above the Answer and the comment log, else at the end. A value holding `\n`, `\r`, U+2028 or U+2029 is
+  `MultiLineCriterion`; one equal to any checkbox `tick` could match, or to another of the call,
+  after `tick`'s whitespace-collapsing, case-folding compare, is `DuplicateCriterion`; a blank one is
+  refused at input. Either refusal writes nothing. Added before the ticks of the same call, so it may
+  tick them; allowed in every Status. The argument costs 40 tokens, pinned in
+  `test/read-path-cost.test.ts`.
 - **A Triage role never moves the Frontier.** Only Status and Edges decide what is takeable, so
   `/triage` and the graph never compete for one field. A `wontfix` Ticket stays takeable and is named
   in the warnings block instead, leaving the judgement to the reader.

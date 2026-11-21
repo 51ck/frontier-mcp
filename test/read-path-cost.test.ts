@@ -349,8 +349,9 @@ describe('the cost of extra', () => {
     // Paid in every session. Measured before extra: create_tickets 460,
     // update_ticket 957; after: 525 and 1042, +65 and +85. The values are
     // checked in code, not in the schema, which would add the JSON grammar.
-    // Declaring no additional properties took them to 540 and 1075.
+    // Declaring no additional properties took them to 540 and 1075; update_ticket
+    // add_criteria took it to 1115, +40.
     expect(entry('create_tickets')).toBeCloseTo(540, -1.5);
-    expect(entry('update_ticket')).toBeCloseTo(1075, -1.5);
+    expect(entry('update_ticket')).toBeCloseTo(1115, -1.5);
   });
 });

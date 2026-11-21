@@ -1,6 +1,6 @@
 # Issue tracker — FrontierMCP and file fallback
 
-Tracker doc revision 16. To check a vendored copy, compare this number with the one in the
+Tracker doc revision 17. To check a vendored copy, compare this number with the one in the
 `frontier://tracker-doc` resource of the server you run; a lower number, or no revision line, is
 stale.
 
@@ -62,7 +62,7 @@ takes keys of your choosing.
 | `get_board` | See the whole Effort cheaply — Destination, one summary line per Ticket, Frontier marked. Never returns bodies. |
 | `get_tickets` | Fetch full bodies for specific Tickets, by name or id, after the Board tells you which matter. The header's `blocks=` lists the Tickets naming it in `blocked_by`. Given the name of an excluded file, returns its diagnostics. |
 | `create_tickets` | Publish a breakdown in one call. You give each Ticket its `name`, and optionally `tags` and `extra` keys; Edges may name a sibling from the same call. All are written or none. |
-| `update_ticket` | Claim, resolve, drop, reopen, release, set title/kind/type, set triage, replace Edges or tags, comment, tick acceptance criteria, set `extra` keys, or `drop_keys` to delete Unimported frontmatter keys. One Ticket per call. |
+| `update_ticket` | Claim, resolve, drop, reopen, release, set title/kind/type, set triage, replace Edges or tags, comment, `add_criteria` to append unticked acceptance criteria, tick them, set `extra` keys, or `drop_keys` to delete Unimported frontmatter keys. One Ticket per call. |
 | `edit_map` | Edit Map sections — Destination, Notes, fog, Out of scope. Decisions-so-far regenerates from resolved Tickets. |
 | `spec` | Read or write a Spec as a whole document. |
 | `check_tracker` | Learn how to write a Ticket and what is wrong with the files there: the frontmatter schema, the layout contract and its version, a valid example, and every diagnostic itemized with file, key, expected, found and fix. `effort` narrows the diagnostics to one Effort. Reads only; fix files by hand. |
@@ -310,7 +310,12 @@ Keep the auth token in memory between requests.
 
 Only `frontier`, `title` and `status` are required. Body shape follows whichever skill produced the Ticket: Problem / Done when / acceptance criteria for
 `build`, `## Question` / `## Acceptance criteria` / `## Answer` for `decision`. Comments append at the
-bottom under `## Comments`.
+bottom under `## Comments`. `update_ticket` `add_criteria` appends `- [ ] <text>` lines after the
+last checkbox of the `## Acceptance criteria` section, into that section when it has none, else after
+the last checkbox of the first section holding one, never in `## Answer` or `## Comments`; with none
+of these it adds `## Acceptance criteria` above those two. A `##` line inside a code fence starts no
+section. A value spanning lines, or one matching a checkbox already there or another of the call as
+`tick` matches, is refused and nothing is written.
 
 ### Status
 

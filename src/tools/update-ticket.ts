@@ -78,6 +78,10 @@ export const updateTicketInputSchema = z.strictObject({
         'as get_tickets returns them and re-joined onto one line. All references resolve before ' +
         'anything is written — one unmatched name fails the whole call and leaves the file untouched.',
     ),
+  add_criteria: z
+    .array(z.string().refine(value => value.trim() !== '', 'a criterion must not be blank'))
+    .optional()
+    .describe('Acceptance criteria to append unticked, one line each; tick may name them.'),
   drop_keys: z
     .array(z.string())
     .min(1)
@@ -109,7 +113,7 @@ export const updateTicketDescription =
   'Change one Ticket. Lifecycle: claim, resolve with a one-line gist, drop with a reason, reopen ' +
   'with a reason, or release a claim — at most one of those per call. Graph: replace the Edges, ' +
   'refused if they close a cycle. Identity: title, kind, and type. Annotations: triage role, tags, a ' +
-  'comment, ticking acceptance criteria, setting extra keys or dropping them; these touch no part of the graph. Any of the four groups ' +
+  'comment, adding or ticking acceptance criteria, setting extra keys or dropping them; these touch no part of the graph. Any of the four groups ' +
   'may accompany the others or stand alone.';
 
 export interface UpdateRequest {
@@ -124,6 +128,7 @@ export interface UpdateRequest {
   readonly tags?: readonly string[] | undefined;
   readonly comment?: string | undefined;
   readonly tick?: readonly string[] | undefined;
+  readonly add_criteria?: readonly string[] | undefined;
   readonly drop_keys?: readonly string[] | undefined;
   readonly extra?: Readonly<Record<string, unknown>> | undefined;
   readonly title?: string | undefined;
@@ -157,6 +162,7 @@ export function editFor(
     ...(request.tags === undefined ? {} : { tags: request.tags }),
     ...(request.comment === undefined ? {} : { comment: request.comment }),
     ...(request.tick === undefined ? {} : { tick: request.tick }),
+    ...(request.add_criteria === undefined ? {} : { addCriteria: request.add_criteria }),
     ...(request.drop_keys === undefined ? {} : { dropKeys: request.drop_keys }),
     ...(request.extra === undefined || Object.keys(request.extra).length === 0
       ? {}
@@ -189,7 +195,7 @@ export function editFor(
     if (Object.keys(annotations).length === 0) {
       throw new Error(
         'Nothing to do: pass a lifecycle change, or title, kind, type, blocked_by, triage, tags, ' +
-          'comment, tick, drop_keys, or extra.',
+          'comment, tick, add_criteria, drop_keys, or extra.',
       );
     }
     return annotations;
