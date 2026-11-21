@@ -8,6 +8,7 @@ import { chmod, lstat, mkdir, readdir, readFile, stat, symlink, unlink } from 'n
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { SERVER_VERSION } from '../src/server.ts';
 import { map, ticket } from './support/fixtures.ts';
 import {
   cleanupFixtures,
@@ -405,7 +406,7 @@ describe('the two verbatim fixture Efforts', () => {
 
     expect(await frontier.call('list_efforts')).toBe(
       [
-        `root: ${root}`,
+        `root: ${root}  frontier-mcp ${SERVER_VERSION}`,
         'ship-0-5-0  tickets=0  docs=map  frontier=0',
         'telegram  tickets=0  docs=spec  frontier=0',
       ].join('\n'),

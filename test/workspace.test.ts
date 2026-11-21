@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { SERVER_VERSION } from '../src/server.ts';
 import { WORKSPACE_ENV_VAR } from '../src/workspace.ts';
 import { spec, ticket } from './support/fixtures.ts';
 import {
@@ -71,7 +72,7 @@ describe('workspace resolution', () => {
     const frontier = await connectFrontier({ cwd: join(root, 'src/deep'), env: {} });
 
     expect((await frontier.call('list_efforts')).split('\n')[0]).toBe(
-      `root: ${root} (resolved by .git)`,
+      `root: ${root} (resolved by .git)  frontier-mcp ${SERVER_VERSION}`,
     );
   });
 
@@ -89,7 +90,7 @@ describe('workspace resolution', () => {
     const frontier = await connectFrontier({ cwd: submodule, env: {} });
 
     expect((await frontier.call('list_efforts')).split('\n')[0]).toBe(
-      `root: ${submodule} (resolved by .git)`,
+      `root: ${submodule} (resolved by .git)  frontier-mcp ${SERVER_VERSION}`,
     );
   });
 
@@ -103,7 +104,7 @@ describe('workspace resolution', () => {
     const frontier = await connectFrontier({ cwd: submodule, env: {} });
 
     expect((await frontier.call('list_efforts')).split('\n')[0]).toBe(
-      `root: ${submodule} (resolved by .git)`,
+      `root: ${submodule} (resolved by .git)  frontier-mcp ${SERVER_VERSION}`,
     );
   });
 
@@ -117,7 +118,7 @@ describe('workspace resolution', () => {
     const frontier = await connectFrontier({ cwd: join(worktree, 'src/deep'), env: {} });
 
     expect((await frontier.call('list_efforts')).split('\n')[0]).toBe(
-      `root: ${worktree} (resolved by .git)`,
+      `root: ${worktree} (resolved by .git)  frontier-mcp ${SERVER_VERSION}`,
     );
   });
 
@@ -155,7 +156,7 @@ describe('workspace resolution', () => {
     const frontier = await connectFrontier({ cwd, env: {} });
 
     expect((await frontier.call('list_efforts')).split('\n')[0]).toBe(
-      `root: ${cwd} (resolved by working directory, no root marker found)`,
+      `root: ${cwd} (resolved by working directory, no root marker found)  frontier-mcp ${SERVER_VERSION}`,
     );
   });
 

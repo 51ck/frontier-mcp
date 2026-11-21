@@ -1,6 +1,6 @@
 # Issue tracker — FrontierMCP and file fallback
 
-Tracker doc revision 14. To check a vendored copy, compare this number with the one in the
+Tracker doc revision 15. To check a vendored copy, compare this number with the one in the
 `frontier://tracker-doc` resource of the server you run; a lower number, or no revision line, is
 stale.
 
@@ -39,6 +39,11 @@ whichever repository answered, and this line is the only part of the result that
 read paths of write-capable tools: `edit_map` with no section fields and `spec` with no `content`.
 `check_tracker` never writes.
 
+**`list_efforts` names the server you are talking to.** Its `root:` line ends with
+`frontier-mcp <version>`, the version the MCP handshake reports — which your client sees and you do
+not. A launch such as `pnpm dlx frontier-mcp@latest` can start an older release than the newest one
+published; this is where to check which one is running. No other result carries it.
+
 A repo with no `.scratch/` yet is not an error. Create an Effort by writing to it with `create: true`
 on `create_tickets`, `edit_map`, or `spec`.
 
@@ -53,7 +58,7 @@ takes keys of your choosing.
 
 | Tool | Use when |
 | --- | --- |
-| `list_efforts` | Orient — list Efforts with Ticket counts, header doc kinds, and Frontier size; `excluded=N` and `unmarked=N` when an Effort holds files that are not Tickets (see [Diagnostics](#diagnostics)). A repository with no `.scratch/` at all gets `no tracker here`, the marker that located the root, and a `start one` line to copy; an empty `.scratch/` still reads `(no efforts)`. |
+| `list_efforts` | Orient — list Efforts with Ticket counts, header doc kinds, and Frontier size; `excluded=N` and `unmarked=N` when an Effort holds files that are not Tickets (see [Diagnostics](#diagnostics)). A repository with no `.scratch/` at all gets `no tracker here`, the marker that located the root, and a `start one` line to copy; an empty `.scratch/` still reads `(no efforts)`. The `root:` line ends with the server version (see [Workspace](#workspace)). |
 | `get_board` | See the whole Effort cheaply — Destination, one summary line per Ticket, Frontier marked. Never returns bodies. |
 | `get_tickets` | Fetch full bodies for specific Tickets, by name or id, after the Board tells you which matter. Given the name of an excluded file, returns its diagnostics. |
 | `create_tickets` | Publish a breakdown in one call. You give each Ticket its `name`, and optionally `tags` and `extra` keys; Edges may name a sibling from the same call. All are written or none. |

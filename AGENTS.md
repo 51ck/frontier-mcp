@@ -419,10 +419,11 @@ Source layout:
 
 Nothing under `src/tools/` may import from `src/storage/`.
 
-Exactly two modules above the seam import `node:fs`. `src/workspace.ts` walks for a root marker,
+Exactly three modules above the seam import `node:fs`. `src/workspace.ts` walks for a root marker,
 which is asked before there is a driver to ask; `src/tracker-doc.ts` reads a document shipped inside
-this package. Neither reads a served repository's tracker data, so neither is a route around the
-seam. A third wanting one is a design signal, not a third exception.
+this package; `src/server.ts` reads this package's own `package.json` for `SERVER_VERSION`. None
+reads a served repository's tracker data, so none is a route around the seam. A fourth wanting one
+is a design signal, not a fourth exception.
 
 Rendering rules that are load-bearing, not cosmetic:
 
@@ -522,6 +523,14 @@ Rendering rules that are load-bearing, not cosmetic:
   `src/workspace.ts`; existence crosses the seam as `StorageDriver.absentStorage()`, which never
   creates the directory. An empty `.scratch/` keeps `(no efforts)`, and no other result carries the
   `resolved by` suffix — a populated tracker is its own proof of the root.
+- **`list_efforts` names the server version; nothing else does** (T4pe7az). The handshake's
+  `serverInfo.version` reaches the client, never the agent, so every `list_efforts` result — populated,
+  `(no efforts)` and the four-line no-tracker one — ends its `root:` line, after any
+  `(resolved by …)`, with `  frontier-mcp <version>`: the last token on the line, so a root path
+  holding spaces stays parseable, and no line is added. The value is `SERVER_VERSION` in
+  `src/server.ts`, the one the handshake reports, passed to the renderers in
+  `src/tools/list-efforts.ts`; `workspaceLine` stays version-free, so a write's `root:` line is
+  unchanged. 5 tokens, once a session, pinned in `test/read-path-cost.test.ts`.
 - **`check_tracker` returns the contract and itemizes every Diagnostic** (it took `migrate_effort`'s
   slot, so the surface stays at eight). The schema, the layout contract with its version
   (`LAYOUT_VERSION`) and a valid example are `trackerContract()` in `src/storage/markdown/schema.ts`,

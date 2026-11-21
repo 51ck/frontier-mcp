@@ -184,13 +184,23 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       const absent = driver.absentStorage();
       if (absent !== undefined) {
         return {
-          content: [{ type: 'text', text: renderNoTracker(workspace, resolvedBy, absent) }],
+          content: [
+            {
+              type: 'text',
+              text: renderNoTracker(workspace, SERVER_VERSION, resolvedBy, absent),
+            },
+          ],
         };
       }
       const [efforts, tickets] = await Promise.all([driver.listEfforts(), driver.listTickets()]);
 
       return {
-        content: [{ type: 'text', text: renderEfforts(workspace, efforts, frontierOf(tickets)) }],
+        content: [
+          {
+            type: 'text',
+            text: renderEfforts(workspace, SERVER_VERSION, efforts, frontierOf(tickets)),
+          },
+        ],
       };
     },
   );

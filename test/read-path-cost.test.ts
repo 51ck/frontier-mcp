@@ -2,6 +2,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { SERVER_VERSION } from '../src/server.ts';
 import {
   cleanupFixtures,
   connectFrontier,
@@ -255,6 +256,23 @@ describe('the cost of check_tracker', () => {
     expect(await (await connectFrontier({ cwd: legacy, env: {} })).call('check_tracker')).toBe(
       full,
     );
+  });
+});
+
+describe('the cost of the server version', () => {
+  it('is a few tokens on the root line of list_efforts, which a session calls once', async () => {
+    const root = await makeMarkedWorkspace({
+      telegram: 'sobrina-telegram',
+      'ship-0-5-0': 'tag-customizer-ship-0-5-0',
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const text = await frontier.call('list_efforts');
+    const suffix = `  frontier-mcp ${SERVER_VERSION}`;
+    expect(text.split('\n')[0]).toBe(`root: ${root}${suffix}`);
+
+    // Measured at 3.0.0: 5 tokens, on no line but this one.
+    expect(tokens(text) - tokens(text.replace(suffix, ''))).toBeCloseTo(5, -1);
   });
 });
 
