@@ -406,6 +406,7 @@ Source layout:
 | `src/frontier.ts` | The Frontier computation. Takes every Ticket in the workspace, because an Edge can lead into another Effort. |
 | `src/names.ts` | How a string names a Ticket: Edge and tool-input resolution, duplicate claimants, the form a supplied Edge is stored in or refused for, and the graph nodes cycle checks walk. The Frontier, the Board, the tool lookups and the markdown driver's file lookup all resolve through it. |
 | `src/board-order.ts` | Board order, derived from the Edges on each Board, and the prefix-then-name tie-break the driver's scan also sorts by. |
+| `src/sections.ts` | How a Ticket body divides into `##` sections and which lines sit in a code fence. Above the seam because the body crosses it as one string; the `get_tickets` section read and `add_criteria`'s placement both ask it. |
 | `src/edges.ts` | Cycle detection over the Edge graph. Above the seam, because a cycle is a rule about the domain rather than about storage — the same reason the Status model is checked in the tool layer. |
 | `src/storage/driver.ts` | The ADR 0001 seam, its edit vocabulary, and its typed failures. A driver is the workspace cached and live, so `close()` sits here beside the reads and writes. |
 | `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout, which it takes as a construction parameter — `frontmatter.ts` splits the fence, `ticket.ts` classifies a file as a Ticket, excluded, an unmarked look-alike or nothing, `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` writes a new batch at the paths its names imply, `schema.ts` is the one definition of the schema's keys, types and values, the marker, the Ticket locations and the layout contract `check_tracker` shows, `write.ts` renames it into place, `watcher.ts` tells the driver another process moved the workspace under it. |
@@ -531,6 +532,27 @@ Rendering rules that are load-bearing, not cosmetic:
   are never droppable, so a drop always leaves a fence. Dropping a Ticket's
   last Unimported key takes it out of the Board's Unimported count. There is no
   `no id` Board warning. The schema key list is single-sourced in `src/storage/markdown/schema.ts`.
+- **A section read keeps the header line and only the sections named.** `get_tickets` `sections`
+  matches each name, trimmed, against each heading name, case ignored and in full, by `sectionsOf`
+  in `src/sections.ts`; a blank name is refused at input. A heading is a line opening `## ` or
+  `##` and a tab outside a code fence, and its name is the rest of the line less a closing `#` run
+  that follows whitespace (`## Notes ##` is `Notes`, `## C#` is `C#`), trimmed. A fence opens on
+  three or more backticks or tildes — a backtick run whose info string holds a backtick opens
+  none — and closes only on a run of its own character at least as long with nothing after it;
+  `add_criteria` and `tick` skip the same fenced lines. A section runs from its heading to the next
+  heading, `###` subsections included, its trailing blank lines cut; every section under a
+  repeated heading is returned, in file order. The text above the first heading is in no section,
+  so a filtered read leaves it out. The Unimported appendix counts as the section
+  `Unimported frontmatter`, kept only when named. A Ticket lacking a name gets `no section: ## <name>`
+  in its own block and fails nothing; diagnostics by name, `not found:` and duplicate claimants are
+  unchanged, and a read without `sections` is byte-identical to one before it. The argument costs
+  41 tokens; a criteria read of a long resolved Ticket costs a tenth of the whole, both pinned in
+  `test/read-path-cost.test.ts`. A Map read takes no such argument: `edit_map` renders the typed
+  sections alone and never carries Decisions-so-far or a GENERATED block — every block of a
+  section is left out, and an opener with no closer runs to the end of its section. A generated
+  pointer is always one line: its title and gist or reason have every whitespace run, line breaks
+  included, folded to one space, so a multi-line one can neither be read back as a hand-ruled item
+  nor split the section.
 - **A missing storage directory explains itself; an empty one does not** (T105). Only when
   `.scratch/` does not exist, `list_efforts` returns four lines: the root line suffixed
   `(resolved by <source>)`, `no tracker here`, a `start one` line naming real `create_tickets` /

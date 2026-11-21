@@ -245,11 +245,12 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       inputSchema: getTicketsInputSchema,
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async ({ ids, root }) => {
+    async ({ ids, sections, root }) => {
       const workspace = resolveWorkspace(root, context);
       const driver = registry.forWorkspace(workspace);
       const { tickets, diagnostics, all } = await driver.readTickets(ids);
-      return { content: [{ type: 'text', text: renderTickets(ids, tickets, diagnostics, all) }] };
+      const text = renderTickets(ids, tickets, diagnostics, all, sections);
+      return { content: [{ type: 'text', text }] };
     },
   );
 

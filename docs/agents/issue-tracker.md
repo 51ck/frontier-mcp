@@ -1,6 +1,6 @@
 # Issue tracker — FrontierMCP and file fallback
 
-Tracker doc revision 17. To check a vendored copy, compare this number with the one in the
+Tracker doc revision 18. To check a vendored copy, compare this number with the one in the
 `frontier://tracker-doc` resource of the server you run; a lower number, or no revision line, is
 stale.
 
@@ -60,10 +60,10 @@ takes keys of your choosing.
 | --- | --- |
 | `list_efforts` | Orient — list Efforts with Ticket counts, header doc kinds, and Frontier size; `excluded=N` and `unmarked=N` when an Effort holds files that are not Tickets (see [Diagnostics](#diagnostics)). A repository with no `.scratch/` at all gets `no tracker here`, the marker that located the root, and a `start one` line to copy; an empty `.scratch/` still reads `(no efforts)`. The `root:` line ends with the server version (see [Workspace](#workspace)). |
 | `get_board` | See the whole Effort cheaply — Destination, one summary line per Ticket, Frontier marked. Never returns bodies. |
-| `get_tickets` | Fetch full bodies for specific Tickets, by name or id, after the Board tells you which matter. The header's `blocks=` lists the Tickets naming it in `blocked_by`. Given the name of an excluded file, returns its diagnostics. |
+| `get_tickets` | Fetch full bodies for specific Tickets, by name or id, after the Board tells you which matter. The header's `blocks=` lists the Tickets naming it in `blocked_by`. `sections` (e.g. `["Acceptance criteria"]`) returns only the `##` sections with those headings, case ignored, under the same header; a Ticket lacking one says `no section: ## <name>`. Text above the first heading is left out, and `Unimported frontmatter` is kept only when named. Given the name of an excluded file, returns its diagnostics. |
 | `create_tickets` | Publish a breakdown in one call. You give each Ticket its `name`, and optionally `tags` and `extra` keys; Edges may name a sibling from the same call. All are written or none. |
 | `update_ticket` | Claim, resolve, drop, reopen, release, set title/kind/type, set triage, replace Edges or tags, comment, `add_criteria` to append unticked acceptance criteria, tick them, set `extra` keys, or `drop_keys` to delete Unimported frontmatter keys. One Ticket per call. |
-| `edit_map` | Edit Map sections — Destination, Notes, fog, Out of scope. Decisions-so-far regenerates from resolved Tickets. |
+| `edit_map` | Edit Map sections — Destination, Notes, fog, Out of scope. Decisions-so-far regenerates from resolved Tickets. A read returns the typed sections without Decisions-so-far or any generated block. |
 | `spec` | Read or write a Spec as a whole document. |
 | `check_tracker` | Learn how to write a Ticket and what is wrong with the files there: the frontmatter schema, the layout contract and its version, a valid example, and every diagnostic itemized with file, key, expected, found and fix. `effort` narrows the diagnostics to one Effort. Reads only; fix files by hand. |
 

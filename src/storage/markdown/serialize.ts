@@ -15,6 +15,7 @@ import {
 } from 'yaml';
 
 import type { TicketEdit } from '../../domain.ts';
+import { fencedLines, sectionStarts } from '../../sections.ts';
 import {
   AliasedValue,
   ExtraDoesNotReadBack,
@@ -756,8 +757,6 @@ function withTicks(body: string, tick: readonly string[] | undefined): string {
 }
 
 const CHECKBOX = /^(\s*[-*]\s*\[)( |x|X)(\]\s*)(.*)$/;
-/** A fenced code block, where a `- [ ]` is illustration rather than a criterion. */
-const FENCE_LINE = /^\s*(?:```|~~~)/;
 
 interface Criterion {
   /** Index of the checkbox line — the only line a tick may rewrite. */
@@ -779,13 +778,12 @@ function collapseCriterionText(text: string): string {
 
 /**
  * A continuation of the criterion above: indented prose that is not itself a
- * checkbox, heading, or fence. Blank lines end the wrap — house style never
+ * checkbox or heading, and outside a code fence. Blank lines end the wrap — house style never
  * leaves a hole inside a criterion.
  */
 function isCriterionContinuation(line: string): boolean {
   if (line.trim() === '') return false;
   if (CHECKBOX.test(line)) return false;
-  if (FENCE_LINE.test(line)) return false;
   if (/^#{1,6}\s/.test(line)) return false;
   return /^\s+\S/.test(line);
 }
@@ -793,22 +791,22 @@ function isCriterionContinuation(line: string): boolean {
 /** Checkbox lines outside any code fence — the ones that are really criteria. */
 function findCriteria(lines: readonly string[]): Criterion[] {
   const criteria: Criterion[] = [];
-  let fenced = false;
+  const fenced = fencedLines(lines);
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index] ?? '';
-    if (FENCE_LINE.test(line)) {
-      fenced = !fenced;
-      continue;
-    }
-    if (fenced) continue;
+    if (fenced[index] === true) continue;
 
     const box = CHECKBOX.exec(line);
     if (box === null) continue;
 
     const checkboxLine = index;
     const parts = [box[4] ?? ''];
-    while (index + 1 < lines.length && isCriterionContinuation(lines[index + 1] ?? '')) {
+    while (
+      index + 1 < lines.length &&
+      fenced[index + 1] !== true &&
+      isCriterionContinuation(lines[index + 1] ?? '')
+    ) {
       index += 1;
       parts.push(lines[index] ?? '');
     }
@@ -854,15 +852,11 @@ function withAddedCriteria(body: string, add: readonly string[] | undefined): st
 
   // The `##` heading each line falls under, -1 above the first. A `##` line in
   // a code fence is illustration, as a checkbox there is.
+  const heading = sectionStarts(lines);
   const sectionOf: number[] = [];
-  const heading: boolean[] = [];
   let section = -1;
-  let fenced = false;
-  for (const [index, line] of lines.entries()) {
-    if (FENCE_LINE.test(line)) fenced = !fenced;
-    const starts = !fenced && NEXT_SECTION.test(line);
-    if (starts) section = index;
-    heading.push(starts);
+  for (const index of lines.keys()) {
+    if (heading[index] === true) section = index;
     sectionOf.push(section);
   }
   const headed = (index: number, pattern: RegExp) =>

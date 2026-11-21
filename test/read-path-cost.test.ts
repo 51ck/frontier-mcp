@@ -270,6 +270,34 @@ describe('the cost of reverse Edges', () => {
   });
 });
 
+describe('the cost of a section read', () => {
+  it('costs one argument on get_tickets and returns a criteria read for a tenth', async () => {
+    const root = await makeMarkedWorkspace({ 'ship-0-5-0': 'tag-customizer-ship-0-5-0' });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+    const { tools } = await frontier.client.listTools();
+
+    // Paid in every session. Measured: 170 before sections, 211 after, +41.
+    expect(tokens(JSON.stringify(tools.find(tool => tool.name === 'get_tickets')))).toBeCloseTo(
+      211,
+      -1.5,
+    );
+
+    // A resolved decision whose Answer records the whole branch surgery. Measured:
+    // 2217 tokens read whole, 230 for its criteria alone, under the same header.
+    const ids = ['park-the-branch-rebuild-dev'];
+    const whole = await frontier.call('get_tickets', { ids });
+    const criteria = await frontier.call('get_tickets', {
+      ids,
+      sections: ['Acceptance criteria'],
+    });
+    expect(criteria.split('\n\n')[0]).toBe(whole.split('\n\n')[0]);
+    expect(criteria).toMatch(/\n\n## Acceptance criteria\n/);
+    expect(criteria).not.toContain('## Answer');
+    expect(tokens(whole)).toBeCloseTo(2217, -1.5);
+    expect(tokens(criteria)).toBeCloseTo(230, -1.5);
+  });
+});
+
 describe('the cost of check_tracker', () => {
   it('costs less schema than the migrate_effort it replaced, and a fixed result', async () => {
     const root = await makeMarkedWorkspace({
