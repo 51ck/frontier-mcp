@@ -51,7 +51,12 @@ import {
   updateTicketInputSchema,
 } from './tools/update-ticket.ts';
 import { readTrackerDoc, TRACKER_DOC_URI } from './tracker-doc.ts';
-import { locateWorkspace, resolveWorkspace, type WorkspaceContext } from './workspace.ts';
+import {
+  locateWorkspace,
+  resolveWorkspace,
+  workspaceDirectory,
+  type WorkspaceContext,
+} from './workspace.ts';
 
 export const SERVER_NAME = 'frontier';
 
@@ -144,6 +149,7 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
             ? {}
             : { watcherPerDirectory: options.watcherPerDirectory }),
         })),
+    workspaceDirectory,
   );
 
   const server = new McpServer(

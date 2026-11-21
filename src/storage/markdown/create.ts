@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 import type { TicketDraft, TicketSummary } from '../../domain.ts';
 import { BatchNotUndone, TicketAlreadyExists, TicketStorageUnusable } from '../driver.ts';
+import { ISSUES_DIR } from './schema.ts';
 import { serializeNew } from './serialize.ts';
 import { stage, unstage } from './write.ts';
 
@@ -72,7 +73,7 @@ export async function createTicketFiles(request: CreateRequest): Promise<readonl
   // found at the link instead, the files linked before it would be visible to
   // a reader until they were taken back. A name can be free while its path is
   // not — a file there may carry an id, which is then what names it.
-  const held = await filenamesIn(issues);
+  const held = await filenamesIn(effort, issues);
   const blocked = files.find(file => held.has(file.filename.toLowerCase()));
   if (blocked !== undefined) throw new TicketAlreadyExists(effort, blocked.name);
 
@@ -81,7 +82,7 @@ export async function createTicketFiles(request: CreateRequest): Promise<readonl
   try {
     await mkdir(issues, { recursive: true });
   } catch (error) {
-    throw notADirectory(error) ? new TicketStorageUnusable(fileInTheWay(issues)) : error;
+    throw notADirectory(error) ? new TicketStorageUnusable(fileInTheWay(effort)) : error;
   }
   try {
     await writeAll(effort, issues, files);
@@ -98,18 +99,19 @@ function notADirectory(error: unknown): boolean {
   return code === 'EEXIST' || code === 'ENOTDIR';
 }
 
-function fileInTheWay(issues: string): string {
-  return `${issues} cannot hold Tickets: it, or a directory above it, exists as a file.`;
+/** Named under the storage directory, as the symlinked-issues refusal is: never by absolute path. */
+function fileInTheWay(effort: string): string {
+  return `${effort}/${ISSUES_DIR} cannot hold Tickets: it, or a directory above it, exists as a file.`;
 }
 
 /** What the directory holds, folded: names compare without regard to case, as the common filesystems do. */
-async function filenamesIn(issues: string): Promise<ReadonlySet<string>> {
+async function filenamesIn(effort: string, issues: string): Promise<ReadonlySet<string>> {
   try {
     return new Set((await readdir(issues)).map(name => name.toLowerCase()));
   } catch (error) {
     const code = (error as NodeJS.ErrnoException | null)?.code;
     if (code === 'ENOENT') return new Set();
-    throw code === 'ENOTDIR' ? new TicketStorageUnusable(fileInTheWay(issues)) : error;
+    throw code === 'ENOTDIR' ? new TicketStorageUnusable(fileInTheWay(effort)) : error;
   }
 }
 
@@ -175,7 +177,7 @@ async function writeAll(effort: string, issues: string, files: readonly NewFile[
           if (code === 'EEXIST') throw new TicketAlreadyExists(effort, entry.name);
           throw new TicketStorageUnusable(
             `Ticket creation needs a filesystem that supports hard links, and linking a new ` +
-              `Ticket into ${issues} failed (${code ?? String(error)}).`,
+              `Ticket into ${effort}/${ISSUES_DIR} failed (${code ?? String(error)}).`,
           );
         }
         landed.push(entry);

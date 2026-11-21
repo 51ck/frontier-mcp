@@ -410,8 +410,8 @@ Source layout:
 | `src/edges.ts` | Cycle detection over the Edge graph. Above the seam, because a cycle is a rule about the domain rather than about storage — the same reason the Status model is checked in the tool layer. |
 | `src/storage/driver.ts` | The ADR 0001 seam, its edit vocabulary, and its typed failures. A driver is the workspace cached and live, so `close()` sits here beside the reads and writes. |
 | `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout, which it takes as a construction parameter — `frontmatter.ts` splits the fence, `ticket.ts` classifies a file as a Ticket, excluded, an unmarked look-alike or nothing, `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` writes a new batch at the paths its names imply, `schema.ts` is the one definition of the schema's keys, types and values, the marker, the Ticket locations and the layout contract `check_tracker` shows, `write.ts` renames it into place, `watcher.ts` tells the driver another process moved the workspace under it. |
-| `src/workspace.ts` | Workspace resolution — the only module above the driver that reads a *served* repository, and only to locate its root. `.scratch` is a marker only as a directory; `.git` counts as a file too, so a worktree or submodule resolves to itself rather than to the repository enclosing it. |
-| `src/driver-registry.ts` | One driver per resolved workspace, and the `closeAll()` that shuts them. A lookup, not a layer: it hands back the driver itself, so no read or write passes through it. |
+| `src/workspace.ts` | Workspace resolution — the only module above the driver that reads a *served* repository, and only to locate its root. `.scratch` is a marker only as a directory; `.git` counts as a file too, so a worktree or submodule resolves to itself rather than to the repository enclosing it. `workspaceDirectory` names the directory a root reaches — `realpathSync.native`, so a symlink is followed and case folds exactly where the volume folds it, measured: the JavaScript `realpathSync` keeps the given case on a case-insensitive APFS volume — and a path that does not exist yet is its nearest existing ancestor's real path with the rest as given, so a write creating it does not move it to a second driver. |
+| `src/driver-registry.ts` | One driver per workspace directory, keyed on and built with `workspaceDirectory`'s answer, which it is handed rather than importing `node:fs`, and the `closeAll()` that shuts them. Built with the directory rather than the first spelling, so a link repointed later cannot carry a driver away from its key. A lookup, not a layer: it hands back the driver itself, so no read or write passes through it. |
 | `src/tools/` | One module per tool: its input schema, its description, and how its result renders. `workspace-line.ts`, `diagnostics.ts`, `tags.ts` and `extra.ts` are the exceptions — the single renderings of which repository a call served, shared by `list_efforts` and every write, of Diagnostics, shared by the Board, `list_efforts`, `get_tickets` and `update_ticket`, of tags, whose input rule `create_tickets` and `update_ticket` share, and of the `extra` input with its reserved-key refusals, likewise shared. |
 | `src/server.ts` | Wires the above into an `McpServer`. |
 | `src/tracker-doc.ts` | Loads the shipped tracker configuration document for the `tracker-doc` MCP resource, from beside `dist/` in the installed package rather than from the working directory. |
@@ -420,11 +420,11 @@ Source layout:
 
 Nothing under `src/tools/` may import from `src/storage/`.
 
-Exactly three modules above the seam import `node:fs`. `src/workspace.ts` walks for a root marker,
-which is asked before there is a driver to ask; `src/tracker-doc.ts` reads a document shipped inside
-this package; `src/server.ts` reads this package's own `package.json` for `SERVER_VERSION`. None
-reads a served repository's tracker data, so none is a route around the seam. A fourth wanting one
-is a design signal, not a fourth exception.
+Exactly three modules above the seam import `node:fs`. `src/workspace.ts` walks for a root marker
+and asks which directory a root names, both before there is a driver to ask; `src/tracker-doc.ts`
+reads a document shipped inside this package; `src/server.ts` reads this package's own
+`package.json` for `SERVER_VERSION`. None reads a served repository's tracker data, so none is a
+route around the seam. A fourth wanting one is a design signal, not a fourth exception.
 
 Rendering rules that are load-bearing, not cosmetic:
 
@@ -441,6 +441,8 @@ Rendering rules that are load-bearing, not cosmetic:
   What decides is *whether the call wrote*, not whether the tool can — `edit_map` with no section
   fields, `spec` with no content, and `check_tracker` are reads, and pay nothing.
   Measured at ~10 tokens on a typical checkout; a forty-write session costs less than one Board.
+  The line shows the caller's own spelling, resolved against the working directory, never the
+  directory's real path: a root given through a symlink reads back as the link.
 - **Warnings are grouped, never itemized per Ticket or file.** An Effort of migrated Tickets carries a
   dangling Edge on nearly every Ticket, and one left unmarked after an upgrade has a look-alike per
   file; itemizing produced a warnings block longer than the Board it annotated, which undoes the
@@ -661,7 +663,9 @@ Write rules, equally load-bearing:
   "already claimed by X" — and then the original failure is raised. A mismatch may equally be
   somebody's hand edit, and overwriting that is what the check exists to prevent.
 - **Writes are serialized per workspace.** Otherwise two calls racing on one Ticket both pass the
-  revision check before either renames, and the loser's edit is lost rather than refused.
+  revision check before either renames, and the loser's edit is lost rather than refused. A
+  workspace is a directory, not a spelling: a symlink, another case on a volume that folds it, and
+  redundant segments all reach that directory's one driver and its one write queue.
 - **Resolve/drop Map refresh is best-effort.** After the Ticket write lands, regenerating
   Decisions-so-far / dropped Out-of-scope must not make a completed lifecycle change look like a
   failure. The tool returns success with a warning that those blocks may be stale; a later

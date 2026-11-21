@@ -553,7 +553,8 @@ describe('a batch that cannot be completed', () => {
       tickets: [{ name: 'parse', title: 'Parse the frontmatter' }],
     });
 
-    expect(error).toContain(join(root, '.scratch/alpha/issues'));
+    expect(error).toContain('alpha/issues cannot hold Tickets');
+    expect(error).not.toContain(root);
     expect(error).toContain('exists as a file');
     expect(error).not.toMatch(/EEXIST|ENOTDIR/);
   });
