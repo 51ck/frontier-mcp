@@ -1,6 +1,6 @@
 # Issue tracker — FrontierMCP and file fallback
 
-Tracker doc revision 15. To check a vendored copy, compare this number with the one in the
+Tracker doc revision 16. To check a vendored copy, compare this number with the one in the
 `frontier://tracker-doc` resource of the server you run; a lower number, or no revision line, is
 stale.
 
@@ -60,7 +60,7 @@ takes keys of your choosing.
 | --- | --- |
 | `list_efforts` | Orient — list Efforts with Ticket counts, header doc kinds, and Frontier size; `excluded=N` and `unmarked=N` when an Effort holds files that are not Tickets (see [Diagnostics](#diagnostics)). A repository with no `.scratch/` at all gets `no tracker here`, the marker that located the root, and a `start one` line to copy; an empty `.scratch/` still reads `(no efforts)`. The `root:` line ends with the server version (see [Workspace](#workspace)). |
 | `get_board` | See the whole Effort cheaply — Destination, one summary line per Ticket, Frontier marked. Never returns bodies. |
-| `get_tickets` | Fetch full bodies for specific Tickets, by name or id, after the Board tells you which matter. Given the name of an excluded file, returns its diagnostics. |
+| `get_tickets` | Fetch full bodies for specific Tickets, by name or id, after the Board tells you which matter. The header's `blocks=` lists the Tickets naming it in `blocked_by`. Given the name of an excluded file, returns its diagnostics. |
 | `create_tickets` | Publish a breakdown in one call. You give each Ticket its `name`, and optionally `tags` and `extra` keys; Edges may name a sibling from the same call. All are written or none. |
 | `update_ticket` | Claim, resolve, drop, reopen, release, set title/kind/type, set triage, replace Edges or tags, comment, tick acceptance criteria, set `extra` keys, or `drop_keys` to delete Unimported frontmatter keys. One Ticket per call. |
 | `edit_map` | Edit Map sections — Destination, Notes, fog, Out of scope. Decisions-so-far regenerates from resolved Tickets. |
@@ -117,6 +117,15 @@ can point at a Ticket not yet written. Three kinds are refused instead, writing 
   create the new Ticket first if the new name was meant.
 - `NameInAnotherEffort` — a bare name only another Effort has. Write it in full.
 - `BoardFormAsEdge` — `T9@beta` is how a Board shows an Edge into another Effort. Write `T9`.
+
+**Edges are followed both ways.** A `get_tickets` header shows `blocks=`, the Tickets whose
+`blocked_by` names this one, as a Board shows a blocker: bare in the same Effort, `T9@beta` or
+`beta.token-cache` in another. A `resolve` result adds `now takeable: …`, the dependents it freed —
+not one another open blocker still holds. A dropped blocker never unblocks, so a `drop` result adds
+`now blocked by a dropped Ticket, which never unblocks: …`, its open and claimed dependents: change
+their `blocked_by` or drop them too. Each list names ten and counts the rest, and is left out when
+empty. Both lines are computed from the server's cached view of the other Tickets; the Board
+is the authority when another session is writing.
 
 **Two branches that chose the same name** both add `issues/<name>.md`, and git stops the merge with
 an add/add conflict. Rename one side's file before merging and fix the Edges naming it; if both are

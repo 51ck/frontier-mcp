@@ -4,6 +4,7 @@ import type { Kind, TicketEdit, TicketSummary } from '../domain.ts';
 import { STATUSES, TRIAGE_ROLES } from '../domain.ts';
 import type { TriageRole } from '../domain.ts';
 import { cycleThrough, renderCycle, type EdgesOf } from '../edges.ts';
+import { frontierOf } from '../frontier.ts';
 import { fullNameOf, indexNames } from '../names.ts';
 import {
   extraInput,
@@ -13,6 +14,7 @@ import {
   reservedKeyMessage,
   UPDATE_ARGUMENTS,
 } from './extra.ts';
+import { renderNamedFrom } from './get-board.ts';
 import { tagsInput } from './tags.ts';
 
 export const updateTicketInputSchema = z.strictObject({
@@ -380,7 +382,47 @@ function releaseEdit(ticket: TicketSummary): TicketEdit {
   return { status: 'open', claimedBy: null, claimedAt: null };
 }
 
-export function renderUpdate(ticket: TicketSummary, warnings: readonly string[] = []): string {
+/**
+ * What a resolve or a drop did to the Tickets naming this one, from the scan
+ * the write was checked against with `written` in place of `read`, so the two
+ * Frontiers compared differ by this write alone and no file is read for it.
+ *
+ * A resolve names the dependents it made takeable; one still held by another
+ * blocker, a duplicate's other claimant included, is not. A dropped blocker
+ * never satisfies an Edge, so a drop names the open and claimed dependents it
+ * left waiting on it.
+ */
+export function graphEffect(
+  scan: readonly TicketSummary[],
+  read: TicketSummary,
+  written: TicketSummary,
+): string | undefined {
+  const after = scan.map(ticket => (ticket === read ? written : ticket));
+  const dependents = indexNames(after).dependents(written);
+
+  let named: readonly TicketSummary[];
+  let label: string;
+  if (written.status === 'resolved') {
+    const before = frontierOf(scan);
+    const now = frontierOf(after);
+    named = dependents.filter(ticket => now.has(ticket) && !before.has(ticket));
+    label = 'now takeable';
+  } else if (written.status === 'dropped' && read.status !== 'dropped') {
+    named = dependents.filter(ticket => ticket.status === 'open' || ticket.status === 'claimed');
+    label = 'now blocked by a dropped Ticket, which never unblocks';
+  } else {
+    return undefined;
+  }
+  return named.length === 0
+    ? undefined
+    : `${label}: ${renderNamedFrom(named, written.effort, ', ')}`;
+}
+
+export function renderUpdate(
+  ticket: TicketSummary,
+  warnings: readonly string[] = [],
+  effect?: string,
+): string {
   const fields = [
     `status=${ticket.status}`,
     ticket.claimedBy === undefined ? undefined : `claimed_by=${ticket.claimedBy}`,
@@ -389,7 +431,9 @@ export function renderUpdate(ticket: TicketSummary, warnings: readonly string[] 
     ticket.droppedReason === undefined ? undefined : `dropped_reason=${ticket.droppedReason}`,
   ].filter(field => field !== undefined);
 
-  const body = `${fullNameOf(ticket)} updated\n${fields.join('  ')}`;
+  const body = [`${fullNameOf(ticket)} updated`, fields.join('  '), effect]
+    .filter(line => line !== undefined)
+    .join('\n');
   if (warnings.length === 0) return body;
   return `${body}\nwarnings:\n${warnings.map(warning => `- ${warning}`).join('\n')}`;
 }

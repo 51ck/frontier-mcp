@@ -1,9 +1,10 @@
 import { z } from 'zod';
 
 import { bareIdOf } from '../domain.ts';
-import type { Diagnostic, Ticket } from '../domain.ts';
-import { duplicateKindOf, fullNameOf, indexNames } from '../names.ts';
+import type { Diagnostic, Ticket, TicketSummary } from '../domain.ts';
+import { duplicateKindOf, fullNameOf, indexNames, type Names } from '../names.ts';
 import { renderDiagnostic } from './diagnostics.ts';
+import { renderNamedFrom } from './get-board.ts';
 import { renderTags } from './tags.ts';
 
 export const getTicketsInputSchema = z.strictObject({
@@ -25,15 +26,20 @@ export const getTicketsDescription =
  * Bodies verbatim, under a header carrying the fields a reader needs in hand
  * while reading one. Names that resolve to nothing are named rather than
  * dropped, so a typo does not look like an empty Ticket.
+ *
+ * `all` is every Ticket of the read the bodies came from, which is where the
+ * Edges naming each one are found.
  */
 export function renderTickets(
   requested: readonly string[],
   found: readonly Ticket[],
-  excluded: ReadonlyMap<string, readonly Diagnostic[]> = new Map(),
+  excluded: ReadonlyMap<string, readonly Diagnostic[]>,
+  all: readonly TicketSummary[],
 ): string {
   // The driver resolved each name against the whole workspace and returned only
   // what it meant, so resolving again over that subset pairs them back up.
   const names = indexNames(found);
+  const workspace = indexNames(all);
 
   const blocks: string[] = [];
   const missing: string[] = [];
@@ -54,7 +60,7 @@ export function renderTickets(
           `until all but one are ${fix} by hand`,
       );
     }
-    for (const ticket of claimants) blocks.push(renderOne(ticket));
+    for (const ticket of claimants) blocks.push(renderOne(ticket, workspace));
   }
 
   if (missing.length > 0) {
@@ -82,7 +88,8 @@ export function renderExcluded(name: string, diagnostics: readonly Diagnostic[])
   ].join('\n');
 }
 
-function renderOne(ticket: Ticket): string {
+function renderOne(ticket: Ticket, workspace: Names): string {
+  const dependents = workspace.dependents(ticket);
   const fields = [
     `effort=${ticket.effort}`,
     `kind=${ticket.kind}`,
@@ -90,6 +97,7 @@ function renderOne(ticket: Ticket): string {
     `status=${ticket.status}`,
     ticket.triage === undefined ? undefined : `triage=${ticket.triage}`,
     ticket.blockedBy.length > 0 ? `blocked_by=${ticket.blockedBy.join(',')}` : undefined,
+    dependents.length > 0 ? `blocks=${renderNamedFrom(dependents, ticket.effort, ',')}` : undefined,
     ticket.tags.length > 0 ? `tags=${renderTags(ticket.tags)}` : undefined,
     ticket.claimedBy === undefined ? undefined : `claimed_by=${ticket.claimedBy}`,
     ticket.claimedAt === undefined ? undefined : `claimed_at=${ticket.claimedAt}`,

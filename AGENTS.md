@@ -204,8 +204,8 @@ Design decisions settled and binding until an ADR revises them:
   file, key?, expected?, found?, fix }`, `file` workspace-root-relative and `/`-separated. They
   cross the seam on `Effort.diagnostics`, computed by the scan, and by name through
   `StorageDriver.diagnosticsFor()`, which answers every name of one call from one walk;
-  `readTickets()` returns the same answer for the names it missed from its own walk, so
-  `get_tickets` walks once. `excluded` codes are `yaml-unparseable`, `missing-key`,
+  `readTickets()` returns the same answer for the names it missed from its own walk, and that
+  walk's summaries as `all`, so `get_tickets` walks once. `excluded` codes are `yaml-unparseable`, `missing-key`,
   `invalid-value`, `ticket-outside-issues`, `directory-in-issues`, `symlinked-issues`,
   `symlinked-header-doc` and `unreadable`; the one
   `suggestion` is
@@ -457,6 +457,21 @@ Rendering rules that are load-bearing, not cosmetic:
   local one bare.** The full name is valid input. The
   `@<effort>` is never input: a pasted `T9@beta` fails — `NoSuchTicket` on a write, the `not found:` line on
   `get_tickets` — and both name `T9` back.
+- **A Ticket read shows what it blocks; a resolve or a drop says what it moved.** The
+  `get_tickets` header carries `blocks=` after `blocked_by=`: every Ticket with a stored Edge
+  resolving to this one (`Names.dependents` in `src/names.ts`), each rendered as a Board renders a
+  blocker, absent when there is none. A `resolve` result carries `now takeable: …`, the dependents
+  that joined the Frontier; one another blocker still holds, a duplicate's unresolved claimant
+  included, is not named. A dropped blocker never satisfies an Edge, so a `drop` result carries
+  `now blocked by a dropped Ticket, which never unblocks: …`, its open and claimed dependents. Each
+  list names ten and counts the rest, and is absent when empty; no other write says either.
+  Neither reads a file: `get_tickets` uses the summaries of the walk its bodies came from, and
+  `graphEffect` in `src/tools/update-ticket.ts` works on the cached scan the write was checked
+  against with the written Ticket in place of the read one — a resolve compares the Frontiers of the
+  two, a drop filters the swapped scan's dependents and says nothing on a re-drop — so both differ
+  by this write alone — and are as stale about other Tickets as a Board built from that scan. Measured:
+  `blocks=` adds 9 tokens to the reads test's `get_tickets` and 42 across fifteen Tickets, the
+  resolve line 11, pinned in `test/read-path-cost.test.ts`.
 - **An unresolvable Edge renders `T9?`** and is counted in the warnings block. It never silently
   makes a Ticket look takeable.
 - **A duplicate id is one grouped warning**, on every Board, computed from the cached scan the Board

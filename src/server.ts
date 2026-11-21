@@ -45,6 +45,7 @@ import { renderSpec, specDescription, specInputSchema } from './tools/spec.ts';
 import { withWorkspace } from './tools/workspace-line.ts';
 import {
   editFor,
+  graphEffect,
   renderUpdate,
   updateTicketDescription,
   updateTicketInputSchema,
@@ -247,8 +248,8 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
     async ({ ids, root }) => {
       const workspace = resolveWorkspace(root, context);
       const driver = registry.forWorkspace(workspace);
-      const { tickets, diagnostics } = await driver.readTickets(ids);
-      return { content: [{ type: 'text', text: renderTickets(ids, tickets, diagnostics) }] };
+      const { tickets, diagnostics, all } = await driver.readTickets(ids);
+      return { content: [{ type: 'text', text: renderTickets(ids, tickets, diagnostics, all) }] };
     },
   );
 
@@ -407,7 +408,16 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
         content: [
           {
             type: 'text',
-            text: withWorkspace(workspace, renderUpdate(written.ticket, written.warnings)),
+            text: withWorkspace(
+              workspace,
+              renderUpdate(
+                written.ticket,
+                written.warnings,
+                resolve === undefined && drop === undefined
+                  ? undefined
+                  : graphEffect(tickets, ticket, written.ticket),
+              ),
+            ),
           },
         ],
       };

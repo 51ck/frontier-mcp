@@ -48,6 +48,7 @@ function fixedDriver(
             entry => wanted.has(entry.name) || (entry.id !== undefined && wanted.has(entry.id)),
           ),
           diagnostics: new Map(),
+          all: tickets,
         };
       },
       updateTicket() {
@@ -159,7 +160,7 @@ describe('the storage driver seam', () => {
       },
       async assertAddressable() {},
       async readTickets() {
-        return { tickets: [], diagnostics: new Map() };
+        return { tickets: [], diagnostics: new Map(), all: [] };
       },
       updateTicket() {
         throw new Error('this driver is read-only');

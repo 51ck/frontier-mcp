@@ -228,6 +228,48 @@ describe('the cost of a Board', () => {
   });
 });
 
+function withoutBlocks(text: string): string {
+  return text.replace(/ {2}blocks=\S+/g, '');
+}
+
+describe('the cost of reverse Edges', () => {
+  it('is a few tokens on a get_tickets header and one line on a resolve', async () => {
+    const root = await makeMarkedWorkspace({ telegram: 'sobrina-telegram' });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    // The call the reads test makes: two of its three Tickets block others.
+    // Measured: 1585 tokens against 1576 without blocks=, +9.
+    const three = await frontier.call('get_tickets', { ids: ['T30', 'T31', 'T44'] });
+    expect(three.match(/blocks=\S+/g)).toEqual(['blocks=T31,T33', 'blocks=T32,T38,T39']);
+    expect(tokens(three) - tokens(withoutBlocks(three))).toBeCloseTo(9, -1);
+
+    // Every Ticket of the Effort, nine of which block another: +42.
+    const ids = Array.from({ length: 15 }, (_, index) => `T${String(30 + index)}`);
+    const all = await frontier.call('get_tickets', { ids });
+    expect(tokens(all) - tokens(withoutBlocks(all))).toBeCloseTo(42, -1.5);
+
+    await frontier.call('create_tickets', {
+      effort: 'telegram-named',
+      create: true,
+      tickets: NAMED_TELEGRAM.map(([name, title, blocked_by]) => ({
+        name,
+        title,
+        blocked_by: [...blocked_by],
+      })),
+    });
+
+    // Resolving the root of the named breakdown frees two Tickets. Measured:
+    // 11 tokens, of 29 below the root: line.
+    const resolved = await frontier.call('update_ticket', {
+      id: 'group-boot',
+      resolve: { answer_gist: 'Booted.' },
+    });
+    const line = 'now takeable: identity-bridge, outbound-send';
+    expect(resolved.split('\n').at(-1)).toBe(line);
+    expect(tokens(resolved) - tokens(resolved.replace(`\n${line}`, ''))).toBeCloseTo(11, -1);
+  });
+});
+
 describe('the cost of check_tracker', () => {
   it('costs less schema than the migrate_effort it replaced, and a fixed result', async () => {
     const root = await makeMarkedWorkspace({

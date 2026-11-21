@@ -299,7 +299,11 @@ export function createMarkdownDriver(
       const tickets = await readBodies(storage, scanned, handles);
       const names = indexNames(tickets);
       const missed = handles.filter(handle => names.input(handle).length === 0);
-      return { tickets, diagnostics: diagnosticsIn(scanned, missed) };
+      return {
+        tickets,
+        diagnostics: diagnosticsIn(scanned, missed),
+        all: scanned.flatMap(summariesOf),
+      };
     },
 
     updateTicket(handle, edit, expectedRevision, settle) {

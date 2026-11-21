@@ -152,10 +152,29 @@ function renderLine(ticket: TicketSummary, board: Board): string {
  */
 export function renderEdge(edge: string, from: TicketSummary, names: Names): string {
   const [blocker] = names.edge(edge, from.effort);
-  if (blocker === undefined) return `${edge}?`;
-  if (blocker.effort === from.effort) return blocker.name;
+  return blocker === undefined ? `${edge}?` : shownFrom(blocker, from.effort);
+}
 
-  return blocker.id === undefined ? fullNameOf(blocker) : `${blocker.id}@${blocker.effort}`;
+/** A Ticket as a Ticket of `effort` shows it: the rendering {@link renderEdge} gives a blocker. */
+function shownFrom(ticket: TicketSummary, effort: string): string {
+  if (ticket.effort === effort) return ticket.name;
+  return ticket.id === undefined ? fullNameOf(ticket) : `${ticket.id}@${ticket.effort}`;
+}
+
+const NAMED = 10;
+
+/**
+ * Tickets as a Ticket of `effort` shows them, each once, the first ten named
+ * and the rest counted, so a Ticket half the workspace waits on stays one line.
+ */
+export function renderNamedFrom(
+  tickets: readonly TicketSummary[],
+  effort: string,
+  separator: string,
+): string {
+  const shown = [...new Set(tickets.map(ticket => shownFrom(ticket, effort)))];
+  const rest = shown.length - NAMED;
+  return shown.slice(0, NAMED).join(separator) + (rest > 0 ? ` and ${String(rest)} more` : '');
 }
 
 /** The field each lifecycle Status requires, as the tracker doc states it. */
