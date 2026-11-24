@@ -2,6 +2,28 @@
 
 Package release notes for `frontier-mcp` (npm). Not part of the `.scratch/` issue tracker.
 
+## [4.0.0](https://github.com/51ck/frontier-mcp/compare/v3.0.0...v4.0.0) (2026-11-24)
+
+### ⚠ BREAKING CHANGES
+
+* **tools:** a call carrying a key a tool does not define, at the top
+  level or inside a nested object, now fails instead of being ignored.
+
+### Features
+
+* **get_tickets:** sections returns only the named body sections ([08fb9cb](https://github.com/51ck/frontier-mcp/commit/08fb9cb82f22979535d90b67917920636edce9f1))
+* **list_efforts:** the root line names the server version ([222a316](https://github.com/51ck/frontier-mcp/commit/222a3167599a839ddb1d5b4ac4aad99707f2cd26))
+* **tickets:** a Ticket read shows what it blocks, a resolve what it freed ([19e030f](https://github.com/51ck/frontier-mcp/commit/19e030f2e17565abad3f38cb822d9459b565d229))
+* **tools:** a tool refuses an argument it does not define ([e525dba](https://github.com/51ck/frontier-mcp/commit/e525dba14f301afe40626477b520903b3b5ef531))
+* **update_ticket:** add_criteria appends unticked acceptance criteria ([6e328f8](https://github.com/51ck/frontier-mcp/commit/6e328f8e561a84a020abb4e2b7ad66f1e680d782))
+
+### Bug Fixes
+
+* **driver:** a scan raced by an invalidation keeps its Board warnings ([ffeb004](https://github.com/51ck/frontier-mcp/commit/ffeb004ed0da4a5a03e14df9794c4956c5e52f20))
+* **registry:** one directory gets one driver, however its root is spelled ([60620c8](https://github.com/51ck/frontier-mcp/commit/60620c8190ef3a052f83ca9431fa1e415c01c085))
+* **setup:** Claude Code preview and doctor see every scope that wins ([53ac0e5](https://github.com/51ck/frontier-mcp/commit/53ac0e574ce0b55265e6bc47135036d4be85ee23))
+* **watcher:** on Linux, a directory replaced in place is watched again ([7108254](https://github.com/51ck/frontier-mcp/commit/710825434cf270f581f9ee43bd500cfc142e80af))
+
 ## [3.0.0](https://github.com/51ck/frontier-mcp/compare/v2.0.0...v3.0.0) (2026-11-19)
 
 ### ⚠ BREAKING CHANGES
