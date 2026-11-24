@@ -2,6 +2,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { SERVER_VERSION } from '../src/server.ts';
 import {
   cleanupFixtures,
   connectFrontier,
@@ -227,6 +228,76 @@ describe('the cost of a Board', () => {
   });
 });
 
+function withoutBlocks(text: string): string {
+  return text.replace(/ {2}blocks=\S+/g, '');
+}
+
+describe('the cost of reverse Edges', () => {
+  it('is a few tokens on a get_tickets header and one line on a resolve', async () => {
+    const root = await makeMarkedWorkspace({ telegram: 'sobrina-telegram' });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    // The call the reads test makes: two of its three Tickets block others.
+    // Measured: 1585 tokens against 1576 without blocks=, +9.
+    const three = await frontier.call('get_tickets', { ids: ['T30', 'T31', 'T44'] });
+    expect(three.match(/blocks=\S+/g)).toEqual(['blocks=T31,T33', 'blocks=T32,T38,T39']);
+    expect(tokens(three) - tokens(withoutBlocks(three))).toBeCloseTo(9, -1);
+
+    // Every Ticket of the Effort, nine of which block another: +42.
+    const ids = Array.from({ length: 15 }, (_, index) => `T${String(30 + index)}`);
+    const all = await frontier.call('get_tickets', { ids });
+    expect(tokens(all) - tokens(withoutBlocks(all))).toBeCloseTo(42, -1.5);
+
+    await frontier.call('create_tickets', {
+      effort: 'telegram-named',
+      create: true,
+      tickets: NAMED_TELEGRAM.map(([name, title, blocked_by]) => ({
+        name,
+        title,
+        blocked_by: [...blocked_by],
+      })),
+    });
+
+    // Resolving the root of the named breakdown frees two Tickets. Measured:
+    // 11 tokens, of 29 below the root: line.
+    const resolved = await frontier.call('update_ticket', {
+      id: 'group-boot',
+      resolve: { answer_gist: 'Booted.' },
+    });
+    const line = 'now takeable: identity-bridge, outbound-send';
+    expect(resolved.split('\n').at(-1)).toBe(line);
+    expect(tokens(resolved) - tokens(resolved.replace(`\n${line}`, ''))).toBeCloseTo(11, -1);
+  });
+});
+
+describe('the cost of a section read', () => {
+  it('costs one argument on get_tickets and returns a criteria read for a tenth', async () => {
+    const root = await makeMarkedWorkspace({ 'ship-0-5-0': 'tag-customizer-ship-0-5-0' });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+    const { tools } = await frontier.client.listTools();
+
+    // Paid in every session. Measured: 170 before sections, 211 after, +41.
+    expect(tokens(JSON.stringify(tools.find(tool => tool.name === 'get_tickets')))).toBeCloseTo(
+      211,
+      -1.5,
+    );
+
+    // A resolved decision whose Answer records the whole branch surgery. Measured:
+    // 2217 tokens read whole, 230 for its criteria alone, under the same header.
+    const ids = ['park-the-branch-rebuild-dev'];
+    const whole = await frontier.call('get_tickets', { ids });
+    const criteria = await frontier.call('get_tickets', {
+      ids,
+      sections: ['Acceptance criteria'],
+    });
+    expect(criteria.split('\n\n')[0]).toBe(whole.split('\n\n')[0]);
+    expect(criteria).toMatch(/\n\n## Acceptance criteria\n/);
+    expect(criteria).not.toContain('## Answer');
+    expect(tokens(whole)).toBeCloseTo(2217, -1.5);
+    expect(tokens(criteria)).toBeCloseTo(230, -1.5);
+  });
+});
+
 describe('the cost of check_tracker', () => {
   it('costs less schema than the migrate_effort it replaced, and a fixed result', async () => {
     const root = await makeMarkedWorkspace({
@@ -239,9 +310,9 @@ describe('the cost of check_tracker', () => {
 
     // migrate_effort's tool entry measured 181 tokens on the wire before it was
     // replaced; the slot is paid in every session, so the successor must not
-    // cost more. Measured: 170.
+    // cost more. Measured: 170; 177 once it declared no additional properties.
     expect(schema).toBeLessThanOrEqual(181);
-    expect(schema).toBeCloseTo(170, -1.5);
+    expect(schema).toBeCloseTo(177, -1.5);
 
     // The full result on the marked fixtures, which hold no diagnostic: the
     // contract alone. Measured: 1350 — about three Boards, paid only when called.
@@ -255,6 +326,23 @@ describe('the cost of check_tracker', () => {
     expect(await (await connectFrontier({ cwd: legacy, env: {} })).call('check_tracker')).toBe(
       full,
     );
+  });
+});
+
+describe('the cost of the server version', () => {
+  it('is a few tokens on the root line of list_efforts, which a session calls once', async () => {
+    const root = await makeMarkedWorkspace({
+      telegram: 'sobrina-telegram',
+      'ship-0-5-0': 'tag-customizer-ship-0-5-0',
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const text = await frontier.call('list_efforts');
+    const suffix = `  frontier-mcp ${SERVER_VERSION}`;
+    expect(text.split('\n')[0]).toBe(`root: ${root}${suffix}`);
+
+    // Measured at 3.0.0: 5 tokens, on no line but this one.
+    expect(tokens(text) - tokens(text.replace(suffix, ''))).toBeCloseTo(5, -1);
   });
 });
 
@@ -289,7 +377,9 @@ describe('the cost of extra', () => {
     // Paid in every session. Measured before extra: create_tickets 460,
     // update_ticket 957; after: 525 and 1042, +65 and +85. The values are
     // checked in code, not in the schema, which would add the JSON grammar.
-    expect(entry('create_tickets')).toBeCloseTo(525, -1.5);
-    expect(entry('update_ticket')).toBeCloseTo(1042, -1.5);
+    // Declaring no additional properties took them to 540 and 1075; update_ticket
+    // add_criteria took it to 1115, +40.
+    expect(entry('create_tickets')).toBeCloseTo(540, -1.5);
+    expect(entry('update_ticket')).toBeCloseTo(1115, -1.5);
   });
 });

@@ -188,16 +188,21 @@ export function createMarkdownDriver(
    * wants a Board wants both.
    */
   let cachedScan: Promise<ScannedEffort[]> | undefined;
+  let scansStarted = 0;
+  let scanPublished = 0;
   const scan = () => {
     if (cachedScan === undefined) {
+      const order = (scansStarted += 1);
       const started: Promise<ScannedEffort[]> = Promise.all([
         walk(),
         readLinkedDirectories(storage),
       ]).then(
         ([efforts, linked]) => {
-          // A walk an invalidation has already replaced must not overwrite the
-          // warning the newer scan's Board lines belong with.
-          if (cachedScan === started) {
+          // Only a newer scan that has already completed outranks this one. An
+          // invalidation alone does not: the callers awaiting this walk build
+          // their Board lines from it, so its warning has to be the one they read.
+          if (order > scanPublished) {
+            scanPublished = order;
             duplicates = duplicateClaims(efforts);
             linkedEfforts = linked;
           }
@@ -294,7 +299,11 @@ export function createMarkdownDriver(
       const tickets = await readBodies(storage, scanned, handles);
       const names = indexNames(tickets);
       const missed = handles.filter(handle => names.input(handle).length === 0);
-      return { tickets, diagnostics: diagnosticsIn(scanned, missed) };
+      return {
+        tickets,
+        diagnostics: diagnosticsIn(scanned, missed),
+        all: scanned.flatMap(summariesOf),
+      };
     },
 
     updateTicket(handle, edit, expectedRevision, settle) {

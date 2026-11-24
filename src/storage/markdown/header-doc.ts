@@ -25,6 +25,8 @@ export const GENERATED_CLOSE = '<!-- /GENERATED -->';
 const GENERATED_MARKER = /<!--[ \t]*\/?GENERATED\b[^>]*-->/i;
 const GENERATED_BLOCK =
   /<!--[ \t]*GENERATED\b[^>]*-->\r?\n?([\s\S]*?)<!--[ \t]*\/GENERATED[ \t]*-->/i;
+const EVERY_GENERATED_BLOCK = new RegExp(GENERATED_BLOCK.source, 'gi');
+const UNCLOSED_GENERATED = /<!--[ \t]*GENERATED\b[^>]*-->[\s\S]*$/i;
 
 const BULLET = /^[ \t]*[-*][ \t]+(.+?)[ \t]*$/;
 
@@ -212,16 +214,26 @@ function renderPointers(pointers: readonly DerivedPointer[]): string {
   if (pointers.length === 0) return '';
   return pointers
     .map(pointer => {
-      const head = `- [${pointer.id} — ${pointer.title}](${pointer.link})`;
-      return pointer.gist === '' ? head : `${head} — ${pointer.gist}`;
+      const head = `- [${pointer.id} — ${oneLine(pointer.title)}](${pointer.link})`;
+      const gist = oneLine(pointer.gist);
+      return gist === '' ? head : `${head} — ${gist}`;
     })
     .join('\n');
+}
+
+/**
+ * A pointer is one bullet line. A gist or reason spanning lines would leave
+ * its later lines outside the bullet — read back as hand-ruled items, or as
+ * `##` headings that split the section and strand the GENERATED block.
+ */
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
 }
 
 export function readSection(contents: string, heading: string): string | undefined {
   const raw = readSectionRaw(contents, heading);
   if (raw === undefined) return undefined;
-  const trimmed = stripGenerated(raw).trim();
+  const trimmed = outsideGenerated(raw).trim();
   return trimmed === '' ? undefined : trimmed;
 }
 
@@ -359,7 +371,7 @@ function locateSection(
 
 function bulletsOutsideGenerated(raw: string | undefined): readonly string[] {
   if (raw === undefined) return [];
-  return stripGenerated(raw)
+  return outsideGenerated(raw)
     .split('\n')
     .map(line => BULLET.exec(line)?.[1])
     .filter((item): item is string => item !== undefined);
@@ -367,6 +379,15 @@ function bulletsOutsideGenerated(raw: string | undefined): readonly string[] {
 
 function stripGenerated(raw: string): string {
   return raw.replace(GENERATED_BLOCK, '');
+}
+
+/**
+ * What a read takes as hand-owned: every GENERATED block removed, and an
+ * opener with no closer taken to run to the end of the section, so no
+ * derived pointer is ever read as a hand-ruled item.
+ */
+function outsideGenerated(raw: string): string {
+  return raw.replace(EVERY_GENERATED_BLOCK, '').replace(UNCLOSED_GENERATED, '');
 }
 
 function reassemble(hasFence: boolean, raw: string | undefined, body: string): string {

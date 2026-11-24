@@ -147,6 +147,25 @@ describe('edit_map', () => {
     expect(text).toContain('Rewriting CONTEXT.md through this tool');
   });
 
+  it('leaves both generated blocks out of a read', async () => {
+    const pointer = '- [T9 — Dropped](issues/09-T9-dropped.md) — Not this one';
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.scratch/alpha/map.md': fullMap().replace(
+        `${GENERATED_OPEN}\n<!-- /GENERATED -->\n`,
+        `${GENERATED_OPEN}\n${pointer}\n<!-- /GENERATED -->\n`,
+      ),
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const text = await frontier.call('edit_map', { effort: 'alpha' });
+
+    expect(text).not.toContain('ignore me');
+    expect(text).not.toContain('Not this one');
+    expect(text).not.toContain('GENERATED');
+    expect(text.endsWith('out of scope:\n  - Rewriting CONTEXT.md through this tool')).toBe(true);
+  });
+
   it('sets Destination without rewriting Notes', async () => {
     const root = await makeFixtureTree({
       '.git/HEAD': 'ref: refs/heads/main\n',
@@ -318,6 +337,84 @@ describe('edit_map', () => {
     expect(decisions).not.toContain('T1 — First');
     expect(outOfScope).toContain('- [T1 — First](issues/01-T1-first.md) — Beyond the destination');
     expect(outOfScope).toContain('- Rewriting CONTEXT.md through this tool');
+  });
+
+  it('writes a multi-line reason or gist as one pointer line, which a read never shows', async () => {
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.scratch/alpha/map.md': fullMap(),
+      '.scratch/alpha/issues/01-T1-first.md': ticket('T1', 'First'),
+      '.scratch/alpha/issues/02-T2-second.md': ticket('T2', 'Second'),
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    await frontier.call('update_ticket', {
+      id: 'T1',
+      drop: { reason: 'first line\n## Later\r\nsecond third' },
+    });
+    await frontier.call('update_ticket', {
+      id: 'T2',
+      resolve: { answer_gist: 'ok\n## X\n- [T7 — fake](issues/x.md)' },
+    });
+
+    const read = await frontier.call('edit_map', { effort: 'alpha' });
+    expect(read).not.toMatch(/T1|T2|T7|Later|second|fake/);
+    expect(read.endsWith('out of scope:\n  - Rewriting CONTEXT.md through this tool')).toBe(true);
+
+    const onDisk = await readFile(join(root, '.scratch/alpha/map.md'), 'utf8');
+    expect(onDisk.match(/^## .*$/gm)).toEqual([
+      '## Destination',
+      '## Notes',
+      '## Decisions so far',
+      '## Not yet specified',
+      '## Out of scope',
+    ]);
+    expect(onDisk.match(/<!--[ \t]*GENERATED/g)).toHaveLength(2);
+    expect(onDisk.match(/<!--[ \t]*\/GENERATED/g)).toHaveLength(2);
+    expect(onDisk).toContain(
+      `${GENERATED_OPEN}\n- [T2 — Second](issues/02-T2-second.md) — ok ## X - [T7 — fake](issues/x.md)\n<!-- /GENERATED -->`,
+    );
+    expect(onDisk).toContain(
+      `${GENERATED_OPEN}\n- [T1 — First](issues/01-T1-first.md) — first line ## Later second third\n<!-- /GENERATED -->`,
+    );
+  });
+
+  it('leaves every generated block out of a read, and an unclosed one to the end of its section', async () => {
+    const root = await makeFixtureTree({
+      '.git/HEAD': 'ref: refs/heads/main\n',
+      '.scratch/alpha/map.md': [
+        '# Map',
+        '',
+        '## Not yet specified',
+        '',
+        '- Kept fog',
+        '',
+        GENERATED_OPEN,
+        '- [T8 — Unclosed](issues/t8.md) — leaked',
+        '',
+        '## Out of scope',
+        '',
+        '- Kept rule',
+        '',
+        GENERATED_OPEN,
+        '- [T1 — First](issues/t1.md) — one',
+        '<!-- /GENERATED -->',
+        '',
+        '- Kept between',
+        '',
+        GENERATED_OPEN,
+        '- [T2 — Second](issues/t2.md) — two',
+        '<!-- /GENERATED -->',
+        '',
+      ].join('\n'),
+    });
+    const frontier = await connectFrontier({ cwd: root, env: {} });
+
+    const read = await frontier.call('edit_map', { effort: 'alpha' });
+
+    expect(read).not.toMatch(/T1|T2|T8/);
+    expect(read).toContain('not yet specified:\n  - Kept fog\n\nout of scope:');
+    expect(read.endsWith('out of scope:\n  - Kept rule\n  - Kept between')).toBe(true);
   });
 
   it('renders a gist containing $ replacement patterns verbatim', async () => {

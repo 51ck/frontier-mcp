@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { Diagnostic, FieldDefinition, TrackerContract } from '../domain.ts';
 import { renderDiagnostic } from './diagnostics.ts';
 
-export const checkTrackerInputSchema = z.object({
+export const checkTrackerInputSchema = z.strictObject({
   effort: z
     .string()
     .optional()

@@ -1,6 +1,6 @@
 # Issue tracker — FrontierMCP and file fallback
 
-Tracker doc revision 13. To check a vendored copy, compare this number with the one in the
+Tracker doc revision 18. To check a vendored copy, compare this number with the one in the
 `frontier://tracker-doc` resource of the server you run; a lower number, or no revision line, is
 stale.
 
@@ -39,6 +39,11 @@ whichever repository answered, and this line is the only part of the result that
 read paths of write-capable tools: `edit_map` with no section fields and `spec` with no `content`.
 `check_tracker` never writes.
 
+**`list_efforts` names the server you are talking to.** Its `root:` line ends with
+`frontier-mcp <version>`, the version the MCP handshake reports — which your client sees and you do
+not. A launch such as `pnpm dlx frontier-mcp@latest` can start an older release than the newest one
+published; this is where to check which one is running. No other result carries it.
+
 A repo with no `.scratch/` yet is not an error. Create an Effort by writing to it with `create: true`
 on `create_tickets`, `edit_map`, or `spec`.
 
@@ -46,14 +51,19 @@ on `create_tickets`, `edit_map`, or `spec`.
 
 Eight tools permanently. Optional arguments extend an existing tool; there is no ninth.
 
+An argument a tool does not define — at the top level, inside `claim`, `resolve`, `drop` or
+`reopen`, or in a `create_tickets` entry — fails the call before anything is read or written, and
+the error names the key and where it sits (`resolve: Unrecognized key: "anwser"`). Only `extra`
+takes keys of your choosing.
+
 | Tool | Use when |
 | --- | --- |
-| `list_efforts` | Orient — list Efforts with Ticket counts, header doc kinds, and Frontier size; `excluded=N` and `unmarked=N` when an Effort holds files that are not Tickets (see [Diagnostics](#diagnostics)). A repository with no `.scratch/` at all gets `no tracker here`, the marker that located the root, and a `start one` line to copy; an empty `.scratch/` still reads `(no efforts)`. |
+| `list_efforts` | Orient — list Efforts with Ticket counts, header doc kinds, and Frontier size; `excluded=N` and `unmarked=N` when an Effort holds files that are not Tickets (see [Diagnostics](#diagnostics)). A repository with no `.scratch/` at all gets `no tracker here`, the marker that located the root, and a `start one` line to copy; an empty `.scratch/` still reads `(no efforts)`. The `root:` line ends with the server version (see [Workspace](#workspace)). |
 | `get_board` | See the whole Effort cheaply — Destination, one summary line per Ticket, Frontier marked. Never returns bodies. |
-| `get_tickets` | Fetch full bodies for specific Tickets, by name or id, after the Board tells you which matter. Given the name of an excluded file, returns its diagnostics. |
+| `get_tickets` | Fetch full bodies for specific Tickets, by name or id, after the Board tells you which matter. The header's `blocks=` lists the Tickets naming it in `blocked_by`. `sections` (e.g. `["Acceptance criteria"]`) returns only the `##` sections with those headings, case ignored, under the same header; a Ticket lacking one says `no section: ## <name>`. Text above the first heading is left out, and `Unimported frontmatter` is kept only when named. Given the name of an excluded file, returns its diagnostics. |
 | `create_tickets` | Publish a breakdown in one call. You give each Ticket its `name`, and optionally `tags` and `extra` keys; Edges may name a sibling from the same call. All are written or none. |
-| `update_ticket` | Claim, resolve, drop, reopen, release, set title/kind/type, set triage, replace Edges or tags, comment, tick acceptance criteria, set `extra` keys, or `drop_keys` to delete Unimported frontmatter keys. One Ticket per call. |
-| `edit_map` | Edit Map sections — Destination, Notes, fog, Out of scope. Decisions-so-far regenerates from resolved Tickets. |
+| `update_ticket` | Claim, resolve, drop, reopen, release, set title/kind/type, set triage, replace Edges or tags, comment, `add_criteria` to append unticked acceptance criteria, tick them, set `extra` keys, or `drop_keys` to delete Unimported frontmatter keys. One Ticket per call. |
+| `edit_map` | Edit Map sections — Destination, Notes, fog, Out of scope. Decisions-so-far regenerates from resolved Tickets. A read returns the typed sections without Decisions-so-far or any generated block. |
 | `spec` | Read or write a Spec as a whole document. |
 | `check_tracker` | Learn how to write a Ticket and what is wrong with the files there: the frontmatter schema, the layout contract and its version, a valid example, and every diagnostic itemized with file, key, expected, found and fix. `effort` narrows the diagnostics to one Effort. Reads only; fix files by hand. |
 
@@ -107,6 +117,15 @@ can point at a Ticket not yet written. Three kinds are refused instead, writing 
   create the new Ticket first if the new name was meant.
 - `NameInAnotherEffort` — a bare name only another Effort has. Write it in full.
 - `BoardFormAsEdge` — `T9@beta` is how a Board shows an Edge into another Effort. Write `T9`.
+
+**Edges are followed both ways.** A `get_tickets` header shows `blocks=`, the Tickets whose
+`blocked_by` names this one, as a Board shows a blocker: bare in the same Effort, `T9@beta` or
+`beta.token-cache` in another. A `resolve` result adds `now takeable: …`, the dependents it freed —
+not one another open blocker still holds. A dropped blocker never unblocks, so a `drop` result adds
+`now blocked by a dropped Ticket, which never unblocks: …`, its open and claimed dependents: change
+their `blocked_by` or drop them too. Each list names ten and counts the rest, and is left out when
+empty. Both lines are computed from the server's cached view of the other Tickets; the Board
+is the authority when another session is writing.
 
 **Two branches that chose the same name** both add `issues/<name>.md`, and git stops the merge with
 an add/add conflict. Rename one side's file before merging and fix the Edges naming it; if both are
@@ -291,7 +310,12 @@ Keep the auth token in memory between requests.
 
 Only `frontier`, `title` and `status` are required. Body shape follows whichever skill produced the Ticket: Problem / Done when / acceptance criteria for
 `build`, `## Question` / `## Acceptance criteria` / `## Answer` for `decision`. Comments append at the
-bottom under `## Comments`.
+bottom under `## Comments`. `update_ticket` `add_criteria` appends `- [ ] <text>` lines after the
+last checkbox of the `## Acceptance criteria` section, into that section when it has none, else after
+the last checkbox of the first section holding one, never in `## Answer` or `## Comments`; with none
+of these it adds `## Acceptance criteria` above those two. A `##` line inside a code fence starts no
+section. A value spanning lines, or one matching a checkbox already there or another of the call as
+`tick` matches, is refused and nothing is written.
 
 ### Status
 

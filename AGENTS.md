@@ -204,8 +204,8 @@ Design decisions settled and binding until an ADR revises them:
   file, key?, expected?, found?, fix }`, `file` workspace-root-relative and `/`-separated. They
   cross the seam on `Effort.diagnostics`, computed by the scan, and by name through
   `StorageDriver.diagnosticsFor()`, which answers every name of one call from one walk;
-  `readTickets()` returns the same answer for the names it missed from its own walk, so
-  `get_tickets` walks once. `excluded` codes are `yaml-unparseable`, `missing-key`,
+  `readTickets()` returns the same answer for the names it missed from its own walk, and that
+  walk's summaries as `all`, so `get_tickets` walks once. `excluded` codes are `yaml-unparseable`, `missing-key`,
   `invalid-value`, `ticket-outside-issues`, `directory-in-issues`, `symlinked-issues`,
   `symlinked-header-doc` and `unreadable`; the one
   `suggestion` is
@@ -230,8 +230,8 @@ Design decisions settled and binding until an ADR revises them:
   the `yaml` package's own key conversion, so `null:` and `~:` are the key `""` and `1.0:` is
   `1`: `extra: { "null": … }` beside a stored `null:` appends a quoted `"null":` and leaves it
   alone, and `drop_keys: [""]` removes it — the empty string is accepted there
-  alone, never as an `extra` key. A comment, a tick or an answer leaves the fence alone, and a field write leaves the body
-  alone. The result is read back and refused with `FenceNotCleanlyEditable` (or, for a drop,
+  alone, never as an `extra` key. A comment, a tick, an added criterion or an answer leaves the fence alone, and a field
+  write leaves the body alone. The result is read back and refused with `FenceNotCleanlyEditable` (or, for a drop,
   `KeyNotCleanlyDroppable`) unless every entry reads as it did or as the write set it *and*
   every byte outside the written text is the same raw byte, with no line-ending normalization and
   no exception for any scalar style, *and* the reader finds every untouched entry as the same
@@ -249,6 +249,14 @@ Design decisions settled and binding until an ADR revises them:
   by its source spelling, and YAML reads `2` and `02` as one number. The fence
   is never re-rendered whole (`applyEdit` in `serialize.ts`). See
   [ADR 0003](./docs/adr/0003-frontmatter-round-trips-through-a-yaml-document.md).
+- **A tool refuses an argument it does not define.** Every input object in `src/tools/` is a
+  `z.strictObject` — each tool's top level, `update_ticket`'s `claim`, `resolve`, `drop` and
+  `reopen`, and each `create_tickets` entry — so a misspelled or removed argument fails the call in
+  the SDK's validation, before the handler reads or writes anything, with a message naming each
+  key and, when nested, its path (`resolve: Unrecognized key: "anwser"`), and the emitted JSON
+  Schema says `additionalProperties: false` on each. `extra` alone stays open. The 14 declarations
+  cost 95 tokens across the eight tool entries, paid every session. Pinned in `test/ship.test.ts`
+  and `test/unknown-arguments.test.ts`.
 - **Eight tools, permanently.** Every tool schema is context in every session, against a project
   whose whole purpose is token cost. A ninth tool is not a trade-off to weigh; an optional argument
   on an existing tool is the answer. The eight are named in the spec's Tool surface table.
@@ -301,9 +309,16 @@ Stack, settled:
   when a watched directory is replaced by a same-named file — uncatchable, so the server died
   (T99, nodejs/node#66791). There the watcher keeps one non-recursive watch per directory and
   re-syncs that set before each debounced invalidation. The set is the storage directory, each
-  Effort directory and each `issues/` — what the scan lists, never deeper. `watcherPerDirectory`
-  exists so `test/watcher.test.ts` runs that mode on macOS; it accepts only `true`, so no option
-  can select the recursive watch where it is not native. Which directories it leaves unwatched is
+  Effort directory and each `issues/` — what the scan lists, never deeper. A watch follows an
+  inode, so one whose directory is removed or moved — an event Linux names after the directory
+  itself — is dropped with every watch below it, and the re-sync watches whatever directory holds
+  the path by then. A re-sync lists first and closes every watch off the list before it attaches
+  one, because libuv shares one inotify watch per inode and names its events after the path that
+  registered it first; a storage directory that can no longer be listed hands back to the root watch
+  until it reappears (T109). `watcherPerDirectory` exists so `test/watcher.test.ts` runs that mode
+  on macOS; it accepts only `true`, so no option can select the recursive watch where it is not
+  native. How many watches it holds is counted there, as Node's active `FSEventWrap` handles and,
+  on Linux, the process's inotify watches in `/proc/self/fdinfo`; which directories they cover is
   not observable through the harness and is held by code inspection alone.
 - **`tsc` alone** for the build, no bundler. The SDK stopped being a heavy dependency at the scoped
   split: `/server` brings a runtime closure of three packages — itself, `/core` and zod — where the
@@ -398,11 +413,12 @@ Source layout:
 | `src/frontier.ts` | The Frontier computation. Takes every Ticket in the workspace, because an Edge can lead into another Effort. |
 | `src/names.ts` | How a string names a Ticket: Edge and tool-input resolution, duplicate claimants, the form a supplied Edge is stored in or refused for, and the graph nodes cycle checks walk. The Frontier, the Board, the tool lookups and the markdown driver's file lookup all resolve through it. |
 | `src/board-order.ts` | Board order, derived from the Edges on each Board, and the prefix-then-name tie-break the driver's scan also sorts by. |
+| `src/sections.ts` | How a Ticket body divides into `##` sections and which lines sit in a code fence. Above the seam because the body crosses it as one string; the `get_tickets` section read and `add_criteria`'s placement both ask it. |
 | `src/edges.ts` | Cycle detection over the Edge graph. Above the seam, because a cycle is a rule about the domain rather than about storage — the same reason the Status model is checked in the tool layer. |
 | `src/storage/driver.ts` | The ADR 0001 seam, its edit vocabulary, and its typed failures. A driver is the workspace cached and live, so `close()` sits here beside the reads and writes. |
 | `src/storage/markdown/` | The only driver, and the only place that knows the `.scratch/` layout, which it takes as a construction parameter — `frontmatter.ts` splits the fence, `ticket.ts` classifies a file as a Ticket, excluded, an unmarked look-alike or nothing, `header-doc.ts` reads and edits the Map's typed sections and regenerates Decisions-so-far / dropped Out-of-scope between GENERATED markers, `serialize.ts` applies an edit, `create.ts` writes a new batch at the paths its names imply, `schema.ts` is the one definition of the schema's keys, types and values, the marker, the Ticket locations and the layout contract `check_tracker` shows, `write.ts` renames it into place, `watcher.ts` tells the driver another process moved the workspace under it. |
-| `src/workspace.ts` | Workspace resolution — the only module above the driver that reads a *served* repository, and only to locate its root. `.scratch` is a marker only as a directory; `.git` counts as a file too, so a worktree or submodule resolves to itself rather than to the repository enclosing it. |
-| `src/driver-registry.ts` | One driver per resolved workspace, and the `closeAll()` that shuts them. A lookup, not a layer: it hands back the driver itself, so no read or write passes through it. |
+| `src/workspace.ts` | Workspace resolution — the only module above the driver that reads a *served* repository, and only to locate its root. `.scratch` is a marker only as a directory; `.git` counts as a file too, so a worktree or submodule resolves to itself rather than to the repository enclosing it. `workspaceDirectory` names the directory a root reaches — `realpathSync.native`, so a symlink is followed and case folds exactly where the volume folds it, measured: the JavaScript `realpathSync` keeps the given case on a case-insensitive APFS volume — and a path that does not exist yet is its nearest existing ancestor's real path with the rest as given, so a write creating it does not move it to a second driver. |
+| `src/driver-registry.ts` | One driver per workspace directory, keyed on and built with `workspaceDirectory`'s answer, which it is handed rather than importing `node:fs`, and the `closeAll()` that shuts them. Built with the directory rather than the first spelling, so a link repointed later cannot carry a driver away from its key. A lookup, not a layer: it hands back the driver itself, so no read or write passes through it. |
 | `src/tools/` | One module per tool: its input schema, its description, and how its result renders. `workspace-line.ts`, `diagnostics.ts`, `tags.ts` and `extra.ts` are the exceptions — the single renderings of which repository a call served, shared by `list_efforts` and every write, of Diagnostics, shared by the Board, `list_efforts`, `get_tickets` and `update_ticket`, of tags, whose input rule `create_tickets` and `update_ticket` share, and of the `extra` input with its reserved-key refusals, likewise shared. |
 | `src/server.ts` | Wires the above into an `McpServer`. |
 | `src/tracker-doc.ts` | Loads the shipped tracker configuration document for the `tracker-doc` MCP resource, from beside `dist/` in the installed package rather than from the working directory. |
@@ -411,10 +427,11 @@ Source layout:
 
 Nothing under `src/tools/` may import from `src/storage/`.
 
-Exactly two modules above the seam import `node:fs`. `src/workspace.ts` walks for a root marker,
-which is asked before there is a driver to ask; `src/tracker-doc.ts` reads a document shipped inside
-this package. Neither reads a served repository's tracker data, so neither is a route around the
-seam. A third wanting one is a design signal, not a third exception.
+Exactly three modules above the seam import `node:fs`. `src/workspace.ts` walks for a root marker
+and asks which directory a root names, both before there is a driver to ask; `src/tracker-doc.ts`
+reads a document shipped inside this package; `src/server.ts` reads this package's own
+`package.json` for `SERVER_VERSION`. None reads a served repository's tracker data, so none is a
+route around the seam. A fourth wanting one is a design signal, not a fourth exception.
 
 Rendering rules that are load-bearing, not cosmetic:
 
@@ -431,6 +448,8 @@ Rendering rules that are load-bearing, not cosmetic:
   What decides is *whether the call wrote*, not whether the tool can — `edit_map` with no section
   fields, `spec` with no content, and `check_tracker` are reads, and pay nothing.
   Measured at ~10 tokens on a typical checkout; a forty-write session costs less than one Board.
+  The line shows the caller's own spelling, resolved against the working directory, never the
+  directory's real path: a root given through a symlink reads back as the link.
 - **Warnings are grouped, never itemized per Ticket or file.** An Effort of migrated Tickets carries a
   dangling Edge on nearly every Ticket, and one left unmarked after an upgrade has a look-alike per
   file; itemizing produced a warnings block longer than the Board it annotated, which undoes the
@@ -448,6 +467,21 @@ Rendering rules that are load-bearing, not cosmetic:
   local one bare.** The full name is valid input. The
   `@<effort>` is never input: a pasted `T9@beta` fails — `NoSuchTicket` on a write, the `not found:` line on
   `get_tickets` — and both name `T9` back.
+- **A Ticket read shows what it blocks; a resolve or a drop says what it moved.** The
+  `get_tickets` header carries `blocks=` after `blocked_by=`: every Ticket with a stored Edge
+  resolving to this one (`Names.dependents` in `src/names.ts`), each rendered as a Board renders a
+  blocker, absent when there is none. A `resolve` result carries `now takeable: …`, the dependents
+  that joined the Frontier; one another blocker still holds, a duplicate's unresolved claimant
+  included, is not named. A dropped blocker never satisfies an Edge, so a `drop` result carries
+  `now blocked by a dropped Ticket, which never unblocks: …`, its open and claimed dependents. Each
+  list names ten and counts the rest, and is absent when empty; no other write says either.
+  Neither reads a file: `get_tickets` uses the summaries of the walk its bodies came from, and
+  `graphEffect` in `src/tools/update-ticket.ts` works on the cached scan the write was checked
+  against with the written Ticket in place of the read one — a resolve compares the Frontiers of the
+  two, a drop filters the swapped scan's dependents and says nothing on a re-drop — so both differ
+  by this write alone — and are as stale about other Tickets as a Board built from that scan. Measured:
+  `blocks=` adds 9 tokens to the reads test's `get_tickets` and 42 across fifteen Tickets, the
+  resolve line 11, pinned in `test/read-path-cost.test.ts`.
 - **An unresolvable Edge renders `T9?`** and is counted in the warnings block. It never silently
   makes a Ticket look takeable.
 - **A duplicate id is one grouped warning**, on every Board, computed from the cached scan the Board
@@ -507,6 +541,27 @@ Rendering rules that are load-bearing, not cosmetic:
   are never droppable, so a drop always leaves a fence. Dropping a Ticket's
   last Unimported key takes it out of the Board's Unimported count. There is no
   `no id` Board warning. The schema key list is single-sourced in `src/storage/markdown/schema.ts`.
+- **A section read keeps the header line and only the sections named.** `get_tickets` `sections`
+  matches each name, trimmed, against each heading name, case ignored and in full, by `sectionsOf`
+  in `src/sections.ts`; a blank name is refused at input. A heading is a line opening `## ` or
+  `##` and a tab outside a code fence, and its name is the rest of the line less a closing `#` run
+  that follows whitespace (`## Notes ##` is `Notes`, `## C#` is `C#`), trimmed. A fence opens on
+  three or more backticks or tildes — a backtick run whose info string holds a backtick opens
+  none — and closes only on a run of its own character at least as long with nothing after it;
+  `add_criteria` and `tick` skip the same fenced lines. A section runs from its heading to the next
+  heading, `###` subsections included, its trailing blank lines cut; every section under a
+  repeated heading is returned, in file order. The text above the first heading is in no section,
+  so a filtered read leaves it out. The Unimported appendix counts as the section
+  `Unimported frontmatter`, kept only when named. A Ticket lacking a name gets `no section: ## <name>`
+  in its own block and fails nothing; diagnostics by name, `not found:` and duplicate claimants are
+  unchanged, and a read without `sections` is byte-identical to one before it. The argument costs
+  41 tokens; a criteria read of a long resolved Ticket costs a tenth of the whole, both pinned in
+  `test/read-path-cost.test.ts`. A Map read takes no such argument: `edit_map` renders the typed
+  sections alone and never carries Decisions-so-far or a GENERATED block — every block of a
+  section is left out, and an opener with no closer runs to the end of its section. A generated
+  pointer is always one line: its title and gist or reason have every whitespace run, line breaks
+  included, folded to one space, so a multi-line one can neither be read back as a hand-ruled item
+  nor split the section.
 - **A missing storage directory explains itself; an empty one does not** (T105). Only when
   `.scratch/` does not exist, `list_efforts` returns four lines: the root line suffixed
   `(resolved by <source>)`, `no tracker here`, a `start one` line naming real `create_tickets` /
@@ -514,6 +569,14 @@ Rendering rules that are load-bearing, not cosmetic:
   `src/workspace.ts`; existence crosses the seam as `StorageDriver.absentStorage()`, which never
   creates the directory. An empty `.scratch/` keeps `(no efforts)`, and no other result carries the
   `resolved by` suffix — a populated tracker is its own proof of the root.
+- **`list_efforts` names the server version; nothing else does** (T4pe7az). The handshake's
+  `serverInfo.version` reaches the client, never the agent, so every `list_efforts` result — populated,
+  `(no efforts)` and the four-line no-tracker one — ends its `root:` line, after any
+  `(resolved by …)`, with `  frontier-mcp <version>`: the last token on the line, so a root path
+  holding spaces stays parseable, and no line is added. The value is `SERVER_VERSION` in
+  `src/server.ts`, the one the handshake reports, passed to the renderers in
+  `src/tools/list-efforts.ts`; `workspaceLine` stays version-free, so a write's `root:` line is
+  unchanged. 5 tokens, once a session, pinned in `test/read-path-cost.test.ts`.
 - **`check_tracker` returns the contract and itemizes every Diagnostic** (it took `migrate_effort`'s
   slot, so the surface stays at eight). The schema, the layout contract with its version
   (`LAYOUT_VERSION`) and a valid example are `trackerContract()` in `src/storage/markdown/schema.ts`,
@@ -528,7 +591,7 @@ Rendering rules that are load-bearing, not cosmetic:
   unknown one as `get_board` does. The tracker doc's Ticket frontmatter section carries the contract
   verbatim between `check_tracker contract` markers, pinned by `test/check-tracker.test.ts`; its
   Diagnostics table is pinned to the contract's codes. A clean result is ~1350 tokens and the tool
-  entry 170, against `migrate_effort`'s 181, pinned in `test/read-path-cost.test.ts`.
+  entry 177, against `migrate_effort`'s 181, pinned in `test/read-path-cost.test.ts`.
 - **A Board line never shows tags** — showing and filtering them belongs to `frontier-search`.
   Two tags on each of the 15 lines of the named Board would cost 81 tokens (354 to 435), pinned in
   `test/read-path-cost.test.ts`. `get_tickets` shows them in its header line as `tags=a,b`, a tag
@@ -607,7 +670,9 @@ Write rules, equally load-bearing:
   "already claimed by X" — and then the original failure is raised. A mismatch may equally be
   somebody's hand edit, and overwriting that is what the check exists to prevent.
 - **Writes are serialized per workspace.** Otherwise two calls racing on one Ticket both pass the
-  revision check before either renames, and the loser's edit is lost rather than refused.
+  revision check before either renames, and the loser's edit is lost rather than refused. A
+  workspace is a directory, not a spelling: a symlink, another case on a volume that folds it, and
+  redundant segments all reach that directory's one driver and its one write queue.
 - **Resolve/drop Map refresh is best-effort.** After the Ticket write lands, regenerating
   Decisions-so-far / dropped Out-of-scope must not make a completed lifecycle change look like a
   failure. The tool returns success with a warning that those blocks may be stale; a later
@@ -685,12 +750,13 @@ Write rules, equally load-bearing:
   (`CreateOptions.settle`, `updateTicket`'s `settle`), and what the second pass returns is what is
   written — a scan taken before a hand-written file landed never decides a stored form.
 
-Annotation rules — a comment, a ticked criterion, and a Triage role are records of work, not moves
-in the graph:
+Annotation rules — a comment, an added or ticked criterion, and a Triage role are records of work,
+not moves in the graph:
 
 - **Nothing is injected into content an agent wrote.** A comment is stored byte-for-byte, including
   `/triage`'s mandatory disclaimer, which is the skill's own to write.
-- **A comment, a tick or an answer leaves every fence byte alone, CRLF included**, pinned in
+- **A comment, a tick, an added criterion or an answer leaves every fence byte alone, CRLF
+  included**, pinned in
   `test/fence-edit.test.ts`. The one exception is at the body's edges: the blank lines between
   the closing fence and the first body line become exactly one, and the body's trailing blank
   lines become one line ending. A body written uniformly in CRLF is edited as LF and written back
@@ -701,6 +767,19 @@ in the graph:
   match both as `get_tickets` returns them and re-joined onto one line — comparison collapses
   whitespace, so house-style continuations are not a silent miss.
 - **Naming a criterion that does not exist fails**, rather than writing nothing and reporting success.
+- **Adding a criterion inserts lines and changes none** (`update_ticket` `add_criteria`). The criteria
+  list is the checkboxes, outside code fences, of one `##` section, a `##` line in a fence starting
+  none: `## Acceptance criteria` when it holds one; else that section, empty, when it exists; else
+  the first section that holds one. `## Answer` and `## Comments` never count, since a resolve
+  replaces the one and the other is a record. Each value becomes `<indent><bullet> [ ] <text>` after
+  the list's last criterion and its continuations, at its first criterion's indentation and bullet;
+  into an empty `## Acceptance criteria` it goes at the section's end; with neither, into a new one
+  above the Answer and the comment log, else at the end. A value holding `\n`, `\r`, U+2028 or U+2029 is
+  `MultiLineCriterion`; one equal to any checkbox `tick` could match, or to another of the call,
+  after `tick`'s whitespace-collapsing, case-folding compare, is `DuplicateCriterion`; a blank one is
+  refused at input. Either refusal writes nothing. Added before the ticks of the same call, so it may
+  tick them; allowed in every Status. The argument costs 40 tokens, pinned in
+  `test/read-path-cost.test.ts`.
 - **A Triage role never moves the Frontier.** Only Status and Edges decide what is takeable, so
   `/triage` and the graph never compete for one field. A `wontfix` Ticket stays takeable and is named
   in the warnings block instead, leaving the judgement to the reader.
@@ -798,6 +877,14 @@ exits. Its `beforeAll` runs `pnpm run build` itself, since `dist/` is gitignored
 rather than depending on workflow step order. Add a fourth only for something that needs the real
 process for one of these two reasons — genuine concurrency, or a defect below the in-process seam
 entirely — not merely because a test would be more convenient to write out-of-process.
+
+`vitest.config.ts` runs the suite in three groups, one after another: every in-process test, then
+the two cross-process files and `test/create-mid-batch.test.ts` (a 1,502-Ticket batch held open as
+a race window), then `test/exit-on-disconnect.test.ts` alone. Test timeouts are wall-clock, and
+`taskpolicy -b pnpm test` puts the default pool (one worker per core, less one) on the efficiency
+cores alone, where spawned processes or that batch starved their neighbours past 5s. A new test that spawns processes
+or holds a race window open with volume joins the second group; one that bounds a process's
+startup or exit in time joins the third. `taskpolicy -b pnpm test` must pass.
 
 `test/fixtures/legacy/` holds two Efforts copied **verbatim** out of sobrina and tag-customizer.
 Never tidy them, and refresh them by re-copying rather than editing. Every file in them is fenceless,

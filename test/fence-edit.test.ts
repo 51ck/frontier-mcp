@@ -55,6 +55,7 @@ function fenceLines(contents: string, eol = '\n'): string[] {
 
 const WRITES: ReadonlyArray<[string, Record<string, unknown>, readonly string[]]> = [
   ['comment', { comment: 'A note.' }, []],
+  ['add_criteria', { add_criteria: ['A new one'] }, []],
   ['claim', { claim: { by: 'agent' } }, ['status']],
   ['resolve', { resolve: { answer_gist: 'done' } }, ['status']],
   ['drop', { drop: { reason: 'out' } }, ['status']],
@@ -122,6 +123,21 @@ describe('a field write edits only its own entries', () => {
     const after = await read('odd.md');
     expect(after.startsWith(original.slice(0, original.indexOf('\r\n\r\n##')))).toBe(true);
     expect(after).toContain('- [x] it works');
+  });
+
+  it('an added criterion leaves a CRLF file byte-identical but for its own line', async () => {
+    const original = file(
+      ODD,
+      '\r\n',
+      '## Acceptance criteria\r\n\r\n- [ ] it works\r\n\r\nAfter.',
+    );
+    const { frontier, read } = await setup({ 'odd.md': original, 'third.md': file(THIRD) });
+
+    await frontier.call('update_ticket', { id: '+02', add_criteria: ['it also works'] });
+
+    expect(await read('odd.md')).toBe(
+      original.replace('- [ ] it works\r\n', '- [ ] it works\r\n- [ ] it also works\r\n'),
+    );
   });
 
   it('a claim in a CRLF file changes only status and appends CRLF lines', async () => {

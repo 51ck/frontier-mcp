@@ -330,6 +330,42 @@ describe('tool annotations', () => {
     }
   });
 
+  it('declares no additional properties on any input object but extra', async () => {
+    // A client can then refuse a misspelled argument itself, as the server does.
+    const root = await makeFixtureTree({ '.git/HEAD': 'ref: refs/heads/main\n' });
+    const { client } = await connectFrontier({ cwd: root, env: {} });
+    const { tools } = await client.listTools();
+
+    const objects: Array<[string, unknown]> = [];
+    const walk = (node: unknown, path: string): void => {
+      if (typeof node !== 'object' || node === null) return;
+      const schema = node as Record<string, unknown>;
+      if (schema['type'] === 'object') objects.push([path, schema['additionalProperties']]);
+      for (const [key, child] of Object.entries(
+        (schema['properties'] ?? {}) as Record<string, unknown>,
+      )) {
+        walk(child, `${path}.${key}`);
+      }
+      walk(schema['items'], `${path}[]`);
+    };
+    for (const tool of tools) walk(tool.inputSchema, tool.name);
+
+    const open = objects.filter(([, additional]) => additional !== false).map(([path]) => path);
+    expect(open.toSorted()).toEqual(['create_tickets.tickets[].extra', 'update_ticket.extra']);
+    expect(objects.map(([path]) => path).toSorted()).toEqual(
+      [
+        ...tools.map(tool => tool.name),
+        'create_tickets.tickets[]',
+        'create_tickets.tickets[].extra',
+        'update_ticket.claim',
+        'update_ticket.resolve',
+        'update_ticket.drop',
+        'update_ticket.reopen',
+        'update_ticket.extra',
+      ].toSorted(),
+    );
+  });
+
   it('keeps the readers read-only, check_tracker among them', async () => {
     const annotations = await annotationsByTool();
 

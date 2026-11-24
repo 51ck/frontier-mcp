@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import type { SpecDocument } from '../domain.ts';
 
-export const specInputSchema = z.object({
+export const specInputSchema = z.strictObject({
   effort: z.string().describe('Effort slug whose Spec to get or put.'),
   create: z
     .boolean()

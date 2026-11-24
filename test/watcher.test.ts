@@ -1,11 +1,24 @@
-import { rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createMarkdownDriver } from '../src/storage/markdown/driver.ts';
 import { map, ticket } from './support/fixtures.ts';
-import { cleanupFixtures, connectFrontier, makeFixtureTree } from './support/harness.ts';
+import {
+  cleanupFixtures,
+  connectFrontier,
+  makeFixtureTree,
+  type ConnectedFrontier,
+} from './support/harness.ts';
 
 afterEach(cleanupFixtures);
 
@@ -51,6 +64,67 @@ async function waitFor<T>(
   }
   await new Promise(resolve => setTimeout(resolve, DEBOUNCE_MS));
   return waitFor(probe, ready, deadline);
+}
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+/** Short, so {@link quiesce} can outwait it. */
+const SETTLE_MS = [10, 50];
+
+/**
+ * Outwait the settle, then read, so the cache holds a scan only a watch can
+ * drop — and in per-directory mode every drop a watch provokes runs after a
+ * re-sync. Without the read, a settle that already dropped the scan lets the
+ * next Board show a change no watch heard.
+ */
+async function quiesce(frontier: ConnectedFrontier): Promise<void> {
+  await sleep(Math.max(...SETTLE_MS) * 2);
+  await frontier.call('list_efforts');
+}
+
+function connectWatching(root: string, options: { perDirectory?: true } = {}) {
+  return connectFrontier({
+    cwd: root,
+    env: {},
+    createDriver: driverRoot =>
+      createMarkdownDriver(driverRoot, {
+        watcherDebounceMs: DEBOUNCE_MS,
+        watcherSettleMs: SETTLE_MS,
+        ...(options.perDirectory === undefined ? {} : { watcherPerDirectory: true }),
+      }),
+  });
+}
+
+/** A Board that may not exist yet reads as its error text, so waitFor can keep polling it. */
+function boardOf(frontier: ConnectedFrontier, effort: string): () => Promise<string> {
+  return () => frontier.call('get_board', { effort }).catch((error: unknown) => String(error));
+}
+
+/**
+ * Watches this process holds, counted by Node and, on Linux, by the kernel —
+ * the two places a watch costs something, read the way any process's are, so
+ * no entry point below the tool layer is involved. Vitest's default `forks`
+ * pool gives each test file a process of its own, so nothing else is counted.
+ * Node's count includes a handle the kernel has already dropped, which is how
+ * a watch left on a removed directory would show.
+ */
+function watchCounts(): { node: number; inotify: number | undefined } {
+  const node = process.getActiveResourcesInfo().filter(name => name === 'FSEventWrap').length;
+  if (process.platform !== 'linux') return { node, inotify: undefined };
+  let inotify = 0;
+  for (const fd of readdirSync('/proc/self/fd')) {
+    let target;
+    try {
+      target = readlinkSync(`/proc/self/fd/${fd}`);
+    } catch {
+      continue;
+    }
+    if (target !== 'anon_inode:inotify') continue;
+    inotify += readFileSync(`/proc/self/fdinfo/${fd}`, 'utf8')
+      .split('\n')
+      .filter(line => line.startsWith('inotify wd:')).length;
+  }
+  return { node, inotify };
 }
 
 async function snapshotScratch(root: string, paths: string[]): Promise<Map<string, string>> {
@@ -132,7 +206,7 @@ describe('filesystem watcher', { timeout: TEST_TIMEOUT_MS }, () => {
     });
     const mapPath = join(root, '.scratch/alpha/map.md');
     await mkdir(mapPath);
-    const frontier = await connectFrontier({ cwd: root, env: {}, watcherDebounceMs: DEBOUNCE_MS });
+    const frontier = await connectWatching(root);
     expect(await frontier.call('get_board', { effort: 'alpha' })).toContain('Before the swap');
 
     // Synchronously, so no watch event is handled between the two: on Linux
@@ -146,9 +220,14 @@ describe('filesystem watcher', { timeout: TEST_TIMEOUT_MS }, () => {
     );
 
     // A directory created after the swap must be watched too, or the
-    // replacement watch would see only the tree it started with.
-    await mkdir(join(root, '.scratch/beta/issues'), { recursive: true });
-    await new Promise(resolve => setTimeout(resolve, DEBOUNCE_MS * 4));
+    // replacement watch would see only the tree it started with. The marker
+    // is written with the directory, in one turn, and can only be seen
+    // through a watch's invalidation, so the write after it lands in a
+    // directory a watch already covers rather than in a scan still to come.
+    await quiesce(frontier);
+    mkdirSync(join(root, '.scratch/beta/issues'), { recursive: true });
+    writeFileSync(join(root, '.scratch/beta/issues/00-T3-marker.md'), ticket('T3', 'Marker'));
+    await waitFor(boardOf(frontier, 'beta'), text => text.includes('Marker'));
     await writeFile(
       join(root, '.scratch/beta/issues/01-T2-later.md'),
       ticket('T2', 'In a new directory'),
@@ -159,6 +238,184 @@ describe('filesystem watcher', { timeout: TEST_TIMEOUT_MS }, () => {
       text => text.includes('In a new directory'),
     );
     expect(board).toContain('In a new directory');
+  });
+
+  // A restore from backup does this: the path stays, the directory under it is new.
+  it('in per-directory mode hears an issues/ removed and made again (T109)', async () => {
+    const root = await makeFixtureTree({ [FILE]: ticket('T1', 'Open work') });
+    const frontier = await connectWatching(root, { perDirectory: true });
+    expect(await frontier.call('get_board', { effort: 'alpha' })).toContain('Open work');
+    await quiesce(frontier);
+
+    const issues = join(root, '.scratch/alpha/issues');
+    rmSync(issues, { recursive: true });
+    mkdirSync(issues);
+    writeFileSync(join(issues, '02-T2-new.md'), ticket('T2', 'In the new issues'));
+    await waitFor(boardOf(frontier, 'alpha'), text => text.includes('In the new issues'));
+
+    writeFileSync(join(issues, '02-T2-new.md'), ticket('T2', 'Edited in the new issues'));
+    const board = await waitFor(boardOf(frontier, 'alpha'), text =>
+      text.includes('Edited in the new issues'),
+    );
+    expect(board).toContain('Edited in the new issues');
+  });
+
+  // A checkout does this: another directory is moved into the watched path.
+  it('in per-directory mode hears an Effort moved into a watched path (T109)', async () => {
+    const root = await makeFixtureTree({
+      [FILE]: ticket('T1', 'Open work'),
+      '.scratch/other/issues/01-T3-elsewhere.md': ticket('T3', 'Other work'),
+    });
+    const frontier = await connectWatching(root, { perDirectory: true });
+    expect(await frontier.call('get_board', { effort: 'alpha' })).toContain('Open work');
+    await quiesce(frontier);
+
+    renameSync(join(root, '.scratch/alpha'), join(root, '.scratch/old'));
+    renameSync(join(root, '.scratch/other'), join(root, '.scratch/alpha'));
+    await waitFor(boardOf(frontier, 'alpha'), text => text.includes('Other work'));
+
+    writeFileSync(
+      join(root, '.scratch/alpha/issues/03-T4-moved.md'),
+      ticket('T4', 'Written after the move'),
+    );
+    const board = await waitFor(boardOf(frontier, 'alpha'), text =>
+      text.includes('Written after the move'),
+    );
+    expect(board).toContain('Written after the move');
+  });
+
+  // A busy loop during a checkout does this: the debounce fires before the
+  // move's own event is read, so the re-sync meets the moved directory under
+  // both names at once. Linux shares one watch per inode and names its events
+  // after the path that took it first, so a watch attached before the old
+  // one closes would hear itself removed under the wrong name.
+  it('in per-directory mode hears an Effort replaced after a move the re-sync ran ahead of (T109)', async () => {
+    const root = await makeFixtureTree({
+      '.scratch/other/map.md': map('Before the move.'),
+      '.scratch/other/issues/01-T3-elsewhere.md': ticket('T3', 'Other work'),
+    });
+    const frontier = await connectWatching(root, { perDirectory: true });
+    expect(await frontier.call('get_board', { effort: 'other' })).toContain('Other work');
+    await quiesce(frontier);
+
+    writeFileSync(join(root, '.scratch/other/map.md'), map('Moved.'));
+    await sleep(5);
+    await new Promise<void>(resolve =>
+      setTimeout(
+        () =>
+          setImmediate(() => {
+            renameSync(join(root, '.scratch/other'), join(root, '.scratch/alpha'));
+            const end = Date.now() + DEBOUNCE_MS * 2;
+            while (Date.now() < end);
+            resolve();
+          }),
+        10,
+      ),
+    );
+    await waitFor(boardOf(frontier, 'alpha'), text => text.includes('Moved.'));
+    await quiesce(frontier);
+
+    rmSync(join(root, '.scratch/alpha'), { recursive: true });
+    mkdirSync(join(root, '.scratch/alpha/issues'), { recursive: true });
+    writeFileSync(join(root, '.scratch/alpha/map.md'), map('Replaced.'));
+    await waitFor(boardOf(frontier, 'alpha'), text => text.includes('Replaced.'));
+    await quiesce(frontier);
+
+    writeFileSync(join(root, '.scratch/alpha/map.md'), map('Edited after the replacement.'));
+    const board = await waitFor(boardOf(frontier, 'alpha'), text =>
+      text.includes('Edited after the replacement.'),
+    );
+    expect(board).toContain('Edited after the replacement.');
+  });
+
+  it('in per-directory mode hears a storage directory removed and recreated (T109)', async () => {
+    const root = await makeFixtureTree({ [FILE]: ticket('T1', 'Before removal') });
+    const frontier = await connectWatching(root, { perDirectory: true });
+    expect(await frontier.call('get_board', { effort: 'alpha' })).toContain('Before removal');
+    await quiesce(frontier);
+
+    const storage = join(root, '.scratch');
+    rmSync(storage, { recursive: true });
+    await waitFor(
+      () => frontier.call('list_efforts'),
+      text => text.includes('no tracker here'),
+    );
+    mkdirSync(join(storage, 'alpha/issues'), { recursive: true });
+    writeFileSync(join(root, FILE), ticket('T1', 'Recreated'));
+    await waitFor(boardOf(frontier, 'alpha'), text => text.includes('Recreated'));
+    // Re-attaching settles again.
+    await quiesce(frontier);
+    writeFileSync(join(root, FILE), ticket('T1', 'Edited once watched again'));
+    await waitFor(boardOf(frontier, 'alpha'), text => text.includes('Edited once watched again'));
+
+    // Inside one debounce window, so no re-sync sees it missing.
+    rmSync(storage, { recursive: true });
+    mkdirSync(join(storage, 'alpha/issues'), { recursive: true });
+    writeFileSync(join(root, FILE), ticket('T1', 'Recreated at once'));
+    await waitFor(boardOf(frontier, 'alpha'), text => text.includes('Recreated at once'));
+    writeFileSync(join(root, FILE), ticket('T1', 'Edited after the quick swap'));
+    const board = await waitFor(boardOf(frontier, 'alpha'), text =>
+      text.includes('Edited after the quick swap'),
+    );
+    expect(board).toContain('Edited after the quick swap');
+  });
+
+  it('in per-directory mode holds one watch per scanned directory across swaps, none once closed (T109)', async () => {
+    const before = watchCounts();
+    const root = await makeFixtureTree({
+      [FILE]: ticket('T1', 'Round 0'),
+      '.scratch/other/issues/01-T3-elsewhere.md': ticket('T3', 'Other work'),
+    });
+    const frontier = await connectWatching(root, { perDirectory: true });
+    expect(await frontier.call('get_board', { effort: 'alpha' })).toContain('Round 0');
+    await quiesce(frontier);
+
+    // The storage directory, two Efforts and their issues/.
+    const watching = {
+      node: before.node + 5,
+      inotify: before.inotify === undefined ? undefined : before.inotify + 5,
+    };
+    const counted = (expected: typeof watching) =>
+      waitFor(
+        () => Promise.resolve(JSON.stringify(watchCounts())),
+        text => text === JSON.stringify(expected),
+      );
+    await counted(watching);
+
+    const storage = join(root, '.scratch');
+    const swapRound = async (round: number) => {
+      const issues = join(storage, 'alpha/issues');
+      rmSync(issues, { recursive: true });
+      mkdirSync(issues);
+      writeFileSync(join(issues, `R${String(round)}.md`), ticket(`R${String(round)}`, 'Remade'));
+      await waitFor(boardOf(frontier, 'alpha'), text => text.includes(`R${String(round)} `));
+      await counted(watching);
+
+      renameSync(join(storage, 'alpha'), join(storage, 'swap'));
+      renameSync(join(storage, 'other'), join(storage, 'alpha'));
+      renameSync(join(storage, 'swap'), join(storage, 'other'));
+      const moved = join(storage, `alpha/issues/M${String(round)}.md`);
+      writeFileSync(moved, ticket(`M${String(round)}`, 'Moved'));
+      await waitFor(boardOf(frontier, 'alpha'), text => text.includes(`M${String(round)} `));
+      await counted(watching);
+
+      const kept = join(root, 'kept');
+      renameSync(storage, kept);
+      mkdirSync(storage);
+      renameSync(join(kept, 'alpha'), join(storage, 'alpha'));
+      renameSync(join(kept, 'other'), join(storage, 'other'));
+      rmSync(kept, { recursive: true });
+      writeFileSync(moved, ticket(`M${String(round)}`, `Restored ${String(round)}`));
+      await waitFor(boardOf(frontier, 'alpha'), text => text.includes(`Restored ${String(round)}`));
+      await counted(watching);
+    };
+    await [1, 2, 3].reduce(
+      (pending, round) => pending.then(() => swapRound(round)),
+      Promise.resolve(),
+    );
+
+    await cleanupFixtures();
+    await counted(before);
   });
 
   it('reflects a Ticket added or deleted on disk', async () => {

@@ -8,7 +8,7 @@ import { workspaceLine } from './workspace-line.ts';
  * `root` is the per-call workspace override. It is the only argument, and it is
  * optional, because the workspace normally resolves from the session itself.
  */
-export const listEffortsInputSchema = z.object({
+export const listEffortsInputSchema = z.strictObject({
   root: z
     .string()
     .optional()
@@ -26,10 +26,11 @@ export const listEffortsDescription =
  */
 export function renderEfforts(
   root: string,
+  version: string,
   efforts: readonly Effort[],
   frontier: ReadonlySet<TicketSummary>,
 ): string {
-  const lines = [workspaceLine(root)];
+  const lines = [withServer(workspaceLine(root), version)];
 
   if (efforts.length === 0) {
     lines.push('(no efforts)');
@@ -57,14 +58,28 @@ export function renderEfforts(
  * here: with nothing in the result to contradict a wrong root, this is where
  * the wrong-root risk is highest.
  */
-export function renderNoTracker(root: string, resolvedBy: string, storage: string): string {
+export function renderNoTracker(
+  root: string,
+  version: string,
+  resolvedBy: string,
+  storage: string,
+): string {
   return [
-    `${workspaceLine(root)} (resolved by ${resolvedBy})`,
+    withServer(`${workspaceLine(root)} (resolved by ${resolvedBy})`, version),
     `no tracker here: ${storage} does not exist`,
     'start one: create_tickets { effort, create: true, tickets } or ' +
       'edit_map { effort, create: true, destination }',
     'conventions: frontier://tracker-doc',
   ].join('\n');
+}
+
+/**
+ * Only the handshake carries the version, and the agent never sees it, so the
+ * call an agent makes once per session repeats it. Last on the line, so it is
+ * the line's final token whatever the root path holds.
+ */
+function withServer(line: string, version: string): string {
+  return `${line}  frontier-mcp ${version}`;
 }
 
 function countByEffort(frontier: ReadonlySet<TicketSummary>): ReadonlyMap<string, number> {

@@ -134,7 +134,9 @@ export interface StorageDriver {
    * alone has. A name the workspace does not hold is absent from `tickets`
    * and keyed in `diagnostics` with what {@link diagnosticsFor} would answer
    * for it, from the same fresh read, so a mixed call walks once. A bare name
-   * several Efforts have throws `AmbiguousName`.
+   * several Efforts have throws `AmbiguousName`. `all` is every Ticket of
+   * that same read, so what the graph says about a body's Ticket — what it
+   * blocks — comes from the read the body did, not from a second one.
    *
    * Separate from {@link listTickets} because a body is the one field almost
    * nothing reads — Boards, the Frontier and Edge resolution all work from
@@ -144,6 +146,7 @@ export interface StorageDriver {
   readTickets(handles: readonly string[]): Promise<{
     readonly tickets: readonly Ticket[];
     readonly diagnostics: ReadonlyMap<string, readonly Diagnostic[]>;
+    readonly all: readonly TicketSummary[];
   }>;
 
   /**
@@ -461,6 +464,31 @@ export class MultiLineBullet extends Error {
         'bullet, and the lines after the first could never be removed by value.',
     );
     this.name = 'MultiLineBullet';
+  }
+}
+
+/** Thrown when an `add_criteria` value spans lines: a criterion is one checkbox line. */
+export class MultiLineCriterion extends Error {
+  constructor(value: string) {
+    super(
+      `Nothing was written: add_criteria ${JSON.stringify(value)} must be a single line — a line ` +
+        'break would leave the rest outside the checkbox.',
+    );
+    this.name = 'MultiLineCriterion';
+  }
+}
+
+/** Thrown when an `add_criteria` value matches a checkbox `tick` would match, or repeats another of the call. */
+export class DuplicateCriterion extends Error {
+  constructor(value: string, where: 'ticket' | 'call') {
+    super(
+      `Nothing was written: add_criteria ${JSON.stringify(value)} ` +
+        (where === 'ticket'
+          ? 'already matches a checkbox of this Ticket that tick would match'
+          : 'is passed twice in this call') +
+        ', whitespace and case aside.',
+    );
+    this.name = 'DuplicateCriterion';
   }
 }
 

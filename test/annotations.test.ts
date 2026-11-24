@@ -404,3 +404,277 @@ describe('annotations and the graph', () => {
     expect(onDisk).toContain('Closing note.');
   });
 });
+
+describe('adding acceptance criteria', () => {
+  const FENCE = [
+    '---',
+    'frontier: ticket',
+    'id: T1',
+    'title: Work',
+    'kind: build',
+    'status: open',
+    'blocked_by: []',
+    '---',
+    '',
+  ];
+  const ticketWith = (...body: string[]) => [...FENCE, ...body, ''].join('\n');
+
+  it('appends after the last criterion and changes no other line', async () => {
+    const { frontier, read } = await withBody();
+    const before = await read();
+
+    await frontier.call('update_ticket', { id: 'T1', add_criteria: ['A third', 'A fourth'] });
+
+    const lines = before.split('\n');
+    const at = lines.indexOf('- [x] Already done') + 1;
+    expect(await read()).toBe(
+      [...lines.slice(0, at), '- [ ] A third', '- [ ] A fourth', ...lines.slice(at)].join('\n'),
+    );
+  });
+
+  it('follows a wrapped last criterion, at the list’s own indentation and bullet', async () => {
+    const { frontier, read } = await withBody(
+      ticketWith('Intro.', '', '  * [ ] Wrapped across', '    two lines', '', 'Prose.'),
+    );
+
+    await frontier.call('update_ticket', { id: 'T1', add_criteria: ['Next'] });
+
+    expect(await read()).toBe(
+      ticketWith(
+        'Intro.',
+        '',
+        '  * [ ] Wrapped across',
+        '    two lines',
+        '  * [ ] Next',
+        '',
+        'Prose.',
+      ),
+    );
+  });
+
+  it('prefers the Acceptance criteria section to an earlier checkbox list', async () => {
+    const { frontier, read } = await withBody(
+      ticketWith(
+        '## What to build',
+        '',
+        '- [ ] A step',
+        '',
+        '## Acceptance criteria',
+        '',
+        '- [ ] One',
+        '',
+        '## Notes',
+        '',
+        '- [ ] A later list',
+      ),
+    );
+
+    await frontier.call('update_ticket', { id: 'T1', add_criteria: ['Two'] });
+
+    expect(await read()).toContain('- [ ] One\n- [ ] Two\n\n## Notes');
+  });
+
+  it('does not take a `##` line inside a code fence for a section break', async () => {
+    const { frontier, read } = await withBody(
+      ticketWith(
+        '## Acceptance criteria',
+        '',
+        '- [ ] One',
+        '```md',
+        '## Answer',
+        '```',
+        '- [ ] Two',
+        '',
+        '## Notes',
+      ),
+    );
+
+    await frontier.call('update_ticket', { id: 'T1', add_criteria: ['Three'] });
+
+    expect(await read()).toContain('```\n- [ ] Two\n- [ ] Three\n\n## Notes');
+  });
+
+  it('prefers an empty Acceptance criteria section to checkboxes elsewhere', async () => {
+    const { frontier, read } = await withBody(
+      ticketWith('Intro', '', '- [ ] top one', '', '## Acceptance criteria', '', '## Notes'),
+    );
+
+    await frontier.call('update_ticket', { id: 'T1', add_criteria: ['New'] });
+
+    expect(await read()).toBe(
+      ticketWith(
+        'Intro',
+        '',
+        '- [ ] top one',
+        '',
+        '## Acceptance criteria',
+        '',
+        '- [ ] New',
+        '',
+        '## Notes',
+      ),
+    );
+  });
+
+  it('otherwise uses the first section holding a checkbox, outside the comment log', async () => {
+    const { frontier, read } = await withBody(
+      ticketWith(
+        '## Done when',
+        '',
+        '- [ ] One',
+        '',
+        '## Comments',
+        '',
+        '- [ ] quoted in a comment',
+        '',
+        '## Agent Brief',
+        '',
+        '- [ ] restated',
+      ),
+    );
+
+    await frontier.call('update_ticket', { id: 'T1', add_criteria: ['Two'] });
+
+    expect(await read()).toContain('- [ ] One\n- [ ] Two\n\n## Comments');
+  });
+
+  it('creates the section above the answer and the comment log when there is no list', async () => {
+    const { frontier, read } = await withBody(
+      ticketWith(
+        'Problem prose.',
+        '',
+        '## Answer',
+        '',
+        'What landed.',
+        '',
+        '## Comments',
+        '',
+        '- [ ] a checkbox in the log is no criteria list',
+      ),
+    );
+
+    await frontier.call('update_ticket', { id: 'T1', add_criteria: ['One', 'Two'] });
+
+    expect(await read()).toBe(
+      ticketWith(
+        'Problem prose.',
+        '',
+        '## Acceptance criteria',
+        '',
+        '- [ ] One',
+        '- [ ] Two',
+        '',
+        '## Answer',
+        '',
+        'What landed.',
+        '',
+        '## Comments',
+        '',
+        '- [ ] a checkbox in the log is no criteria list',
+      ),
+    );
+  });
+
+  it('creates the section at the end of a body with neither, or as the whole of an empty one', async () => {
+    const prose = await withBody(ticketWith('Problem prose.'));
+    await prose.frontier.call('update_ticket', { id: 'T1', add_criteria: ['One'] });
+    expect(await prose.read()).toBe(
+      ticketWith('Problem prose.', '', '## Acceptance criteria', '', '- [ ] One'),
+    );
+
+    const bare = await withBody([...FENCE.slice(0, -1), ''].join('\n'));
+    await bare.frontier.call('update_ticket', { id: 'T1', add_criteria: ['One'] });
+    expect(await bare.read()).toBe(ticketWith('## Acceptance criteria', '', '- [ ] One'));
+  });
+
+  it('fills an Acceptance criteria section that holds no checkbox yet', async () => {
+    const { frontier, read } = await withBody(
+      ticketWith('## Acceptance criteria', '## Notes', '', 'Prose.'),
+    );
+
+    await frontier.call('update_ticket', { id: 'T1', add_criteria: ['One'] });
+
+    expect(await read()).toBe(
+      ticketWith('## Acceptance criteria', '', '- [ ] One', '', '## Notes', '', 'Prose.'),
+    );
+  });
+
+  it('can tick a criterion it adds in the same call', async () => {
+    const { frontier, read } = await withBody();
+
+    await frontier.call('update_ticket', {
+      id: 'T1',
+      add_criteria: ['Found mid-work'],
+      tick: ['Found mid-work'],
+    });
+
+    expect(await read()).toContain('- [x] Already done\n- [x] Found mid-work\n');
+  });
+
+  it('is allowed on a resolved Ticket', async () => {
+    const { frontier, read } = await withBody();
+    await frontier.call('update_ticket', { id: 'T1', resolve: { answer_gist: 'Done.' } });
+
+    await frontier.call('update_ticket', { id: 'T1', add_criteria: ['A late finding'] });
+
+    expect(await read()).toContain('- [ ] A late finding');
+  });
+
+  it.each([
+    ['a newline', 'One\nTwo'],
+    ['a carriage return', 'One\rTwo'],
+    ['a line separator', 'One Two'],
+    ['a paragraph separator', 'One Two'],
+  ])('refuses a value holding %s and writes nothing', async (_, value) => {
+    const { frontier, read } = await withBody();
+    const before = await read();
+
+    const error = await frontier.callExpectingError('update_ticket', {
+      id: 'T1',
+      add_criteria: ['Fine', value],
+      tick: ['The first criterion'],
+    });
+
+    expect(error).toContain('must be a single line');
+    expect(await read()).toBe(before);
+  });
+
+  it('refuses a duplicate of a criterion, compared as tick compares, and writes nothing', async () => {
+    const { frontier, read } = await withBody();
+    const before = await read();
+
+    const error = await frontier.callExpectingError('update_ticket', {
+      id: 'T1',
+      add_criteria: ['  the   FIRST criterion '],
+    });
+
+    expect(error).toContain('already matches a checkbox of this Ticket that tick would match');
+    expect(await read()).toBe(before);
+  });
+
+  it('refuses a value repeated in the call and writes nothing', async () => {
+    const { frontier, read } = await withBody();
+    const before = await read();
+
+    const error = await frontier.callExpectingError('update_ticket', {
+      id: 'T1',
+      add_criteria: ['New one', 'new  one'],
+    });
+
+    expect(error).toContain('is passed twice in this call');
+    expect(await read()).toBe(before);
+  });
+
+  it('refuses a blank value', async () => {
+    const { frontier, read } = await withBody();
+    const before = await read();
+
+    const error = await frontier.callExpectingError('update_ticket', {
+      id: 'T1',
+      add_criteria: ['   '],
+    });
+
+    expect(error).toContain('a criterion must not be blank');
+    expect(await read()).toBe(before);
+  });
+});

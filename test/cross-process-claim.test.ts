@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -115,7 +115,9 @@ describe('claims from separate processes', () => {
 });
 
 async function raceClaims(count: number, fault = 'none') {
-  workspace = await mkdtemp(join(tmpdir(), 'frontier-cas-'));
+  // Real, because the fault matches the path the driver renames to, and a driver is built with
+  // the directory its root names (`/private/var` on macOS, not `/var`).
+  workspace = await realpath(await mkdtemp(join(tmpdir(), 'frontier-cas-')));
   const issues = join(workspace, '.scratch/alpha/issues');
   const ticket = join(issues, '01-T1-contested.md');
   await mkdir(issues, { recursive: true });

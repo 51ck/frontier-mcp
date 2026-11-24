@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { symlink } from 'node:fs/promises';
+import { cp, stat, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { SERVER_VERSION } from '../src/server.ts';
+import type { StorageDriver } from '../src/storage/driver.ts';
+import { createMarkdownDriver } from '../src/storage/markdown/driver.ts';
 import { WORKSPACE_ENV_VAR } from '../src/workspace.ts';
 import { spec, ticket } from './support/fixtures.ts';
 import {
@@ -71,7 +74,7 @@ describe('workspace resolution', () => {
     const frontier = await connectFrontier({ cwd: join(root, 'src/deep'), env: {} });
 
     expect((await frontier.call('list_efforts')).split('\n')[0]).toBe(
-      `root: ${root} (resolved by .git)`,
+      `root: ${root} (resolved by .git)  frontier-mcp ${SERVER_VERSION}`,
     );
   });
 
@@ -89,7 +92,7 @@ describe('workspace resolution', () => {
     const frontier = await connectFrontier({ cwd: submodule, env: {} });
 
     expect((await frontier.call('list_efforts')).split('\n')[0]).toBe(
-      `root: ${submodule} (resolved by .git)`,
+      `root: ${submodule} (resolved by .git)  frontier-mcp ${SERVER_VERSION}`,
     );
   });
 
@@ -103,7 +106,7 @@ describe('workspace resolution', () => {
     const frontier = await connectFrontier({ cwd: submodule, env: {} });
 
     expect((await frontier.call('list_efforts')).split('\n')[0]).toBe(
-      `root: ${submodule} (resolved by .git)`,
+      `root: ${submodule} (resolved by .git)  frontier-mcp ${SERVER_VERSION}`,
     );
   });
 
@@ -117,7 +120,7 @@ describe('workspace resolution', () => {
     const frontier = await connectFrontier({ cwd: join(worktree, 'src/deep'), env: {} });
 
     expect((await frontier.call('list_efforts')).split('\n')[0]).toBe(
-      `root: ${worktree} (resolved by .git)`,
+      `root: ${worktree} (resolved by .git)  frontier-mcp ${SERVER_VERSION}`,
     );
   });
 
@@ -155,7 +158,7 @@ describe('workspace resolution', () => {
     const frontier = await connectFrontier({ cwd, env: {} });
 
     expect((await frontier.call('list_efforts')).split('\n')[0]).toBe(
-      `root: ${cwd} (resolved by working directory, no root marker found)`,
+      `root: ${cwd} (resolved by working directory, no root marker found)  frontier-mcp ${SERVER_VERSION}`,
     );
   });
 
@@ -245,5 +248,123 @@ describe('workspace resolution', () => {
 
     expect(error).toContain(WORKSPACE_ENV_VAR);
     expect(error).toContain('not a directory');
+  });
+});
+
+/** A markdown driver factory that records the path of every driver it builds. */
+function recordingDrivers() {
+  const built: string[] = [];
+  const createDriver = (at: string): StorageDriver => {
+    built.push(at);
+    return createMarkdownDriver(at);
+  };
+  return { built, createDriver };
+}
+
+async function sameDirectory(a: string, b: string): Promise<boolean> {
+  try {
+    const [left, right] = await Promise.all([stat(a), stat(b)]);
+    return left.dev === right.dev && left.ino === right.ino;
+  } catch {
+    return false;
+  }
+}
+
+describe('one directory, one driver', () => {
+  it("reaches the directory's driver through a symlink and through redundant segments", async () => {
+    const root = await makeFixtureTree(nestedUnder('Repo', workspaceNamed('one-dir')));
+    const repo = join(root, 'Repo');
+    const link = join(root, 'link');
+    await symlink(repo, link);
+    const drivers = recordingDrivers();
+    const frontier = await connectFrontier({
+      cwd: repo,
+      env: {},
+      createDriver: drivers.createDriver,
+    });
+
+    const spellings = [link, `${repo}/./.scratch/..`, `${link}/../Repo/.`, `${link}/./.scratch/..`];
+    const listings = await Promise.all(
+      spellings.map(spelling => frontier.call('list_efforts', { root: spelling })),
+    );
+
+    for (const listing of listings) expect(listing).toContain('one-dir');
+
+    expect(drivers.built).toEqual([repo]);
+  });
+
+  it("names the caller's own spelling on a write, not the directory's", async () => {
+    const root = await makeFixtureTree(nestedUnder('Repo', workspaceNamed('one-dir')));
+    const repo = join(root, 'Repo');
+    const link = join(root, 'link');
+    await symlink(repo, link);
+    const drivers = recordingDrivers();
+    const frontier = await connectFrontier({
+      cwd: repo,
+      env: {},
+      createDriver: drivers.createDriver,
+    });
+
+    const text = await frontier.call('update_ticket', { root: link, id: 'T1', claim: { by: 'a' } });
+
+    expect(text.split('\n')[0]).toBe(`root: ${link}`);
+    expect(drivers.built).toEqual([repo]);
+  });
+
+  it('folds case exactly where the volume does', async () => {
+    const root = await makeFixtureTree(nestedUnder('Repo', workspaceNamed('one-dir')));
+    const repo = join(root, 'Repo');
+    const lower = join(root, 'repo');
+    const folds = await sameDirectory(repo, lower);
+    // On a case-sensitive volume `repo` is free, and made a workspace of its own.
+    if (!folds) await cp(repo, lower, { recursive: true });
+    const drivers = recordingDrivers();
+    const frontier = await connectFrontier({
+      cwd: repo,
+      env: {},
+      createDriver: drivers.createDriver,
+    });
+
+    const text = await frontier.call('list_efforts', { root: lower });
+
+    expect(text.split('\n')[0]).toContain(`root: ${lower}`);
+    expect(drivers.built).toEqual(folds ? [repo] : [repo, lower]);
+  });
+
+  it('keeps one driver for a directory a write creates', async () => {
+    const root = await makeFixtureTree({ 'notes/.keep': '' });
+    await symlink(join(root, 'notes'), join(root, 'link'));
+    const missing = join(root, 'link/not-yet');
+    const drivers = recordingDrivers();
+    const frontier = await connectFrontier({
+      cwd: missing,
+      env: {},
+      createDriver: drivers.createDriver,
+    });
+
+    await frontier.call('create_tickets', {
+      effort: 'alpha',
+      create: true,
+      tickets: [{ name: 'first', title: 'First' }],
+    });
+    const text = await frontier.call('list_efforts');
+
+    expect(text.split('\n')[0]).toContain(`root: ${missing}`);
+    expect(text).toContain('alpha');
+    expect(drivers.built).toEqual([join(root, 'notes/not-yet')]);
+  });
+
+  it('builds a driver for a working directory that does not exist yet', async () => {
+    const root = await makeFixtureTree({ 'notes/.keep': '' });
+    const missing = join(root, 'notes/not-yet');
+    const drivers = recordingDrivers();
+    const frontier = await connectFrontier({
+      cwd: missing,
+      env: {},
+      createDriver: drivers.createDriver,
+    });
+
+    expect((await frontier.call('list_efforts')).split('\n')[0]).toContain(`root: ${missing}`);
+    expect(drivers.built).toEqual([missing]);
   });
 });

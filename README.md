@@ -64,8 +64,8 @@ For Claude Code, register it with the CLI rather than editing a file:
 claude mcp add --scope user frontier -- npx -y frontier-mcp@0.5.0
 ```
 
-Claude Code keeps user and local scope in `~/.claude.json` and reads project scope only from
-`.mcp.json` at the repository root. For Codex, `codex mcp add frontier -- npx -y frontier-mcp@0.5.0`
+Claude Code keeps user and local scope in `~/.claude.json` and reads project scope from
+`.mcp.json` in the directory it starts in and every directory above it. For Codex, `codex mcp add frontier -- npx -y frontier-mcp@0.5.0`
 writes `~/.codex/config.toml`.
 
 User scope is the recommendation: one entry serves every repository. To pin a version per

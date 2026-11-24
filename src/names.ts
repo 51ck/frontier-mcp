@@ -156,6 +156,11 @@ export interface Names {
   node(edge: string, effort: string): string;
   /** The nodes the Edges of every claimant of `node` lead to. */
   edgesFrom(node: string): readonly string[];
+  /**
+   * Every Ticket with a stored Edge that resolves to this one, in scan order.
+   * An Edge to a duplicate names every claimant, so each claimant has it.
+   */
+  dependents(ticket: TicketSummary): readonly TicketSummary[];
 }
 
 /** Names and ids compare without regard to case; what is shown is the stored spelling. */
@@ -442,5 +447,28 @@ export function indexNames(all: readonly TicketSummary[]): Names {
     );
   };
 
-  return { edge, input, claimants, addressOf, stored, duplicates, nodeOf, node, edgesFrom };
+  let blocking: Map<string, TicketSummary[]> | undefined;
+  const dependents = (ticket: TicketSummary): readonly TicketSummary[] => {
+    if (blocking === undefined) {
+      blocking = new Map();
+      for (const from of all) {
+        const targets = new Set(from.blockedBy.map(name => fold(node(name, from.effort))));
+        for (const target of targets) push(blocking, target, from);
+      }
+    }
+    return blocking.get(fold(nodeOf(ticket))) ?? [];
+  };
+
+  return {
+    edge,
+    input,
+    claimants,
+    addressOf,
+    stored,
+    duplicates,
+    nodeOf,
+    node,
+    edgesFrom,
+    dependents,
+  };
 }

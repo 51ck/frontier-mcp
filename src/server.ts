@@ -45,12 +45,18 @@ import { renderSpec, specDescription, specInputSchema } from './tools/spec.ts';
 import { withWorkspace } from './tools/workspace-line.ts';
 import {
   editFor,
+  graphEffect,
   renderUpdate,
   updateTicketDescription,
   updateTicketInputSchema,
 } from './tools/update-ticket.ts';
 import { readTrackerDoc, TRACKER_DOC_URI } from './tracker-doc.ts';
-import { locateWorkspace, resolveWorkspace, type WorkspaceContext } from './workspace.ts';
+import {
+  locateWorkspace,
+  resolveWorkspace,
+  workspaceDirectory,
+  type WorkspaceContext,
+} from './workspace.ts';
 
 export const SERVER_NAME = 'frontier';
 
@@ -143,6 +149,7 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
             ? {}
             : { watcherPerDirectory: options.watcherPerDirectory }),
         })),
+    workspaceDirectory,
   );
 
   const server = new McpServer(
@@ -184,13 +191,23 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       const absent = driver.absentStorage();
       if (absent !== undefined) {
         return {
-          content: [{ type: 'text', text: renderNoTracker(workspace, resolvedBy, absent) }],
+          content: [
+            {
+              type: 'text',
+              text: renderNoTracker(workspace, SERVER_VERSION, resolvedBy, absent),
+            },
+          ],
         };
       }
       const [efforts, tickets] = await Promise.all([driver.listEfforts(), driver.listTickets()]);
 
       return {
-        content: [{ type: 'text', text: renderEfforts(workspace, efforts, frontierOf(tickets)) }],
+        content: [
+          {
+            type: 'text',
+            text: renderEfforts(workspace, SERVER_VERSION, efforts, frontierOf(tickets)),
+          },
+        ],
       };
     },
   );
@@ -234,11 +251,12 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       inputSchema: getTicketsInputSchema,
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async ({ ids, root }) => {
+    async ({ ids, sections, root }) => {
       const workspace = resolveWorkspace(root, context);
       const driver = registry.forWorkspace(workspace);
-      const { tickets, diagnostics } = await driver.readTickets(ids);
-      return { content: [{ type: 'text', text: renderTickets(ids, tickets, diagnostics) }] };
+      const { tickets, diagnostics, all } = await driver.readTickets(ids);
+      const text = renderTickets(ids, tickets, diagnostics, all, sections);
+      return { content: [{ type: 'text', text }] };
     },
   );
 
@@ -311,6 +329,7 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
       tags,
       comment,
       tick,
+      add_criteria,
       drop_keys,
       extra,
       title,
@@ -341,6 +360,7 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
         tags,
         comment,
         tick,
+        add_criteria,
         drop_keys,
         extra,
         title,
@@ -397,7 +417,16 @@ export function createFrontierMCP(options: CreateServerOptions = {}): FrontierMC
         content: [
           {
             type: 'text',
-            text: withWorkspace(workspace, renderUpdate(written.ticket, written.warnings)),
+            text: withWorkspace(
+              workspace,
+              renderUpdate(
+                written.ticket,
+                written.warnings,
+                resolve === undefined && drop === undefined
+                  ? undefined
+                  : graphEffect(tickets, ticket, written.ticket),
+              ),
+            ),
           },
         ],
       };

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { Effort, Ticket } from '../src/domain.ts';
+import { SERVER_VERSION } from '../src/server.ts';
 import type { StorageDriver } from '../src/storage/driver.ts';
 import { createMarkdownDriver } from '../src/storage/markdown/driver.ts';
 import { map, spec, ticket } from './support/fixtures.ts';
@@ -47,6 +48,7 @@ function fixedDriver(
             entry => wanted.has(entry.name) || (entry.id !== undefined && wanted.has(entry.id)),
           ),
           diagnostics: new Map(),
+          all: tickets,
         };
       },
       updateTicket() {
@@ -110,7 +112,7 @@ describe('the storage driver seam', () => {
 
     expect(await frontier.call('list_efforts')).toBe(
       [
-        `root: ${root}`,
+        `root: ${root}  frontier-mcp ${SERVER_VERSION}`,
         'from-nowhere  tickets=7  docs=map,spec  frontier=0',
         'also-nowhere  tickets=0  docs=none  frontier=0',
       ].join('\n'),
@@ -158,7 +160,7 @@ describe('the storage driver seam', () => {
       },
       async assertAddressable() {},
       async readTickets() {
-        return { tickets: [], diagnostics: new Map() };
+        return { tickets: [], diagnostics: new Map(), all: [] };
       },
       updateTicket() {
         throw new Error('this driver is read-only');

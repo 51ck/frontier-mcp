@@ -1,5 +1,5 @@
-import { lstatSync, statSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { lstatSync, realpathSync, statSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 
 /** The environment variable that overrides the workspace for a whole session. */
 export const WORKSPACE_ENV_VAR = 'FRONTIER_ROOT';
@@ -88,6 +88,28 @@ export function locateWorkspace(
   return (
     findRootMarker(cwd) ?? { root: cwd, resolvedBy: 'working directory, no root marker found' }
   );
+}
+
+/**
+ * The directory a workspace path names, however it is spelled: every symlink
+ * followed and, on a volume that folds case, the case stored on disk. The
+ * native `realpath` asks the filesystem, so case folds exactly where the volume
+ * folds it; the JavaScript one keeps the case it was given.
+ *
+ * A path that does not exist yet is its nearest existing ancestor's real path
+ * with the missing segments as given, so it names the same directory before a
+ * write creates it as after.
+ */
+export function workspaceDirectory(root: string): string {
+  const missing: string[] = [];
+  for (let path = root; ; path = dirname(path)) {
+    try {
+      return join(realpathSync.native(path), ...missing.toReversed());
+    } catch {
+      if (dirname(path) === path) return root;
+      missing.push(basename(path));
+    }
+  }
 }
 
 /**

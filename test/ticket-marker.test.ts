@@ -8,6 +8,7 @@ import { chmod, lstat, mkdir, readdir, readFile, stat, symlink, unlink } from 'n
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { SERVER_VERSION } from '../src/server.ts';
 import { map, ticket } from './support/fixtures.ts';
 import {
   cleanupFixtures,
@@ -231,6 +232,7 @@ describe('a marked file that does not validate', () => {
 
       for (const request of [
         { comment: 'Hi.' },
+        { add_criteria: ['New.'] },
         { claim: { by: 'agent-1' } },
         { resolve: { answer_gist: 'Done.' } },
         { drop: { reason: 'Out.' } },
@@ -405,7 +407,7 @@ describe('the two verbatim fixture Efforts', () => {
 
     expect(await frontier.call('list_efforts')).toBe(
       [
-        `root: ${root}`,
+        `root: ${root}  frontier-mcp ${SERVER_VERSION}`,
         'ship-0-5-0  tickets=0  docs=map  frontier=0',
         'telegram  tickets=0  docs=spec  frontier=0',
       ].join('\n'),
@@ -595,6 +597,11 @@ describe('a diagnosed file answers to its id', () => {
       );
       const error = await frontier.callExpectingError('update_ticket', { id, comment: 'Touch.' });
       expect(error).toContain(code);
+      const added = await frontier.callExpectingError('update_ticket', {
+        id,
+        add_criteria: ['New.'],
+      });
+      expect(added).toContain(code);
     }
   });
 

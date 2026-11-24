@@ -15,6 +15,7 @@ import {
 } from 'yaml';
 
 import type { TicketEdit } from '../../domain.ts';
+import { fencedLines, sectionStarts } from '../../sections.ts';
 import {
   AliasedValue,
   ExtraDoesNotReadBack,
@@ -22,7 +23,9 @@ import {
   FenceNotCleanlyEditable,
 } from '../driver.ts';
 import {
+  DuplicateCriterion,
   KeyNotCleanlyDroppable,
+  MultiLineCriterion,
   NoFrontmatterToDrop,
   NoSuchKey,
   SchemaKeyNotDroppable,
@@ -33,6 +36,7 @@ import { FIELD_ORDER, MARKER_KEY, MARKER_VALUE, SCHEMA_KEYS } from './schema.ts'
 /** The body sections a write may touch. Everything else is opaque prose. */
 const ANSWER_HEADING = '## Answer';
 const COMMENTS_HEADING = '## Comments';
+const CRITERIA_HEADING = '## Acceptance criteria';
 /** Any `##` heading, so replacing the answer stops at the next section. */
 const NEXT_SECTION = /^##[ \t]/m;
 
@@ -99,7 +103,10 @@ export function applyEdit(contents: string, edit: TicketEdit, defaults: Defaults
   }
 
   const bodyEdited =
-    edit.tick !== undefined || edit.answer !== undefined || edit.comment !== undefined;
+    edit.addCriteria !== undefined ||
+    edit.tick !== undefined ||
+    edit.answer !== undefined ||
+    edit.comment !== undefined;
   let body = split.body;
   if (bodyEdited) {
     // A body written uniformly in CRLF is edited as LF and written back in CRLF,
@@ -110,6 +117,8 @@ export function applyEdit(contents: string, edit: TicketEdit, defaults: Defaults
     // Only the outer edges are trimmed, and only newlines at the end — trailing
     // spaces on the last line of a comment are part of what the author wrote.
     body = body.replace(/^\s+/, '').replace(/(?:\r?\n)+$/, '');
+    // Before the ticks, so a criterion this call adds is one it may tick.
+    body = withAddedCriteria(body, edit.addCriteria);
     body = withTicks(body, edit.tick);
     // The answer goes in before the comment log so the log stays at the bottom,
     // which is where the skills append and where a reader looks for it.
@@ -748,12 +757,12 @@ function withTicks(body: string, tick: readonly string[] | undefined): string {
 }
 
 const CHECKBOX = /^(\s*[-*]\s*\[)( |x|X)(\]\s*)(.*)$/;
-/** A fenced code block, where a `- [ ]` is illustration rather than a criterion. */
-const FENCE_LINE = /^\s*(?:```|~~~)/;
 
 interface Criterion {
   /** Index of the checkbox line — the only line a tick may rewrite. */
   readonly line: number;
+  /** Index of its last line, the checkbox line or its last wrapped continuation. */
+  readonly end: number;
   /** Whitespace-collapsed, lowercased prose, including wrapped continuations. */
   readonly text: string;
 }
@@ -769,13 +778,12 @@ function collapseCriterionText(text: string): string {
 
 /**
  * A continuation of the criterion above: indented prose that is not itself a
- * checkbox, heading, or fence. Blank lines end the wrap — house style never
+ * checkbox or heading, and outside a code fence. Blank lines end the wrap — house style never
  * leaves a hole inside a criterion.
  */
 function isCriterionContinuation(line: string): boolean {
   if (line.trim() === '') return false;
   if (CHECKBOX.test(line)) return false;
-  if (FENCE_LINE.test(line)) return false;
   if (/^#{1,6}\s/.test(line)) return false;
   return /^\s+\S/.test(line);
 }
@@ -783,30 +791,122 @@ function isCriterionContinuation(line: string): boolean {
 /** Checkbox lines outside any code fence — the ones that are really criteria. */
 function findCriteria(lines: readonly string[]): Criterion[] {
   const criteria: Criterion[] = [];
-  let fenced = false;
+  const fenced = fencedLines(lines);
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index] ?? '';
-    if (FENCE_LINE.test(line)) {
-      fenced = !fenced;
-      continue;
-    }
-    if (fenced) continue;
+    if (fenced[index] === true) continue;
 
     const box = CHECKBOX.exec(line);
     if (box === null) continue;
 
     const checkboxLine = index;
     const parts = [box[4] ?? ''];
-    while (index + 1 < lines.length && isCriterionContinuation(lines[index + 1] ?? '')) {
+    while (
+      index + 1 < lines.length &&
+      fenced[index + 1] !== true &&
+      isCriterionContinuation(lines[index + 1] ?? '')
+    ) {
       index += 1;
       parts.push(lines[index] ?? '');
     }
-    criteria.push({ line: checkboxLine, text: collapseCriterionText(parts.join('\n')) });
+    criteria.push({
+      line: checkboxLine,
+      end: index,
+      text: collapseCriterionText(parts.join('\n')),
+    });
   }
 
   return criteria;
 }
+
+/**
+ * Append unticked criteria to the Ticket's criteria list, inserting lines and
+ * changing none. The list is the checkboxes of one `##` section: the
+ * Acceptance criteria section when it holds any; else that section, empty,
+ * when it exists; else the first section holding one. The Answer and the
+ * comment log never count, since a resolve replaces the one and the other is
+ * a record. The new lines follow the list's last criterion, at its first
+ * criterion's indentation and bullet; into an empty Acceptance criteria
+ * section they go at its end; with neither, into a new section above the
+ * Answer and the comment log. A `##` line inside a code fence starts no
+ * section.
+ *
+ * Every value is checked first, against every criterion `tick` could match,
+ * so a refusal leaves the body as it was.
+ */
+function withAddedCriteria(body: string, add: readonly string[] | undefined): string {
+  if (add === undefined || add.length === 0) return body;
+
+  const lines = body === '' ? [] : body.split('\n');
+  const criteria = findCriteria(lines);
+  const known = new Set(criteria.map(criterion => criterion.text));
+  const asked = new Set<string>();
+  for (const value of add) {
+    if (/[\r\n\u2028\u2029]/.test(value)) throw new MultiLineCriterion(value);
+    const text = collapseCriterionText(value);
+    if (known.has(text)) throw new DuplicateCriterion(value, 'ticket');
+    if (asked.has(text)) throw new DuplicateCriterion(value, 'call');
+    asked.add(text);
+  }
+
+  // The `##` heading each line falls under, -1 above the first. A `##` line in
+  // a code fence is illustration, as a checkbox there is.
+  const heading = sectionStarts(lines);
+  const sectionOf: number[] = [];
+  let section = -1;
+  for (const index of lines.keys()) {
+    if (heading[index] === true) section = index;
+    sectionOf.push(section);
+  }
+  const headed = (index: number, pattern: RegExp) =>
+    index >= 0 && heading[index] === true && pattern.test(lines[index] ?? '');
+  const isCriteriaSection = (index: number) => headed(index, CRITERIA_SECTION);
+  const listed = criteria.filter(criterion => {
+    const at = sectionOf[criterion.line] ?? -1;
+    return !headed(at, ANSWER_SECTION) && !headed(at, COMMENTS_SECTION);
+  });
+
+  const append = (first: Criterion) => {
+    const list = listed.filter(criterion => sectionOf[criterion.line] === sectionOf[first.line]);
+    const last = list.at(-1) ?? first;
+    const [, indent, bullet] = /^(\s*)([-*])/.exec(lines[first.line] ?? '') ?? [];
+    // In a body mixing endings, a new line ends as the line it follows does.
+    const eol = (lines[last.end] ?? '').endsWith('\r') ? '\r' : '';
+    const added = add.map(value => `${indent ?? ''}${bullet ?? '-'} [ ] ${value}${eol}`);
+    return [...lines.slice(0, last.end + 1), ...added, ...lines.slice(last.end + 1)].join('\n');
+  };
+
+  const inCriteriaSection = listed.find(criterion =>
+    isCriteriaSection(sectionOf[criterion.line] ?? -1),
+  );
+  if (inCriteriaSection !== undefined) return append(inCriteriaSection);
+
+  const added = add.map(value => `- [ ] ${value}`);
+  const empty = lines.findIndex((_, index) => isCriteriaSection(index));
+  if (empty !== -1) {
+    let end = empty + 1;
+    while (end < lines.length && sectionOf[end] === empty) end += 1;
+    while (end > empty + 1 && (lines[end - 1] ?? '').trim() === '') end -= 1;
+    const gap = end < lines.length && (lines[end] ?? '').trim() !== '' ? [''] : [];
+    return [...lines.slice(0, end), '', ...added, ...gap, ...lines.slice(end)].join('\n');
+  }
+
+  if (listed[0] !== undefined) return append(listed[0]);
+
+  const block = `${CRITERIA_HEADING}\n\n${added.join('\n')}`;
+  const above = lines.findIndex(
+    (_, index) => headed(index, ANSWER_SECTION) || headed(index, COMMENTS_SECTION),
+  );
+  if (above === -1) return body === '' ? block : `${body}\n\n${block}`;
+  const head = lines.slice(0, above).join('\n').replace(/\n+$/, '');
+  const rest = lines.slice(above).join('\n');
+  return head === '' ? `${block}\n\n${rest}` : `${head}\n\n${block}\n\n${rest}`;
+}
+
+const ANSWER_SECTION = /^##[ \t]+Answer[ \t]*$/m;
+const COMMENTS_SECTION = /^##[ \t]+Comments[ \t]*$/m;
+const CRITERIA_SECTION = /^##[ \t]+Acceptance criteria[ \t]*$/im;
 
 /**
  * Exact text wins. Otherwise a substring is accepted only when it names exactly
@@ -966,7 +1066,7 @@ function schemaFor(defaults: Defaults): Document {
 /**
  * The answer replaces the Answer section and nothing else. Slicing to the end of
  * the body would take the comment log with it — a Ticket body is opaque apart
- * from the three places the schema says are edited.
+ * from the places the schema says are edited.
  */
 function withAnswer(body: string, answer: string | undefined): string {
   if (answer === undefined) return body;

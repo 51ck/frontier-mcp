@@ -4,6 +4,7 @@ import type { Kind, TicketEdit, TicketSummary } from '../domain.ts';
 import { STATUSES, TRIAGE_ROLES } from '../domain.ts';
 import type { TriageRole } from '../domain.ts';
 import { cycleThrough, renderCycle, type EdgesOf } from '../edges.ts';
+import { frontierOf } from '../frontier.ts';
 import { fullNameOf, indexNames } from '../names.ts';
 import {
   extraInput,
@@ -13,27 +14,28 @@ import {
   reservedKeyMessage,
   UPDATE_ARGUMENTS,
 } from './extra.ts';
+import { renderNamedFrom } from './get-board.ts';
 import { tagsInput } from './tags.ts';
 
-export const updateTicketInputSchema = z.object({
+export const updateTicketInputSchema = z.strictObject({
   id: z.string().describe('Ticket id or name; <effort>.<name> when several Efforts have the name.'),
   claim: z
-    .object({ by: z.string().min(1).describe('Who is taking it.') })
+    .strictObject({ by: z.string().min(1).describe('Who is taking it.') })
     .optional()
     .describe('Take the Ticket. Fails if another holder already has it.'),
   resolve: z
-    .object({
+    .strictObject({
       answer_gist: z.string().min(1).describe('One line: what landed, or what was decided.'),
       answer: z.string().optional().describe('The full answer, written into the body verbatim.'),
     })
     .optional()
     .describe('Close the Ticket as a step on the route.'),
   drop: z
-    .object({ reason: z.string().min(1).describe('Why it is beyond the destination.') })
+    .strictObject({ reason: z.string().min(1).describe('Why it is beyond the destination.') })
     .optional()
     .describe('Close the Ticket as work ruled out of scope.'),
   reopen: z
-    .object({ reason: z.string().min(1).describe('Why it is being reopened.') })
+    .strictObject({ reason: z.string().min(1).describe('Why it is being reopened.') })
     .optional()
     .describe('Return a resolved or dropped Ticket to open.'),
   release: z
@@ -76,6 +78,10 @@ export const updateTicketInputSchema = z.object({
         'as get_tickets returns them and re-joined onto one line. All references resolve before ' +
         'anything is written — one unmatched name fails the whole call and leaves the file untouched.',
     ),
+  add_criteria: z
+    .array(z.string().refine(value => value.trim() !== '', 'a criterion must not be blank'))
+    .optional()
+    .describe('Acceptance criteria to append unticked, one line each; tick may name them.'),
   drop_keys: z
     .array(z.string())
     .min(1)
@@ -107,7 +113,7 @@ export const updateTicketDescription =
   'Change one Ticket. Lifecycle: claim, resolve with a one-line gist, drop with a reason, reopen ' +
   'with a reason, or release a claim — at most one of those per call. Graph: replace the Edges, ' +
   'refused if they close a cycle. Identity: title, kind, and type. Annotations: triage role, tags, a ' +
-  'comment, ticking acceptance criteria, setting extra keys or dropping them; these touch no part of the graph. Any of the four groups ' +
+  'comment, adding or ticking acceptance criteria, setting extra keys or dropping them; these touch no part of the graph. Any of the four groups ' +
   'may accompany the others or stand alone.';
 
 export interface UpdateRequest {
@@ -122,6 +128,7 @@ export interface UpdateRequest {
   readonly tags?: readonly string[] | undefined;
   readonly comment?: string | undefined;
   readonly tick?: readonly string[] | undefined;
+  readonly add_criteria?: readonly string[] | undefined;
   readonly drop_keys?: readonly string[] | undefined;
   readonly extra?: Readonly<Record<string, unknown>> | undefined;
   readonly title?: string | undefined;
@@ -155,6 +162,7 @@ export function editFor(
     ...(request.tags === undefined ? {} : { tags: request.tags }),
     ...(request.comment === undefined ? {} : { comment: request.comment }),
     ...(request.tick === undefined ? {} : { tick: request.tick }),
+    ...(request.add_criteria === undefined ? {} : { addCriteria: request.add_criteria }),
     ...(request.drop_keys === undefined ? {} : { dropKeys: request.drop_keys }),
     ...(request.extra === undefined || Object.keys(request.extra).length === 0
       ? {}
@@ -187,7 +195,7 @@ export function editFor(
     if (Object.keys(annotations).length === 0) {
       throw new Error(
         'Nothing to do: pass a lifecycle change, or title, kind, type, blocked_by, triage, tags, ' +
-          'comment, tick, drop_keys, or extra.',
+          'comment, tick, add_criteria, drop_keys, or extra.',
       );
     }
     return annotations;
@@ -380,7 +388,47 @@ function releaseEdit(ticket: TicketSummary): TicketEdit {
   return { status: 'open', claimedBy: null, claimedAt: null };
 }
 
-export function renderUpdate(ticket: TicketSummary, warnings: readonly string[] = []): string {
+/**
+ * What a resolve or a drop did to the Tickets naming this one, from the scan
+ * the write was checked against with `written` in place of `read`, so the two
+ * Frontiers compared differ by this write alone and no file is read for it.
+ *
+ * A resolve names the dependents it made takeable; one still held by another
+ * blocker, a duplicate's other claimant included, is not. A dropped blocker
+ * never satisfies an Edge, so a drop names the open and claimed dependents it
+ * left waiting on it.
+ */
+export function graphEffect(
+  scan: readonly TicketSummary[],
+  read: TicketSummary,
+  written: TicketSummary,
+): string | undefined {
+  const after = scan.map(ticket => (ticket === read ? written : ticket));
+  const dependents = indexNames(after).dependents(written);
+
+  let named: readonly TicketSummary[];
+  let label: string;
+  if (written.status === 'resolved') {
+    const before = frontierOf(scan);
+    const now = frontierOf(after);
+    named = dependents.filter(ticket => now.has(ticket) && !before.has(ticket));
+    label = 'now takeable';
+  } else if (written.status === 'dropped' && read.status !== 'dropped') {
+    named = dependents.filter(ticket => ticket.status === 'open' || ticket.status === 'claimed');
+    label = 'now blocked by a dropped Ticket, which never unblocks';
+  } else {
+    return undefined;
+  }
+  return named.length === 0
+    ? undefined
+    : `${label}: ${renderNamedFrom(named, written.effort, ', ')}`;
+}
+
+export function renderUpdate(
+  ticket: TicketSummary,
+  warnings: readonly string[] = [],
+  effect?: string,
+): string {
   const fields = [
     `status=${ticket.status}`,
     ticket.claimedBy === undefined ? undefined : `claimed_by=${ticket.claimedBy}`,
@@ -389,7 +437,9 @@ export function renderUpdate(ticket: TicketSummary, warnings: readonly string[] 
     ticket.droppedReason === undefined ? undefined : `dropped_reason=${ticket.droppedReason}`,
   ].filter(field => field !== undefined);
 
-  const body = `${fullNameOf(ticket)} updated\n${fields.join('  ')}`;
+  const body = [`${fullNameOf(ticket)} updated`, fields.join('  '), effect]
+    .filter(line => line !== undefined)
+    .join('\n');
   if (warnings.length === 0) return body;
   return `${body}\nwarnings:\n${warnings.map(warning => `- ${warning}`).join('\n')}`;
 }

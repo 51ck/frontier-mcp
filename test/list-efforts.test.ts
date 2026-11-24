@@ -4,11 +4,13 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { SERVER_NAME } from '../src/server.ts';
+import { SERVER_NAME, SERVER_VERSION } from '../src/server.ts';
 import { MIXED_WORKSPACE, map, spec, ticket } from './support/fixtures.ts';
 import { cleanupFixtures, connectFrontier, makeFixtureTree } from './support/harness.ts';
 
 afterEach(cleanupFixtures);
+
+const SERVER = `  frontier-mcp ${SERVER_VERSION}`;
 
 describe('the server', () => {
   it('advertises the frontier server name', async () => {
@@ -17,6 +19,17 @@ describe('the server', () => {
 
     expect(client.getServerVersion()?.name).toBe(SERVER_NAME);
     expect(SERVER_NAME).toBe('frontier');
+  });
+
+  it('tells the agent the version the handshake reports, on the root line of list_efforts', async () => {
+    const root = await makeFixtureTree(MIXED_WORKSPACE);
+    const { client, call } = await connectFrontier({ cwd: root, env: {} });
+
+    const first = (await call('list_efforts')).split('\n')[0];
+    const handshake = client.getServerVersion()?.version;
+
+    expect(handshake).toMatch(/^\d+\.\d+\.\d+/);
+    expect(first).toBe(`root: ${root}  frontier-mcp ${handshake}`);
   });
 });
 
@@ -29,7 +42,7 @@ describe('list_efforts', () => {
 
     expect(text).toBe(
       [
-        `root: ${root}`,
+        `root: ${root}${SERVER}`,
         'alpha  tickets=2  docs=spec  frontier=2',
         'beta  tickets=1  docs=map  frontier=1',
         'gamma  tickets=0  docs=map,spec  frontier=0',
@@ -53,7 +66,7 @@ describe('list_efforts', () => {
     await mkdir(join(root, '.scratch'));
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    expect(await frontier.call('list_efforts')).toBe(`root: ${root}\n(no efforts)`);
+    expect(await frontier.call('list_efforts')).toBe(`root: ${root}${SERVER}\n(no efforts)`);
   });
 
   it('returns an empty list for a .scratch/ holding nothing the schema recognizes', async () => {
@@ -63,21 +76,21 @@ describe('list_efforts', () => {
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    expect(await frontier.call('list_efforts')).toBe(`root: ${root}\n(no efforts)`);
+    expect(await frontier.call('list_efforts')).toBe(`root: ${root}${SERVER}\n(no efforts)`);
   });
 
   it('does not mistake a file named issues for an Effort', async () => {
     const root = await makeFixtureTree({ '.scratch/impostor/issues': 'not a directory\n' });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    expect(await frontier.call('list_efforts')).toBe(`root: ${root}\n(no efforts)`);
+    expect(await frontier.call('list_efforts')).toBe(`root: ${root}${SERVER}\n(no efforts)`);
   });
 
   it('does not mistake a directory named spec.md for a header doc', async () => {
     const root = await makeFixtureTree({ '.scratch/impostor/spec.md/inside.txt': 'not a Spec\n' });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    expect(await frontier.call('list_efforts')).toBe(`root: ${root}\n(no efforts)`);
+    expect(await frontier.call('list_efforts')).toBe(`root: ${root}${SERVER}\n(no efforts)`);
   });
 
   it('counts only the markdown files directly under issues/', async () => {
@@ -119,7 +132,7 @@ describe('list_efforts in a repository with no tracker', () => {
 
   function bare(root: string, resolvedBy: string): string {
     return [
-      `root: ${root} (resolved by ${resolvedBy})`,
+      `root: ${root} (resolved by ${resolvedBy})${SERVER}`,
       'no tracker here: .scratch/ does not exist',
       START_ONE,
       'conventions: frontier://tracker-doc',
@@ -171,7 +184,7 @@ describe('list_efforts in a repository with no tracker', () => {
     });
     const frontier = await connectFrontier({ cwd: root, env: {} });
 
-    expect(await frontier.call('list_efforts')).toBe(`root: ${root}\n(no efforts)`);
+    expect(await frontier.call('list_efforts')).toBe(`root: ${root}${SERVER}\n(no efforts)`);
   });
 
   it('starts an Effort by following create_tickets in the start one line verbatim', async () => {
@@ -186,7 +199,7 @@ describe('list_efforts in a repository with no tracker', () => {
     });
 
     expect(await frontier.call('list_efforts')).toBe(
-      [`root: ${root}`, 'first  tickets=1  docs=none  frontier=1'].join('\n'),
+      [`root: ${root}${SERVER}`, 'first  tickets=1  docs=none  frontier=1'].join('\n'),
     );
   });
 
@@ -197,7 +210,7 @@ describe('list_efforts in a repository with no tracker', () => {
     await frontier.call('edit_map', { effort: 'first', create: true, destination: 'Somewhere.' });
 
     expect(await frontier.call('list_efforts')).toBe(
-      [`root: ${root}`, 'first  tickets=0  docs=map  frontier=0'].join('\n'),
+      [`root: ${root}${SERVER}`, 'first  tickets=0  docs=map  frontier=0'].join('\n'),
     );
   });
 });

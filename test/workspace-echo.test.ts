@@ -8,6 +8,7 @@ import {
   makeMarkedWorkspace,
 } from './support/harness.ts';
 import { tokens } from './support/tokens.ts';
+import { SERVER_VERSION } from '../src/server.ts';
 import { workspaceLine } from '../src/tools/workspace-line.ts';
 
 afterEach(cleanupFixtures);
@@ -152,7 +153,7 @@ describe('a read does not, even through a tool that can write', () => {
 
     const text = await frontier.call('list_efforts');
 
-    expect(namesWorkspace(text, root)).toBe(true);
+    expect(text.split('\n')[0]).toBe(`root: ${root}  frontier-mcp ${SERVER_VERSION}`);
     expect(text.split('root: ').length - 1).toBe(1);
   });
 });
